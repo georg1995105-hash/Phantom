@@ -18,6 +18,7 @@ import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.GestureDetector.SimpleOnGestureListener
 import android.view.LayoutInflater
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.View.OnLongClickListener
@@ -31,6 +32,7 @@ import androidx.core.view.doOnNextLayout
 import androidx.core.view.isVisible
 import helium314.keyboard.event.HapticEvent
 import helium314.keyboard.keyboard.KeyboardSwitcher
+import helium314.keyboard.smart.ui.SmartUi
 import helium314.keyboard.keyboard.internal.KeyboardIconsSet
 import helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode
 import helium314.keyboard.latin.AudioAndHapticFeedbackManager
@@ -158,7 +160,13 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
             setupKey(button, colors)
             toolbar.addView(button)
         }
+        var addedCorrectButton = false
         for (pinnedKey in getPinnedToolbarKeys(context.prefs())) {
+            // Place the explicitly labelled spelling action directly before the mic.
+            if (pinnedKey == ToolbarKey.VOICE) {
+                pinnedKeys.addView(createSmartFixButton())
+                addedCorrectButton = true
+            }
             val button = createToolbarKey(context, pinnedKey)
             button.layoutParams = toolbarKeyLayoutParams
             setupKey(button, colors)
@@ -167,6 +175,7 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
             if (pinnedKeyInToolbar != null && Settings.getValues().mQuickPinToolbarKeys)
                 pinnedKeyInToolbar.background = enabledToolKeyBackground
         }
+        if (!addedCorrectButton) pinnedKeys.addView(createSmartFixButton())
         toolbarContainer.doOnNextLayout {
             // set min with of the toolbar so the weight of the toolbar keys actually does something
             // todo: results in requestLayout() improperly called by android.widget.LinearLayout during layout: running second layout pass
@@ -174,6 +183,20 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         }
 
         updateKeys()
+    }
+
+    private fun createSmartFixButton(): TextView = TextView(context, null, R.attr.suggestionWordStyle).apply {
+        text = context.getString(R.string.sv_correct_button)
+        contentDescription = context.getString(R.string.sv_correct_button_description)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        gravity = Gravity.CENTER
+        setPadding(8.dpToPx(resources), 0, 8.dpToPx(resources), 0)
+        minWidth = resources.getDimensionPixelSize(R.dimen.config_suggestions_strip_edge_key_width)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT
+        )
+        setOnClickListener { SmartUi.correctCurrentWord() }
+        setOnLongClickListener { SmartUi.undoLastCorrection(); true }
     }
 
     private lateinit var listener: Listener

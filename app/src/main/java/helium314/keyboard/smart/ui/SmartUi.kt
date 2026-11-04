@@ -6,6 +6,7 @@ import androidx.core.view.isVisible
 import helium314.keyboard.latin.LatinIME
 import helium314.keyboard.latin.R
 import helium314.keyboard.smart.voice.VoicePanelView
+import helium314.keyboard.smart.SmartWordCorrector
 
 /** Coordinates the SmartVoice overlays (functions menu, dictation, resize) of the current input view. */
 object SmartUi {
@@ -66,9 +67,21 @@ object SmartUi {
         resizeOverlay?.hide()
     }
 
+    /** Apply a conservative spelling suggestion to the last word, never the whole message. */
+    @JvmStatic
+    fun correctCurrentWord() {
+        ime?.let { SmartWordCorrector.correct(it) }
+    }
+
+    @JvmStatic
+    fun undoLastCorrection() {
+        ime?.let { SmartWordCorrector.undo(it) }
+    }
+
     /** Called when the keyboard is hidden or the input field changes. */
     @JvmStatic
     fun onFinishInputView() {
+        SmartWordCorrector.reset()
         hideFunctions()
         if (isResizing) finishResize()
     }

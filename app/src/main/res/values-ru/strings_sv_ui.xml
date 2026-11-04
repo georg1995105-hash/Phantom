@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_correct_button">Исправить</string>
+    <string name="sv_correct_button_description">Исправить последнее слово. Удерживать — отменить исправление</string>
+    <string name="sv_correct_protected">В этом поле исправление отключено</string>
+    <string name="sv_correct_select_word">Поставьте курсор после слова или выделите одно слово</string>
+    <string name="sv_correct_no_service">Системная проверка орфографии недоступна</string>
+    <string name="sv_correct_nothing">Подходящих исправлений не найдено</string>
     <string name="sv_functions_edit">Изменить</string>
     <string name="sv_functions_done">Готово</string>
     <string name="sv_functions_button">Меню</string>
