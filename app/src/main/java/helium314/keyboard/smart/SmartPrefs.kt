@@ -17,6 +17,7 @@ object SmartPrefs {
     const val CLIP_CHIP_MINUTES = "sv_clip_chip_minutes"
 
     const val FUNCTIONS_ORDER = "sv_functions_order"
+    const val FUNCTIONS_HIDDEN = "sv_functions_hidden"
 
     const val DEF_VOICE_LANGUAGE = "auto"
     const val DEF_VOICE_SMART_PUNCTUATION = true

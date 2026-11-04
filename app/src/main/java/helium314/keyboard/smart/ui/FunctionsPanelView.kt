@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package helium314.keyboard.smart.ui
 
+import android.content.ClipData
 import android.content.Context
+import android.os.Build
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.text.TextUtils
 import android.util.AttributeSet
+import android.view.DragEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -30,6 +33,7 @@ import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.utils.SubtypeLocaleUtils.displayName
 import helium314.keyboard.latin.utils.SubtypeSettings
 import helium314.keyboard.latin.utils.prefs
+import helium314.keyboard.smart.SmartPrefs
 
 /** The panel behind the 4-dots button: large function icons, plus quick theme and language pages. */
 class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
@@ -38,6 +42,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
 
     private enum class Page { MAIN, THEME, LANGUAGES }
     private var page = Page.MAIN
+    private var editing = false
 
     private val header = LinearLayout(context)
     private val title = SvUi.label(context, 16f, bold = true)
@@ -65,6 +70,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     }
 
     fun show() {
+        editing = false
         showPage(Page.MAIN)
         visibility = VISIBLE
     }
@@ -74,7 +80,11 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     }
 
     fun onBack() {
-        if (page != Page.MAIN) showPage(Page.MAIN) else hide()
+        when {
+            page != Page.MAIN -> showPage(Page.MAIN)
+            editing -> { editing = false; showPage(Page.MAIN) }
+            else -> hide()
+        }
     }
 
     private fun buildHeader() {
@@ -83,6 +93,17 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         header.addView(back, LinearLayout.LayoutParams(SvUi.dp(context, 52), LayoutParams.MATCH_PARENT))
         title.setTextColor(SvUi.text())
         header.addView(title, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        if (page == Page.MAIN) {
+            val edit = TextView(context).apply {
+                text = context.getString(if (editing) R.string.sv_functions_done else R.string.sv_functions_edit)
+                setTextColor(SvUi.accent())
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setPadding(SvUi.dp(context, 8), 0, SvUi.dp(context, 12), 0)
+                setOnClickListener { editing = !editing; showPage(Page.MAIN) }
+            }
+            header.addView(edit, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        }
     }
 
     private fun showPage(p: Page) {
@@ -97,7 +118,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         }
     }
 
-    private class Item(val icon: Int, val label: Int, val action: () -> Unit)
+    private class Item(val id: String, val icon: Int, val label: Int, val action: () -> Unit)
 
     private fun code(code: Int) {
         hide()
@@ -105,62 +126,117 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     }
 
     private fun items() = listOf(
-        Item(R.drawable.ic_sv_clipboard, R.string.sv_fn_clipboard) { code(KeyCode.CLIPBOARD) },
-        Item(R.drawable.ic_sv_settings, R.string.sv_fn_settings) { hide(); ime?.svLaunchSettings(null) },
-        Item(R.drawable.ic_sv_palette, R.string.sv_fn_theme) { showPage(Page.THEME) },
-        Item(R.drawable.ic_sv_resize, R.string.sv_fn_resize) { SmartUi.startResize() },
-        Item(R.drawable.ic_sv_one_hand, R.string.sv_fn_one_hand) { code(KeyCode.TOGGLE_ONE_HANDED_MODE) },
-        Item(R.drawable.ic_sv_language, R.string.sv_fn_languages) { showPage(Page.LANGUAGES) },
-        Item(R.drawable.ic_sv_mic, R.string.sv_fn_voice) { hide(); ime?.svLaunchSettings("voice") },
-        Item(R.drawable.ic_sv_emoji, R.string.sv_fn_emoji) { code(KeyCode.EMOJI) },
-        Item(R.drawable.ic_dpad, R.string.sv_fn_cursor) { code(KeyCode.DPAD) },
-        Item(R.drawable.sym_keyboard_numpad_key_lxx, R.string.sv_fn_numpad) { code(KeyCode.NUMPAD) },
-        Item(R.drawable.sym_keyboard_incognito_lxx, R.string.sv_fn_incognito) { code(KeyCode.TOGGLE_INCOGNITO_MODE) },
-        Item(R.drawable.ic_sv_text, R.string.sv_fn_split) { code(KeyCode.SPLIT_LAYOUT) },
+        Item("clipboard", R.drawable.ic_sv_clipboard, R.string.sv_fn_clipboard) { code(KeyCode.CLIPBOARD) },
+        Item("settings", R.drawable.ic_sv_settings, R.string.sv_fn_settings) { hide(); ime?.svLaunchSettings(null) },
+        Item("theme", R.drawable.ic_sv_palette, R.string.sv_fn_theme) { showPage(Page.THEME) },
+        Item("resize", R.drawable.ic_sv_resize, R.string.sv_fn_resize) { SmartUi.startResize() },
+        Item("languages", R.drawable.ic_sv_language, R.string.sv_fn_languages) { showPage(Page.LANGUAGES) },
+        Item("emoji", R.drawable.ic_sv_emoji, R.string.sv_fn_emoji) { code(KeyCode.EMOJI) },
+        Item("numpad", R.drawable.sym_keyboard_numpad_key_lxx, R.string.sv_fn_numpad) { code(KeyCode.NUMPAD) },
     )
+
+    private fun orderedItems(): List<Item> {
+        val ids = context.prefs().getString(SmartPrefs.FUNCTIONS_ORDER, null)
+            ?.split('|')?.filter { it.isNotBlank() }.orEmpty()
+        return items().sortedBy { ids.indexOf(it.id).let { pos -> if (pos < 0) Int.MAX_VALUE else pos } }
+    }
+
+    private fun hiddenItems(): Set<String> =
+        context.prefs().getStringSet(SmartPrefs.FUNCTIONS_HIDDEN, emptySet()).orEmpty()
+
+    private fun toggleHidden(item: Item) {
+        if (item.id == "settings") return
+        val hidden = hiddenItems().toMutableSet()
+        if (!hidden.add(item.id)) hidden.remove(item.id)
+        context.prefs().edit().putStringSet(SmartPrefs.FUNCTIONS_HIDDEN, hidden).apply()
+        showPage(Page.MAIN)
+    }
+
+    private fun moveItem(from: String, to: String) {
+        if (from == to) return
+        val ids = orderedItems().map { it.id }.toMutableList()
+        if (!ids.remove(from) || to !in ids) return
+        ids.add(ids.indexOf(to), from)
+        context.prefs().edit().putString(SmartPrefs.FUNCTIONS_ORDER, ids.joinToString("|")).apply()
+        showPage(Page.MAIN)
+    }
 
     private fun mainGrid(): View {
         val scroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false }
-        val grid = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(SvUi.dp(context, 8), 0, SvUi.dp(context, 8), SvUi.dp(context, 8)) }
-        val cols = 4
-        val incognito = Settings.getValues()?.mIncognitoModeEnabled == true
-        items().chunked(cols).forEach { rowItems ->
+        val grid = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(SvUi.dp(context, 8), 0, SvUi.dp(context, 8), SvUi.dp(context, 8))
+        }
+        val hidden = hiddenItems()
+        orderedItems().filter { editing || it.id !in hidden }.chunked(4).forEach { rowItems ->
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             rowItems.forEach { item ->
-                val active = item.label == R.string.sv_fn_incognito && incognito
-                row.addView(itemView(item, active), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                row.addView(itemView(item, item.id in hidden),
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
-            repeat(cols - rowItems.size) { row.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f)) }
+            repeat(4 - rowItems.size) { row.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f)) }
             grid.addView(row)
         }
         scroll.addView(grid)
         return scroll
     }
 
-    private fun itemView(item: Item, active: Boolean): View {
+    private fun itemView(item: Item, hidden: Boolean): View {
         val v = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(SvUi.dp(context, 2), SvUi.dp(context, 4), SvUi.dp(context, 2), SvUi.dp(context, 4))
             background = SvUi.ripple(null, SvUi.dp(context, 16).toFloat())
             contentDescription = context.getString(item.label)
-            setOnClickListener { SvUi.haptic(it); item.action() }
+            setOnClickListener {
+                SvUi.haptic(it)
+                if (editing) toggleHidden(item) else item.action()
+            }
         }
-        val box = SvUi.dp(context, 50)
-        val iconBg = if (active) SvUi.accent() else SvUi.key().let { if (android.graphics.Color.alpha(it) < 0x40) ColorUtils.setAlphaComponent(SvUi.text(), 0x18) else it }
+        val color = SvUi.key().let {
+            if (android.graphics.Color.alpha(it) < 0x40)
+                ColorUtils.setAlphaComponent(SvUi.text(), 0x18) else it
+        }
         val icon = ImageView(context).apply {
-            setImageDrawable(SvUi.icon(context, item.icon, if (active) SvUi.onAccent() else SvUi.text()))
+            setImageDrawable(SvUi.icon(context, item.icon, SvUi.text()))
             scaleType = ImageView.ScaleType.CENTER
-            background = SvUi.rounded(iconBg, SvUi.dp(context, 18).toFloat())
+            alpha = if (hidden) 0.35f else 1f
+            background = SvUi.rounded(color, SvUi.dp(context, 18).toFloat())
         }
-        v.addView(icon, LinearLayout.LayoutParams(box, box))
+        v.addView(icon, LinearLayout.LayoutParams(SvUi.dp(context, 50), SvUi.dp(context, 50)))
         val label = SvUi.label(context, 12f).apply {
-            text = context.getString(item.label)
+            text = if (editing) {
+                val mark = if (hidden) "+" else if (item.id == "settings") "·" else "−"
+                mark + " " + context.getString(item.label)
+            } else context.getString(item.label)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             setPadding(0, SvUi.dp(context, 4), 0, 0)
         }
         v.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        v.setOnLongClickListener {
+            editing = true
+            val data = ClipData.newPlainText("smartvoice-menu-item", item.id)
+            val shadow = View.DragShadowBuilder(v)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                v.startDragAndDrop(data, shadow, item.id, 0)
+            } else {
+                @Suppress("DEPRECATION")
+                v.startDrag(data, shadow, item.id, 0)
+            }
+            true
+        }
+        v.setOnDragListener { _, event ->
+            when (event.action) {
+                DragEvent.ACTION_DRAG_STARTED -> event.localState is String
+                DragEvent.ACTION_DROP -> {
+                    val source = event.localState as? String ?: return@setOnDragListener false
+                    moveItem(source, item.id)
+                    true
+                }
+                else -> true
+            }
+        }
         return v
     }
 
