@@ -39,7 +39,7 @@ class Screen:
   self.d.ellipse((cx-11,y+5,cx+11,y+27),fill=c)
  def row(self,y,icon,label,subtitle=None,value=None,on=None,arrow=True,height=80):
   if y+height>1110: return
-  self.textat((33,y+17),icon,27,self.muted)
+  vector_icon(self,icon,45,y+31,size=25)
   self.textat((82,y+13),label,22,bold=True)
   if subtitle:self.textat((82,y+44),subtitle,15,self.muted)
   if on is not None:self.toggle(446,y+23,on)
@@ -47,6 +47,43 @@ class Screen:
   elif arrow:self.textat((495,y+25),'›',29,self.muted)
   self.sep(y+height-1)
  def save(self,name): self.nav();p=OUT/(name+'.png');self.im.save(p,optimize=True);return p
+
+# Minimal vector icons, so UI does not depend on font emoji glyphs.
+def vector_icon(s,kind,cx,cy,size=28):
+ d=s.d; c=s.text if s.light else '#e2e5eb';k=kind
+ if k in ['▣','clipboard']:
+  d.rounded_rectangle((cx-10,cy-10,cx+10,cy+13),radius=2,outline=c,width=2)
+  d.rounded_rectangle((cx-5,cy-14,cx+5,cy-7),radius=2,fill=c)
+ elif k in ['♩','voice']:
+  mic_icon(s,cx,cy-15)
+ elif k in ['▦','keyboard']:
+  d.rounded_rectangle((cx-15,cy-11,cx+15,cy+11),radius=3,outline=c,width=2)
+  for u in range(4):
+   for v in range(2): d.rectangle((cx-10+u*6,cy-7+v*7,cx-7+u*6,cy-4+v*7),fill=c)
+  d.line((cx-8,cy+7,cx+8,cy+7),fill=c,width=2)
+ elif k in ['☷','settings']:
+  d.ellipse((cx-10,cy-10,cx+10,cy+10),outline=c,width=2)
+  d.ellipse((cx-3,cy-3,cx+3,cy+3),outline=c,width=2)
+  for i in range(8):
+   a=i*math.pi/4;d.line((cx+int(10*math.cos(a)),cy+int(10*math.sin(a)),cx+int(14*math.cos(a)),cy+int(14*math.sin(a))),fill=c,width=2)
+ elif k in ['◖','onehand']:
+  d.rounded_rectangle((cx-8,cy-13,cx+8,cy+13),radius=3,outline=c,width=2)
+  d.line((cx-5,cy+7,cx+5,cy+7),fill=c,width=2)
+  d.line((cx-5,cy-7,cx-5,cy+3),fill=c,width=3)
+ elif k in ['◎','lang']:
+  d.ellipse((cx-12,cy-12,cx+12,cy+12),outline=c,width=2)
+  d.ellipse((cx-5,cy-12,cx+5,cy+12),outline=c,width=2)
+  d.line((cx-11,cy,cx+11,cy),fill=c,width=2)
+ elif k in ['◉','themes']:
+  d.ellipse((cx-12,cy-12,cx+12,cy+12),outline=c,width=2)
+  d.ellipse((cx-6,cy-7,cx-2,cy-3),fill=c)
+  d.ellipse((cx+3,cy-5,cx+7,cy-1),fill=c)
+  d.ellipse((cx-7,cy+2,cx-3,cy+6),fill=c)
+ elif k=='search':
+  d.ellipse((cx-11,cy-11,cx+6,cy+6),outline=c,width=2)
+  d.line((cx+5,cy+5,cx+15,cy+15),fill=c,width=2)
+ else:
+  s.textat((cx,cy),kind,size,c,anchor='mm')
 
 # vector microphone icon instead of unsupported unicode emoji
 def mic_icon(s,x,y):
@@ -154,7 +191,7 @@ def functions():
  for i,(ic,tx) in enumerate(items):
   row,col=divmod(i,4); x=15+col*130; cy=y+81+row*128
   s.rect((x,cy,x+119,cy+118),'#303238',17)
-  s.textat((x+59,cy+39),ic,30,anchor='mm')
+  vector_icon(s,ic,x+59,cy+39,size=29)
   words=tx.split(' ')
   if len(tx)>13 and len(words)>1:
    s.textat((x+59,cy+76),words[0],15,anchor='mm');s.textat((x+59,cy+95),' '.join(words[1:]),15,anchor='mm')
@@ -165,7 +202,7 @@ def clipboard():
  s=Screen();app_area(s)
  y=706;s.rect((0,y,540,1114),KB,0)
  s.textat((22,y+12),'‹',39);s.textat((77,y+21),'Буфер обмена',23,bold=True)
- s.textat((493,y+22),'⌕',29)
+ vector_icon(s,'search',493,y+34,size=29)
  s.line((14,y+61,526,y+61),LINE)
  tabs=[('Все',15,95),('Текст',104,195),('Фото',204,295),('Ссылки',304,412)]
  for i,(t,x1,x2) in enumerate(tabs):s.pill((x1,y+75,x2,y+114),t,i==0)
