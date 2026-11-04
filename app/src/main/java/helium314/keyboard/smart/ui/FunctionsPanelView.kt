@@ -23,6 +23,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.toColorInt
 import androidx.core.view.isVisible
 import helium314.keyboard.keyboard.KeyboardSwitcher
+import helium314.keyboard.keyboard.KeyboardLayoutSet
 import helium314.keyboard.keyboard.KeyboardTheme
 import helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode
 import helium314.keyboard.latin.LatinIME
@@ -141,6 +142,38 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         return items().sortedBy { ids.indexOf(it.id).let { pos -> if (pos < 0) Int.MAX_VALUE else pos } }
     }
 
+    private fun bottomKey(item: Item): String? = when (item.id) {
+        "emoji" -> "emoji"
+        "languages" -> "language_switch"
+        "numpad" -> "numpad"
+        else -> null
+    }
+
+    private fun pinned(item: Item): Boolean = when (item.id) {
+        "emoji" -> context.prefs().getBoolean(Settings.PREF_SHOW_EMOJI_KEY, Defaults.PREF_SHOW_EMOJI_KEY)
+        "languages" -> context.prefs().getBoolean(Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY, Defaults.PREF_SHOW_LANGUAGE_SWITCH_KEY)
+        "numpad" -> context.prefs().getBoolean(SmartPrefs.BOTTOM_NUMPAD, false)
+        else -> false
+    }
+
+    /** Editing a movable item shifts it between the keyboard's bottom row and this menu. */
+    private fun toggleBottomKey(item: Item) {
+        val key = when (item.id) {
+            "emoji" -> Settings.PREF_SHOW_EMOJI_KEY
+            "languages" -> Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY
+            "numpad" -> SmartPrefs.BOTTOM_NUMPAD
+            else -> return
+        }
+        val prefs = context.prefs()
+        prefs.edit().putBoolean(key, !pinned(item)).apply()
+        if (item.id in hiddenItems()) {
+            prefs.edit().putStringSet(SmartPrefs.FUNCTIONS_HIDDEN, hiddenItems() - item.id).apply()
+        }
+        KeyboardLayoutSet.onKeyboardThemeChanged()
+        hide()
+        KeyboardSwitcher.getInstance().setThemeNeedsReload()
+    }
+
     private fun hiddenItems(): Set<String> =
         context.prefs().getStringSet(SmartPrefs.FUNCTIONS_HIDDEN, emptySet()).orEmpty()
 
@@ -157,8 +190,22 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         val ids = orderedItems().map { it.id }.toMutableList()
         if (!ids.remove(from) || to !in ids) return
         ids.add(ids.indexOf(to), from)
-        context.prefs().edit().putString(SmartPrefs.FUNCTIONS_ORDER, ids.joinToString("|")).apply()
-        showPage(Page.MAIN)
+        val prefs = context.prefs()
+        val edit = prefs.edit().putString(SmartPrefs.FUNCTIONS_ORDER, ids.joinToString("|"))
+        val fromId = bottomKey(items().first { it.id == from })
+        val toId = bottomKey(items().first { it.id == to })
+        if (fromId != null && toId != null) {
+            val bottomOrder = (prefs.getString(SmartPrefs.BOTTOM_ORDER, SmartPrefs.DEFAULT_BOTTOM_ORDER)
+                ?: SmartPrefs.DEFAULT_BOTTOM_ORDER).split('|').toMutableList()
+            if (bottomOrder.remove(fromId)) bottomOrder.add(bottomOrder.indexOf(toId), fromId)
+            edit.putString(SmartPrefs.BOTTOM_ORDER, bottomOrder.joinToString("|"))
+        }
+        edit.apply()
+        if (fromId != null && toId != null) {
+            KeyboardLayoutSet.onKeyboardThemeChanged()
+            hide()
+            KeyboardSwitcher.getInstance().setThemeNeedsReload()
+        } else showPage(Page.MAIN)
     }
 
     private fun mainGrid(): View {
@@ -168,7 +215,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
             setPadding(SvUi.dp(context, 8), 0, SvUi.dp(context, 8), SvUi.dp(context, 8))
         }
         val hidden = hiddenItems()
-        orderedItems().filter { editing || it.id !in hidden }.chunked(4).forEach { rowItems ->
+        orderedItems().filter { editing || (it.id !in hidden && !pinned(it)) }.chunked(4).forEach { rowItems ->
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             rowItems.forEach { item ->
                 row.addView(itemView(item, item.id in hidden),
@@ -190,7 +237,9 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
             contentDescription = context.getString(item.label)
             setOnClickListener {
                 SvUi.haptic(it)
-                if (editing) toggleHidden(item) else item.action()
+                if (editing) {
+                    if (bottomKey(item) != null) toggleBottomKey(item) else toggleHidden(item)
+                } else item.action()
             }
         }
         val color = SvUi.key().let {
@@ -206,7 +255,9 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         v.addView(icon, LinearLayout.LayoutParams(SvUi.dp(context, 50), SvUi.dp(context, 50)))
         val label = SvUi.label(context, 12f).apply {
             text = if (editing) {
-                val mark = if (hidden) "+" else if (item.id == "settings") "·" else "−"
+                val mark = if (bottomKey(item) != null) {
+                    if (pinned(item)) "↑" else "↓"
+                } else if (hidden) "+" else if (item.id == "settings") "·" else "−"
                 mark + " " + context.getString(item.label)
             } else context.getString(item.label)
             maxLines = 2

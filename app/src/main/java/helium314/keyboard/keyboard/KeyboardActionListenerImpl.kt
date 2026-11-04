@@ -2,6 +2,7 @@
 package helium314.keyboard.keyboard
 
 import android.text.InputType
+import android.os.SystemClock
 import android.util.SparseArray
 import android.view.KeyEvent
 import android.view.inputmethod.InputMethodSubtype
@@ -25,6 +26,7 @@ import helium314.keyboard.latin.common.combiningRange
 import helium314.keyboard.latin.common.moveStepsToCharCount
 import helium314.keyboard.latin.inputlogic.InputLogic
 import helium314.keyboard.latin.settings.Settings
+import helium314.keyboard.smart.DualTapPunctuation
 import helium314.keyboard.latin.utils.BackgroundGatheringCache
 import helium314.keyboard.latin.utils.GestureDataGatheringSettings
 import helium314.keyboard.latin.utils.RecapitalizeMode
@@ -44,6 +46,7 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     private val keyboardSwitcher = KeyboardSwitcher.getInstance()
     private val settings = Settings.getInstance()
     private val audioAndHapticFeedbackManager = AudioAndHapticFeedbackManager.getInstance()
+    private var lastPeriodTap = 0L
 
     // language slide state
     private var initialSubtype: InputMethodSubtype? = null
@@ -133,6 +136,28 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
         }
         if (Settings.getValues().mIsLocked && KeyCode.isIsBlockedWhenLocked(primaryCode))
             return
+        val isAlphabetPeriod = primaryCode == '.'.code && !isKeyRepeat &&
+            keyboardSwitcher.keyboard?.mId?.element?.isAlphabet == true
+        if (isAlphabetPeriod) {
+            val now = SystemClock.uptimeMillis()
+            val before = connection.getTextBeforeCursor(3, 0)?.toString().orEmpty()
+            if (DualTapPunctuation.shouldReplace(lastPeriodTap, now, before, connection.hasSelection())) {
+                lastPeriodTap = 0L
+                inputLogic.finishInput()
+                connection.beginBatchEdit()
+                val current = connection.getTextBeforeCursor(3, 0)?.toString().orEmpty()
+                if (current.endsWith(".") || current.endsWith(". ")) {
+                    val wasSpaced = current.endsWith(". ")
+                    connection.deleteSurroundingText(if (wasSpaced) 2 else 1, 0)
+                    connection.commitText(if (wasSpaced) ", " else ",", 1)
+                }
+                connection.endBatchEdit()
+                return
+            }
+            lastPeriodTap = now
+        } else {
+            lastPeriodTap = 0L
+        }
         val mkv = keyboardSwitcher.mainKeyboardView
 
         // checking if the character is a combining accent
