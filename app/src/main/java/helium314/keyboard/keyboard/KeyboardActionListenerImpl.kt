@@ -148,11 +148,16 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
                 val current = connection.getTextBeforeCursor(3, 0)?.toString().orEmpty()
                 if (current.endsWith(".") || current.endsWith(". ")) {
                     val wasSpaced = current.endsWith(". ")
-                    connection.deleteSurroundingText(if (wasSpaced) 2 else 1, 0)
-                    connection.commitText(if (wasSpaced) ", " else ",", 1)
+                    val selectedCount = if (wasSpaced) 2 else 1
+                    val caret = connection.expectedSelectionStart
+                    if (caret >= selectedCount) {
+                        connection.setSelection(caret - selectedCount, caret)
+                        connection.commitText(if (wasSpaced) ", " else ",", 1)
+                        connection.endBatchEdit()
+                        return
+                    }
                 }
                 connection.endBatchEdit()
-                return
             }
             lastPeriodTap = now
         } else {
