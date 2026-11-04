@@ -1,18 +1,17 @@
-name: Android debug APK
+name: Android build and unit tests
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   build:
-    name: Build and test Android APK
+    name: Compile and test (GitHub runner)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -27,55 +26,33 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android 37 and NDK 28 using runner SDK
+      - name: Install Android platform 37.0 and NDK 28
         shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
+          set -euo pipefail
           SDK_MANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
-          if [ -z "$SDK_MANAGER" ]; then
-            echo "No SDK manager in preinstalled Android SDK" >&2
-            exit 1
-          fi
+          test -n "$SDK_MANAGER"
           yes | "$SDK_MANAGER" --licenses >/dev/null || true
           "$SDK_MANAGER" --install "platforms;android-37.0" "build-tools;37.0.0" "ndk;28.0.13004108"
 
       - name: Set up Gradle build cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build installable debug APK
+      - name: Build Android debug APK
         shell: bash
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace :app:assembleDebugNoMinify
 
-      - name: Generate artifact checksum
-        shell: bash
-        run: |
-          find app/build/outputs/apk/debugNoMinify -maxdepth 1 -name '*.apk' -type f -print
-          sha256sum app/build/outputs/apk/debugNoMinify/*.apk | tee SHA256SUMS.txt
-
-      - name: Upload Android APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SmartVoiceKeyboard-debug-${{ github.run_number }}
-          path: |
-            app/build/outputs/apk/debugNoMinify/*.apk
-            SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Run unit tests
+      - name: Run Android unit tests
         shell: bash
         run: |
           ./gradlew --no-daemon --stacktrace :app:testDebugNoMinifyUnitTest
 
-      - name: Upload test reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: SmartVoiceKeyboard-tests-${{ github.run_number }}
-          path: |
-            app/build/reports/tests/
-            app/build/test-results/
-          if-no-files-found: ignore
-          retention-days: 14
+      - name: Record APK checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum app/build/outputs/apk/debugNoMinify/*.apk | tee SHA256SUMS.txt
+          cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
+
