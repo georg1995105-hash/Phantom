@@ -140,7 +140,8 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         // but better not change it or people will complain
         val toolbarHeight = min(toolbarExpandKey.layoutParams.height, resources.getDimension(R.dimen.config_suggestions_strip_height).toInt())
         toolbarExpandKey.layoutParams.height = toolbarHeight
-        toolbarExpandKey.layoutParams.width = toolbarHeight // we want it square
+        // Small settings control on the right, instead of the large four-dot button on the left.
+        toolbarExpandKey.layoutParams.width = 34.dpToPx(resources)
         colors.setBackground(toolbarExpandKey, ColorType.STRIP_BACKGROUND) // necessary because background is re-used for defaultToolbarBackground
         colors.setColor(toolbarExpandKey, ColorType.TOOL_BAR_EXPAND_KEY)
         colors.setColor(toolbarExpandKey.background, ColorType.TOOL_BAR_EXPAND_KEY_BACKGROUND)
