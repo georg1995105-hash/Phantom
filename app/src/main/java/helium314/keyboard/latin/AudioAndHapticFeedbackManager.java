@@ -106,16 +106,11 @@ public final class AudioAndHapticFeedbackManager {
             // Avoid surprises with the handling of HapticFeedbackConstants.NO_HAPTICS
             return;
         }
-        if (hapticEvent.allowCustomDuration && mSettingsValues.mKeypressVibrationDuration >= 0) {
-            vibrate(mSettingsValues.mKeypressVibrationDuration);
-            return;
-        }
-        // Go ahead with the system default
-        if (viewToPerformHapticFeedbackOn != null) {
-            viewToPerformHapticFeedbackOn.performHapticFeedback(
-                    hapticEvent.feedbackConstant,
-                    HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING);
-        }
+        // Older stored HeliBoard preferences can request long pulses; the system's
+        // default HapticFeedbackConstants are often stronger than short vibrations.
+        // Use a consistent 2ms pulse for all enabled keyboard actions instead.
+        final int saved = mSettingsValues.mKeypressVibrationDuration;
+        vibrate(saved == 0 ? 0 : Math.min(2, saved < 0 ? 2 : saved));
     }
 
     public void onSettingsChanged(final SettingsValues settingsValues) {

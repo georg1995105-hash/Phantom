@@ -55,7 +55,7 @@ object Defaults {
     const val PREF_CUSTOM_ICON_NAMES = ""
     const val PREF_TOOLBAR_CUSTOM_KEY_CODES = ""
     const val PREF_AUTO_CAP = true
-    const val PREF_VIBRATE_ON = true
+    const val PREF_VIBRATE_ON = false
     const val PREF_VIBRATE_IN_DND_MODE = false
     const val PREF_SOUND_ON = false
     const val PREF_SUGGEST_EMOJIS = true
@@ -119,7 +119,7 @@ object Defaults {
     const val PREF_SUGGEST_CLIPBOARD_CONTENT = true
     const val PREF_GESTURE_INPUT = true
     // Prefer a short, restrained tactile pulse to the device's stronger default.
-    const val PREF_VIBRATION_DURATION_SETTINGS = 5
+    const val PREF_VIBRATION_DURATION_SETTINGS = 2
     const val PREF_KEYPRESS_SOUND_VOLUME = -0.01f
     const val PREF_KEY_LONGPRESS_TIMEOUT = 300
     const val PREF_ENABLE_EMOJI_ALT_PHYSICAL_KEY = true

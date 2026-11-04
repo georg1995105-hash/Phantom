@@ -42,4 +42,11 @@
                 android:layout_weight="1" />
         </LinearLayout>
     </HorizontalScrollView>
+    <!-- In-keyboard recording controls replace the suggestion bar without adding
+         any new height above the conversation. Typing keys remain available. -->
+    <helium314.keyboard.smart.voice.VoicePanelView
+        android:id="@+id/sv_voice_panel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 </FrameLayout>
