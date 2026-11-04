@@ -294,7 +294,10 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
         if (prefs.getBoolean(SmartPrefs.BOTTOM_NUMPAD, false) &&
                 bottom.none { it.label == KeyLabel.NUMPAD }) {
             val space = bottom.indexOfFirst { it.label == KeyLabel.SPACE }
-            bottom.add(space, TextKeyData(label = KeyLabel.NUMPAD, width = 0.10f))
+            bottom.add(space, TextKeyData(
+                label = KeyLabel.NUMPAD, code = KeyCode.NUMPAD,
+                type = KeyType.FUNCTION, width = 0.12f
+            ))
         }
         val movableLabels = setOf("emoji", KeyLabel.LANGUAGE_SWITCH, KeyLabel.NUMPAD)
         val movable = bottom.filter { it.label in movableLabels }

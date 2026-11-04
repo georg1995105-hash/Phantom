@@ -99,6 +99,7 @@ object KeyLabel {
                 params.mLocaleKeyboardInfos.labelAlphabet
             }
             SYMBOL -> params.mLocaleKeyboardInfos.labelSymbolInNumpad
+            NUMPAD -> "123"
             ALPHA -> params.mLocaleKeyboardInfos.labelAlphabet
             COMMA -> params.mLocaleKeyboardInfos.labelComma
             PERIOD -> getPeriodLabel(params)
@@ -126,6 +127,7 @@ object KeyLabel {
         val code = when (label) { // maybe a bit lazy to not assemble the entire string above
             SYMBOL_ALPHA -> KeyCode.SYMBOL_ALPHA
             SYMBOL       -> KeyCode.SYMBOL
+            NUMPAD       -> KeyCode.NUMPAD
             ALPHA        -> KeyCode.ALPHA
             CTRL         -> KeyCode.CTRL
             ALT          -> KeyCode.ALT
