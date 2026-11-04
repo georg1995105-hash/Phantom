@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="sv_functions_button">Меню</string>
+    <string name="sv_functions_title">Функции</string>
+    <string name="sv_fn_clipboard">Буфер обмена</string>
+    <string name="sv_fn_settings">Настройки</string>
+    <string name="sv_fn_theme">Тема</string>
+    <string name="sv_fn_resize">Размер</string>
+    <string name="sv_fn_one_hand">Одна рука</string>
+    <string name="sv_fn_languages">Языки</string>
+    <string name="sv_fn_voice">Голос</string>
+    <string name="sv_fn_emoji">Эмодзи</string>
+    <string name="sv_fn_cursor">Курсор</string>
+    <string name="sv_fn_numpad">Цифры</string>
+    <string name="sv_fn_incognito">Инкогнито</string>
+    <string name="sv_fn_split">Разделить</string>
+    <string name="sv_theme_auto">Авто</string>
+    <string name="sv_theme_light">Светлая</string>
+    <string name="sv_theme_dark">Тёмная</string>
+    <string name="sv_theme_graphite">Графит</string>
+    <string name="sv_theme_more">Другие настройки темы</string>
+    <string name="sv_languages_manage">Настроить языки</string>
+    <string name="sv_resize_reset">Сброс</string>
+    <string name="sv_resize_done">Готово</string>
+    <string name="sv_resize_move">Переместить клавиатуру</string>
+</resources>

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="sv_delete">Удалить</string>
+    <string name="sv_back">Назад</string>
+    <string name="sv_voice_mic">Микрофон</string>
+    <string name="sv_voice_undo">Отменить</string>
+    <string name="sv_voice_back_to_keyboard">Вернуться к клавиатуре</string>
+    <string name="sv_voice_switch_language">Сменить язык диктовки</string>
+    <string name="sv_voice_starting">Включаю микрофон…</string>
+    <string name="sv_voice_listening">Слушаю…</string>
+    <string name="sv_voice_processing">Распознаю…</string>
+    <string name="sv_voice_paused">Пауза</string>
+    <string name="sv_voice_tap_mic">Нажмите на микрофон и говорите</string>
+    <string name="sv_voice_tap_to_continue">Нажмите на микрофон, чтобы продолжить</string>
+    <string name="sv_voice_not_heard">Не расслышал. Нажмите на микрофон и говорите</string>
+    <string name="sv_voice_hint_commands">Скажите «запятая», «новая строка», «удали последнее предложение», «замени … на …»</string>
+    <string name="sv_voice_permission_title">Нужен доступ к микрофону</string>
+    <string name="sv_voice_need_permission">Разрешите доступ к микрофону и снова нажмите на микрофон</string>
+    <string name="sv_voice_permission_granted">Микрофон разрешён. Вернитесь к клавиатуре и нажмите на микрофон</string>
+    <string name="sv_voice_permission_settings">Разрешите микрофон в настройках приложения</string>
+    <string name="sv_voice_unavailable_title">Распознавание речи недоступно</string>
+    <string name="sv_voice_unavailable">На устройстве нет службы распознавания речи. Установите или включите приложение Google / «Распознавание и синтез речи»</string>
+    <string name="sv_voice_error_title">Что-то пошло не так</string>
+    <string name="sv_voice_error_generic">Распознавание остановлено. Нажмите на микрофон, чтобы повторить</string>
+    <string name="sv_voice_error_busy">Служба распознавания занята. Нажмите на микрофон ещё раз</string>
+    <string name="sv_voice_error_network">Нет связи со службой распознавания. Проверьте сеть или включите офлайн-распознавание</string>
+    <string name="sv_voice_error_language">Служба распознавания не поддерживает этот язык</string>
+    <string name="sv_voice_not_found">«%1$s» не найдено</string>
+</resources>

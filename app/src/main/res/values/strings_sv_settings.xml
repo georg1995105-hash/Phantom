@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="sv_set_layout">Layout and size</string>
+    <string name="sv_set_layout_summary">Number row, symbol hints, height, one-handed mode</string>
+    <string name="sv_set_input">Text input and gestures</string>
+    <string name="sv_set_input_summary">Gesture typing, suggestions, autocorrection, sound and vibration</string>
+    <string name="sv_set_voice">Voice input</string>
+    <string name="sv_set_voice_summary">Languages, corrections, microphone permission</string>
+    <string name="sv_set_clipboard">Clipboard</string>
+    <string name="sv_set_clipboard_summary">History, pinned items, auto-delete</string>
+    <string name="sv_set_theme">Theme</string>
+    <string name="sv_set_theme_summary">Auto, light, dark, graphite</string>
+    <string name="sv_set_languages_summary">Keyboard languages and layouts</string>
+    <string name="sv_set_privacy">Privacy and dictionary</string>
+    <string name="sv_set_privacy_summary">Personal dictionary, learning reset, storage</string>
+    <string name="sv_set_about">About</string>
+
+    <string name="sv_set_resize">Height and position</string>
+    <string name="sv_set_resize_summary">On the keyboard open the ⋮ menu → Size, drag the frame, then tap Done</string>
+    <string name="sv_set_resize_reset">Reset size</string>
+    <string name="sv_set_resize_reset_summary">Default height and side margins</string>
+    <string name="sv_set_resize_reset_done">Keyboard size reset</string>
+    <string name="sv_set_one_hand">One-handed mode</string>
+    <string name="sv_set_one_hand_summary">⋮ menu → One-handed. The arrow button next to the keyboard switches sides, the full-width button returns to normal</string>
+    <string name="sv_set_symbol_layouts">Symbols and number layouts</string>
+    <string name="sv_set_more_keys">More key options</string>
+    <string name="sv_set_more_keys_summary">Popups, emoji key, language key</string>
+
+    <string name="sv_cat_gestures">Gesture typing</string>
+    <string name="sv_cat_suggestions">Suggestions and corrections</string>
+    <string name="sv_cat_feedback">Key feedback</string>
+    <string name="sv_set_all_corrections">All correction options</string>
+    <string name="sv_set_gesture_more">More gesture options</string>
+
+    <string name="sv_set_voice_permission">Microphone access</string>
+    <string name="sv_set_voice_permission_granted">Allowed</string>
+    <string name="sv_set_voice_permission_missing">Not allowed yet. Tap to allow</string>
+    <string name="sv_set_voice_engine">Speech recognition service</string>
+    <string name="sv_set_voice_engine_ok">Available on this device. Tap to open system voice settings</string>
+    <string name="sv_set_voice_engine_ondevice">Available, offline recognition supported. Tap to open system voice settings</string>
+    <string name="sv_set_voice_engine_missing">Not found. Install or enable Google / Speech Recognition and Synthesis</string>
+    <string name="sv_set_voice_language">Dictation language</string>
+    <string name="sv_voice_lang_auto">Russian, English as second</string>
+    <string name="sv_voice_lang_ru">Russian</string>
+    <string name="sv_voice_lang_en">English</string>
+    <string name="sv_set_voice_punctuation">Smart punctuation and capitals</string>
+    <string name="sv_set_voice_punctuation_summary">Adds periods, commas and capital letters, keeps numbers and names</string>
+    <string name="sv_set_voice_fillers">Remove filler words</string>
+    <string name="sv_set_voice_fillers_summary">“um”, “uh”, «ну», «э-э» and similar</string>
+    <string name="sv_set_voice_commands">Edit commands</string>
+    <string name="sv_set_voice_commands_summary">“comma”, “new line”, “delete last sentence”, “replace X with Y”</string>
+    <string name="sv_set_voice_continuous">Keep listening after a pause</string>
+    <string name="sv_set_voice_offline">Prefer offline recognition</string>
+    <string name="sv_set_voice_offline_summary">Uses the on-device model when the service provides one</string>
+    <string name="sv_set_voice_send">“Send” command</string>
+    <string name="sv_set_voice_send_summary">Only in fields that offer a Send action. Otherwise the text stays in the field</string>
+
+    <string name="sv_set_clip_chip">Show last copied item</string>
+    <string name="sv_set_clip_chip_summary">A chip in the top row, one tap pastes it</string>
+    <string name="sv_set_clip_chip_minutes">Show the chip for</string>
+    <string name="sv_minutes">%d min</string>
+    <string name="sv_set_clip_sensitive">Protected content</string>
+    <string name="sv_set_clip_sensitive_summary">Passwords, codes and items marked as sensitive are never saved. Incognito mode does not save anything</string>
+    <string name="sv_set_clip_clear">Clear history</string>
+    <string name="sv_set_clip_clear_summary">Pinned items are kept</string>
+    <string name="sv_set_clip_clear_confirm">Delete all unpinned clipboard items?</string>
+    <string name="sv_set_clip_cleared">Clipboard history cleared</string>
+
+    <string name="sv_set_theme_more">More appearance options</string>
+    <string name="sv_set_theme_more_summary">Key borders, colors, background, font</string>
+
+    <string name="sv_set_learning">Learn from my typing</string>
+    <string name="sv_set_learning_summary">Personal suggestions are stored only on this device. Never learned from password or private fields</string>
+    <string name="sv_set_learning_clear">Reset learning</string>
+    <string name="sv_set_learning_clear_summary">Learned words: %d</string>
+    <string name="sv_set_learning_clear_confirm">Delete all learned words and typing history? The personal dictionary is kept.</string>
+    <string name="sv_set_learning_cleared">Learning data deleted</string>
+    <string name="sv_set_dictionaries">Dictionaries</string>
+    <string name="sv_set_storage">Data and storage</string>
+    <string name="sv_set_storage_summary">Everything stays on the device. No analytics, no text is sent anywhere. Voice is processed by the system recognition service you choose</string>
+    <string name="sv_set_advanced">Advanced and backup</string>
+</resources>
