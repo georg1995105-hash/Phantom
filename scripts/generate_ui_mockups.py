@@ -109,7 +109,7 @@ def keyboard(s,mode='normal',light=False,resizing=False):
   s.d.line(pts,fill='#abc1e3',width=5,joint='curve');
   for x1,y1 in [pts[0],pts[-1]]:s.d.ellipse((x1-5,y1-5,x1+5,y1+5),fill='#abc1e3')
  if resizing:
-  s.rect((7,y-7,533,1096),fill=None,r=18,outline='#9aafcf',w=4)
+  s.d.rounded_rectangle((7,y-7,533,1096),radius=18,outline='#9aafcf',width=4)
   s.rect((236,y-15,306,y-1),'#9aafcf',5)
 
 def draw_thumbnail(s,x,y,w,h,typ='shot'):
