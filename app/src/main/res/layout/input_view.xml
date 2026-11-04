@@ -15,6 +15,13 @@
     <include
         android:id="@+id/main_keyboard_frame"
         layout="@layout/main_keyboard_frame" />
+    <!-- Dictation replaces only the suggestion strip, not the typing keys. -->
+    <helium314.keyboard.smart.voice.VoicePanelView
+        android:id="@+id/sv_voice_panel"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_gravity="top"
+        android:visibility="gone" />
     <!-- sized and placed over main_keyboard_frame by InputView -->
     <helium314.keyboard.smart.ui.FunctionsPanelView
         android:id="@+id/sv_functions_panel"

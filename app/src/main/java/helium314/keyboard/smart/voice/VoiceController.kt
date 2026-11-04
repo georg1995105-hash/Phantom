@@ -60,6 +60,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     private var retries = 0
     private var pendingStartAfterPermission = false
     private var pauseRequested = false
+    private var finishRequested = false
     var languageTag: String = "ru-RU"
         private set
 
@@ -71,6 +72,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     }
 
     fun open() {
+        finishRequested = false
         ime.svPrepareForVoice()
         languageTag = resolveLanguage()
         undoStack.clear()
@@ -83,12 +85,43 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
 
     fun close() {
         if (!isActive) return
+        finishRequested = false
         stopRecognizer(cancel = true)
         finishComposing()
         setState(State.OFF)
         pendingStartAfterPermission = false
         ui?.setVoicePanelVisible(false)
         destroyRecognizer()
+    }
+
+    /**
+     * Explicit user end of dictation. Request the final ASR result rather than cancelling
+     * the recognizer and discarding the phrase spoken immediately before Done.
+     */
+    fun finishByUser() {
+        if (!isActive || finishRequested) return
+        finishRequested = true
+        pauseRequested = true
+        if (!listening) {
+            finishComposingAsDictation()
+            close()
+            return
+        }
+        setState(State.PROCESSING)
+        try {
+            recognizer?.stopListening()
+        } catch (_: Exception) {
+            finishComposingAsDictation()
+            close()
+            return
+        }
+        // A recognizer is allowed to omit a final callback. Never leave UI stuck forever.
+        handler.postDelayed({
+            if (finishRequested && state != State.OFF) {
+                finishComposingAsDictation()
+                close()
+            }
+        }, 3000L)
     }
 
     /** Mic button inside the panel: pause or resume. */
@@ -283,6 +316,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         val handled = command != null && executeCommand(command)
         if (!handled) commitDictation(text)
         if (state == State.OFF) return
+        if (finishRequested) { close(); return }
         if (!pauseRequested && command != VoiceCommand.Stop)
             handler.postDelayed({ if (state != State.OFF && state != State.PAUSED) startListening() }, RESTART_DELAY)
         else setState(State.PAUSED)
@@ -290,6 +324,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
 
     override fun onError(error: Int) {
         if (state == State.OFF) return
+        if (finishRequested) { finishComposingAsDictation(); close(); return }
         listening = false
         Log.i(TAG, "recognizer error $error")
         when (error) {
@@ -335,6 +370,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     override fun onEvent(eventType: Int, params: Bundle?) {}
 
     private fun onNothingRecognized() {
+        if (finishRequested) { close(); return }
         emptyResults++
         if (pauseRequested) {
             setState(State.PAUSED)

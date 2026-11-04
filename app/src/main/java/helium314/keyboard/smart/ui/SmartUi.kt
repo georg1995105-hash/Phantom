@@ -35,6 +35,9 @@ object SmartUi {
     val isFunctionsShown get() = functionsPanel?.isVisible == true
 
     @JvmStatic
+    val isVoiceShown get() = voicePanel?.isVisible == true
+
+    @JvmStatic
     fun toggleFunctions() {
         val panel = functionsPanel ?: return
         if (panel.isVisible) panel.hide()

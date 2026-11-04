@@ -88,7 +88,7 @@ public final class InputView extends FrameLayout {
 
     @Override
     public boolean onInterceptTouchEvent(final MotionEvent me) {
-        if (helium314.keyboard.smart.ui.SmartUi.isResizing() || helium314.keyboard.smart.ui.SmartUi.isFunctionsShown()) {
+        if (helium314.keyboard.smart.ui.SmartUi.isResizing() || helium314.keyboard.smart.ui.SmartUi.isVoiceShown() || helium314.keyboard.smart.ui.SmartUi.isFunctionsShown()) {
             mActiveForwarder = null;
             return false;
         }
