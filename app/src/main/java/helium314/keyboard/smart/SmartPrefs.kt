@@ -21,7 +21,7 @@ object SmartPrefs {
     const val DEF_VOICE_LANGUAGE = "auto"
     const val DEF_VOICE_SMART_PUNCTUATION = true
     const val DEF_VOICE_REMOVE_FILLERS = true
-    const val DEF_VOICE_COMMANDS = true
+    const val DEF_VOICE_COMMANDS = false
     const val DEF_VOICE_SEND_COMMAND = false
     const val DEF_VOICE_PREFER_OFFLINE = false
     const val DEF_VOICE_CONTINUOUS = true

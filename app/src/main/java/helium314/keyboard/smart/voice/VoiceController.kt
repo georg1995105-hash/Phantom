@@ -204,7 +204,6 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         finishComposing()
         segmentBefore = null
         pauseRequested = false
-        emptyResults = emptyResults.coerceAtMost(1)
         try {
             recognizer?.startListening(recognizerIntent())
             listening = true
@@ -284,7 +283,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         val handled = command != null && executeCommand(command)
         if (!handled) commitDictation(text)
         if (state == State.OFF) return
-        if (!pauseRequested && prefs.getBoolean(SmartPrefs.VOICE_CONTINUOUS, SmartPrefs.DEF_VOICE_CONTINUOUS) && command != VoiceCommand.Stop)
+        if (!pauseRequested && command != VoiceCommand.Stop)
             handler.postDelayed({ if (state != State.OFF && state != State.PAUSED) startListening() }, RESTART_DELAY)
         else setState(State.PAUSED)
     }
@@ -337,9 +336,15 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
 
     private fun onNothingRecognized() {
         emptyResults++
-        if (pauseRequested || emptyResults >= 2 || !prefs.getBoolean(SmartPrefs.VOICE_CONTINUOUS, SmartPrefs.DEF_VOICE_CONTINUOUS))
-            setState(State.PAUSED, ime.getString(if (hadSpeechInSession) R.string.sv_voice_tap_to_continue else R.string.sv_voice_not_heard))
-        else handler.postDelayed({ if (state != State.OFF && state != State.PAUSED) startListening() }, RESTART_DELAY)
+        if (pauseRequested) {
+            setState(State.PAUSED)
+            return
+        }
+        // The system recognizer may end a segment on silence; never auto-pause the
+        // user-controlled dictation session just because consecutive segments were empty.
+        setState(State.STARTING)
+        val retryDelay = (RESTART_DELAY * (1L shl emptyResults.coerceAtMost(5))).coerceAtMost(3000L)
+        handler.postDelayed({ if (state != State.OFF && !pauseRequested) startListening() }, retryDelay)
     }
 
     // ---------- text editing ----------

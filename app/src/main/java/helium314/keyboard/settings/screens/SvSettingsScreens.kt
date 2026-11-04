@@ -77,6 +77,7 @@ import helium314.keyboard.smart.ui.SmartUi
 
 /** Keys of SmartVoice settings that have no own preference value. */
 object SvSettingKeys {
+    const val LANGUAGES = "sv_languages_entry"
     const val RESIZE_INFO = "sv_resize_info"
     const val RESIZE_RESET = "sv_resize_reset"
     const val ONE_HAND_INFO = "sv_one_hand_info"
@@ -118,21 +119,10 @@ fun SvMainSettingsScreen(
                         icon = icon
                     ) { NextScreenIcon() }
                 }
-                Section(R.string.sv_set_layout, stringResource(R.string.sv_set_layout_summary), R.drawable.ic_settings_layout, SettingsDestination.SvLayout)
-                Section(R.string.sv_set_input, stringResource(R.string.sv_set_input_summary), R.drawable.ic_settings_gesture, SettingsDestination.SvInput)
-                Section(R.string.sv_set_voice, stringResource(R.string.sv_set_voice_summary), R.drawable.ic_sv_mic, SettingsDestination.SvVoice)
+                Section(R.string.sv_set_keyboard_main, stringResource(R.string.sv_set_keyboard_main_summary), R.drawable.ic_settings_layout, SettingsDestination.SvLayout)
+                Section(R.string.sv_set_languages_input, stringResource(R.string.sv_set_languages_input_summary), R.drawable.ic_settings_languages, SettingsDestination.SvInput)
+                Section(R.string.sv_set_voice_correct, stringResource(R.string.sv_set_voice_correct_summary), R.drawable.ic_sv_mic, SettingsDestination.SvVoice)
                 Section(R.string.sv_set_clipboard, stringResource(R.string.sv_set_clipboard_summary), R.drawable.ic_sv_clipboard, SettingsDestination.SvClipboard)
-                Section(R.string.sv_set_theme, stringResource(R.string.sv_set_theme_summary), R.drawable.ic_sv_palette, SettingsDestination.SvTheme)
-                Section(R.string.language_and_layouts_title,
-                    enabledSubtypes.joinToString(", ") { it.displayName() }.ifEmpty { stringResource(R.string.sv_set_languages_summary) },
-                    R.drawable.ic_settings_languages, SettingsDestination.Languages)
-                Section(R.string.sv_set_privacy, stringResource(R.string.sv_set_privacy_summary), R.drawable.ic_dictionary, SettingsDestination.SvPrivacy)
-                Spacer(Modifier.height(12.dp))
-                Preference(
-                    name = stringResource(R.string.sv_set_about),
-                    onClick = { onNavigate(SettingsDestination.About) },
-                    icon = R.drawable.ic_settings_about
-                )
             }
         }
     }
@@ -148,12 +138,10 @@ fun SvLayoutScreen(onClickBack: () -> Unit) {
             Settings.PREF_SHOW_HINTS,
             Settings.PREF_SHOW_EMOJI_KEY,
             Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY,
-            SvSettingKeys.RESIZE_INFO,
+            SvSettingKeys.THEME_GALLERY,
+            Settings.PREF_THEME_KEY_BORDERS,
+            Settings.PREF_VIBRATE_ON,
             SvSettingKeys.RESIZE_RESET,
-            SvSettingKeys.ONE_HAND_INFO,
-            Settings.PREF_ENABLE_SPLIT_KEYBOARD,
-            SvSettingKeys.SYMBOL_LAYOUTS,
-            SvSettingKeys.MORE_KEYS,
         )
     )
 }
@@ -167,25 +155,12 @@ fun SvInputScreen(onClickBack: () -> Unit) {
         onClickBack = onClickBack,
         title = stringResource(R.string.sv_set_input),
         settings = listOf(
-            R.string.sv_cat_gestures,
+            SvSettingKeys.LANGUAGES,
             Settings.PREF_GESTURE_INPUT,
-            if (gesture) Settings.PREF_GESTURE_PREVIEW_TRAIL else null,
-            if (gesture) Settings.PREF_GESTURE_FLOATING_PREVIEW_TEXT else null,
-            if (gesture) Settings.PREF_GESTURE_SPACE_AWARE else null,
-            if (gesture) SvSettingKeys.GESTURE_MORE else null,
-            R.string.sv_cat_suggestions,
             Settings.PREF_SHOW_SUGGESTIONS,
-            Settings.PREF_KEY_USE_PERSONALIZED_DICTS,
-            Settings.PREF_BIGRAM_PREDICTIONS,
             Settings.PREF_AUTO_CORRECTION,
-            Settings.PREF_AUTOCORRECT_SHORTCUTS,
             Settings.PREF_AUTO_CAP,
-            Settings.PREF_KEY_USE_DOUBLE_SPACE_PERIOD,
-            SvSettingKeys.ALL_CORRECTIONS,
-            R.string.sv_cat_feedback,
-            Settings.PREF_VIBRATE_ON,
-            Settings.PREF_SOUND_ON,
-            Settings.PREF_POPUP_ON,
+            Settings.PREF_KEY_USE_PERSONALIZED_DICTS,
         )
     )
 }
@@ -201,10 +176,6 @@ fun SvVoiceScreen(onClickBack: () -> Unit) {
             SmartPrefs.VOICE_LANGUAGE,
             SmartPrefs.VOICE_SMART_PUNCTUATION,
             SmartPrefs.VOICE_REMOVE_FILLERS,
-            SmartPrefs.VOICE_COMMANDS,
-            SmartPrefs.VOICE_CONTINUOUS,
-            SmartPrefs.VOICE_PREFER_OFFLINE,
-            SmartPrefs.VOICE_SEND_COMMAND,
         )
     )
 }
@@ -271,6 +242,9 @@ private fun recomposeOnPrefChange() {
 private fun toast(context: Context, text: Int) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
 fun createSvSettings(context: Context) = listOf(
+    Setting(context, SvSettingKeys.LANGUAGES, R.string.sv_set_languages_input) {
+        Preference(name = it.title, onClick = { SettingsDestination.navigateTo(SettingsDestination.Languages) }) { NextScreenIcon() }
+    },
     Setting(context, SvSettingKeys.RESIZE_INFO, R.string.sv_set_resize, R.string.sv_set_resize_summary) {
         Preference(name = it.title, description = it.description, onClick = { })
     },
