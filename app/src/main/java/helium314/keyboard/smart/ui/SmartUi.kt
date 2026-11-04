@@ -13,6 +13,7 @@ object SmartUi {
     private var ime: LatinIME? = null
     private var voicePanel: VoicePanelView? = null
     private var functionsPanel: FunctionsPanelView? = null
+    private var bottomEditor: BottomRowEditorView? = null
     private var resizeOverlay: ResizeOverlayView? = null
 
     @get:JvmStatic
@@ -27,6 +28,7 @@ object SmartUi {
         ime = latinIme
         voicePanel = root.findViewById<VoicePanelView>(R.id.sv_voice_panel)?.also { it.controller = latinIme.svVoice() }
         functionsPanel = root.findViewById<FunctionsPanelView>(R.id.sv_functions_panel)?.also { it.ime = latinIme }
+        bottomEditor = root.findViewById(R.id.sv_bottom_editor)
         resizeOverlay = root.findViewById<ResizeOverlayView>(R.id.sv_resize_overlay)?.also { it.ime = latinIme }
         if (latinIme.svVoice().isActive) voicePanel?.setVoicePanelVisible(true)
         if (isResizing) resizeOverlay?.post { resizeOverlay?.show() }
@@ -39,7 +41,32 @@ object SmartUi {
     val isVoiceShown get() = voicePanel?.isVisible == true
 
     @JvmStatic
+    val isBottomEditorShown get() = bottomEditor?.isVisible == true
+
+    @JvmStatic
+    fun openBottomRowEditor() {
+        hideFunctions()
+        ime?.svVoice()?.close()
+        bottomEditor?.show()
+    }
+
+    @JvmStatic
+    fun hideBottomRowEditor() {
+        bottomEditor?.hide()
+    }
+
+    @JvmStatic
+    fun refreshBottomRow() {
+        val settings = helium314.keyboard.latin.settings.Settings.getInstance()
+        val active = settings.current
+        settings.loadSettings(ime ?: return, active.mLocale, active.mInputAttributes)
+        helium314.keyboard.keyboard.KeyboardLayoutSet.onKeyboardThemeChanged()
+        helium314.keyboard.keyboard.KeyboardSwitcher.getInstance().reloadMainKeyboard()
+    }
+
+    @JvmStatic
     fun toggleFunctions() {
+        hideBottomRowEditor()
         val panel = functionsPanel ?: return
         if (panel.isVisible) panel.hide()
         else {
@@ -81,6 +108,7 @@ object SmartUi {
     /** Called when the keyboard is hidden or the input field changes. */
     @JvmStatic
     fun onFinishInputView() {
+        hideBottomRowEditor()
         SmartWordCorrector.reset()
         hideFunctions()
         if (isResizing) finishResize()
@@ -98,6 +126,7 @@ object SmartUi {
     /** System back: close the topmost SmartVoice layer. */
     @JvmStatic
     fun onBack(): Boolean {
+        if (isBottomEditorShown) { hideBottomRowEditor(); return true }
         if (isResizing) { finishResize(); return true }
         val voice = ime?.svVoice()
         if (voice != null && voice.isActive) { voice.close(); return true }

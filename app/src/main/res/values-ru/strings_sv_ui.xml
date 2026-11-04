@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_bottom_edit_label">Низ</string>
+    <string name="sv_bottom_toggle_desc">Нажмите, чтобы показать или скрыть %1$s. Перетащите, чтобы изменить порядок.</string>
     <string name="sv_emoji_back">АБВ</string>
     <string name="sv_emoji_space">Пробел</string>
     <string name="sv_emoji_delete">⌫</string>

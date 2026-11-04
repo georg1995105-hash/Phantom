@@ -1161,6 +1161,12 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             return;
         }
         final int code = key.getCode();
+        if (mKeyboard != null && mKeyboard.mId.getElement().name().startsWith("ALPHABET")
+                && (code == KeyCode.SYMBOL_ALPHA || code == KeyCode.EMOJI || code == KeyCode.NUMPAD)) {
+            cancelKeyTracking();
+            helium314.keyboard.smart.ui.SmartUi.openBottomRowEditor();
+            return;
+        }
         sListener.onLongPressKey(code);
         if (key.hasNoPanelAutoPopupKey()) {
             cancelKeyTracking();
@@ -1265,19 +1271,22 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         sTimerProxy.cancelLongPressAlphaSymbolKeyTimer();
         if (sInGesture) return;
         if (key == null) return;
-        if (!key.isLongPressEnabled()) return;
+        final int code = key.getCode();
+        final boolean smartBottomKey = mKeyboard != null
+                && mKeyboard.mId.getElement().name().startsWith("ALPHABET")
+                && (code == KeyCode.SYMBOL_ALPHA || code == KeyCode.EMOJI || code == KeyCode.NUMPAD);
+        if (!key.isLongPressEnabled() && !smartBottomKey) return;
         // Caveat: Please note that isLongPressEnabled() can be true even if the current key
         // doesn't have its popup keys. (e.g. spacebar, globe key) If we are in the dragging finger
         // mode, we will disable long press timer of such key.
         // We always need to start the long press timer if the key has its popup keys regardless of
         // whether or not we are in the dragging finger mode.
-        int code = key.getCode();
         if (mIsInDraggingFinger && (code == KeyCode.SHIFT || key.getPopupKeys() == null)) return;
         if (code == KeyCode.SHIFT && sIsShiftLongPressSuppressed) {
             sIsShiftLongPressSuppressed = false;
             return;
         }
-        if (code == KeyCode.SYMBOL_ALPHA
+        if (code == KeyCode.SYMBOL_ALPHA && !smartBottomKey
             && (!Settings.getValues().mLongPressSymbolsForNumpad
                 || mKeyboard.mId.getElement() != KeyboardElement.SYMBOLS
             )
