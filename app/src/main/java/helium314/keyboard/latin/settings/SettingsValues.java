@@ -184,6 +184,18 @@ public class SettingsValues {
         // Store the input attributes
         mInputAttributes = inputAttributes;
 
+        // Migrate the already-installed personal alpha keyboard once. Its old
+        // saved HeliBoard preferences override newer defaults and left vibration
+        // and tiny symbol hints enabled despite the redesigned keyboard.
+        final String migration = "sv_clean_keyboard_v02_migrated";
+        if (!prefs.getBoolean(migration, false)) {
+            prefs.edit()
+                .putBoolean(Settings.PREF_SHOW_HINTS, false)
+                .putBoolean(Settings.PREF_SHOW_POPUP_HINTS, false)
+                .putBoolean(Settings.PREF_VIBRATE_ON, false)
+                .putBoolean(migration, true)
+                .apply();
+        }
         // Get the settings preferences
         mIsLocked = IsLockedCompatKt.isDeviceLocked(context);
         // we want to hide the toolbar / suggestion strip entirely if device is locked
