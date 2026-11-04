@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   publish:
-    name: Build and attach debug APK, then run tests
+    name: Build and attach private debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -60,15 +60,11 @@ jobs:
           gh release create "$TAG" "$APK_PATH" SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "SmartVoiceKeyboard debug build #${GITHUB_RUN_NUMBER}" \
-            --notes "Personal debug APK built from commit ${GITHUB_SHA}. Unit tests run AFTER publication and may fail; check the workflow result. Debug signed; not a production release." \
+            --title "SmartVoiceKeyboard 0.2.0-alpha2 debug #${GITHUB_RUN_NUMBER}" \
+            --notes "Personal debug APK built from commit ${GITHUB_SHA}. Unit tests run separately in the Android Debug CI workflow; check its result. Personal test APK, not a production release." \
             --prerelease \
             --latest=false
           RELEASE_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq '.url')"
           echo "APK Release: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
           echo "Release created: $RELEASE_URL"
 
-      - name: Run Android unit tests
-        shell: bash
-        run: |
-          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
