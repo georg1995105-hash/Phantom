@@ -386,12 +386,13 @@ public final class EmojiPalettesView extends LinearLayout
     }
 
     private void setupBottomRowKeyboard(EditorInfo editorInfo, KeyboardActionListener keyboardActionListener) {
-        MainKeyboardView keyboardView = findViewById(R.id.bottom_row_keyboard);
-        keyboardView.setKeyboardActionListener(keyboardActionListener);
-        PointerTracker.switchTo(keyboardView);
-        KeyboardLayoutSet kls = KeyboardLayoutSet.Builder.Companion.buildEmojiClipBottomRow(getContext(), editorInfo);
-        Keyboard keyboard = kls.getKeyboard(KeyboardElement.EMOJI_BOTTOM_ROW);
-        keyboardView.setKeyboard(keyboard);
+        // Use simple reachable actions and no blank giant spacebar on the emoji page.
+        findViewById(R.id.sv_emoji_back).setOnClickListener(view ->
+            keyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
+        findViewById(R.id.sv_emoji_space).setOnClickListener(view ->
+            keyboardActionListener.onCodeInput((int) ' ', NOT_A_COORDINATE, NOT_A_COORDINATE, false));
+        findViewById(R.id.sv_emoji_delete).setOnClickListener(view ->
+            keyboardActionListener.onCodeInput(KeyCode.DELETE, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
     }
 
     private void setupSidePadding() {

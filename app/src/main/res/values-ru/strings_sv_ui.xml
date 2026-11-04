@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_emoji_back">АБВ</string>
+    <string name="sv_emoji_space">Пробел</string>
+    <string name="sv_emoji_delete">⌫</string>
     <string name="sv_correct_button">Исправить</string>
     <string name="sv_correct_button_description">Исправить последнее слово. Удерживать — отменить исправление</string>
     <string name="sv_correct_protected">В этом поле исправление отключено</string>
