@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<resources>
+    <string name="sv_delete">Delete</string>
+    <string name="sv_back">Back</string>
+    <string name="sv_voice_mic">Microphone</string>
+    <string name="sv_voice_undo">Undo</string>
+    <string name="sv_voice_back_to_keyboard">Back to keyboard</string>
+    <string name="sv_voice_switch_language">Switch dictation language</string>
+    <string name="sv_voice_starting">Starting…</string>
+    <string name="sv_voice_listening">Listening…</string>
+    <string name="sv_voice_processing">Recognizing…</string>
+    <string name="sv_voice_paused">Paused</string>
+    <string name="sv_voice_tap_mic">Tap the microphone to speak</string>
+    <string name="sv_voice_tap_to_continue">Tap the microphone to continue</string>
+    <string name="sv_voice_not_heard">Didn\'t catch that. Tap the microphone and speak</string>
+    <string name="sv_voice_hint_commands">Say “comma”, “new line”, “delete last sentence”, “replace … with …”</string>
+    <string name="sv_voice_permission_title">Microphone access needed</string>
+    <string name="sv_voice_need_permission">Allow microphone access, then tap the microphone</string>
+    <string name="sv_voice_permission_granted">Microphone allowed. Return to the keyboard and tap the microphone</string>
+    <string name="sv_voice_permission_settings">Allow the microphone in app permissions</string>
+    <string name="sv_voice_unavailable_title">Speech recognition unavailable</string>
+    <string name="sv_voice_unavailable">No speech recognition service on this device. Install or enable “Speech Recognition &amp; Synthesis” / Google app</string>
+    <string name="sv_voice_error_title">Something went wrong</string>
+    <string name="sv_voice_error_generic">Recognition stopped. Tap the microphone to retry</string>
+    <string name="sv_voice_error_busy">Recognizer is busy. Tap the microphone to retry</string>
+    <string name="sv_voice_error_network">No connection to the recognition service. Check the network or enable offline recognition</string>
+    <string name="sv_voice_error_language">This language is not supported by the recognition service</string>
+    <string name="sv_voice_not_found">“%1$s” not found</string>
+</resources>
