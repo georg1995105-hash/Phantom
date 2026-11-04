@@ -44,7 +44,7 @@ jobs:
       - name: Run Android unit tests
         shell: bash
         run: |
-          ./gradlew --no-daemon --stacktrace :app:testDebugNoMinifyUnitTest
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
 
       - name: Record APK checksum
         shell: bash
