@@ -27,13 +27,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install exact Android platform and NDK
+      - name: Install Android 37 and NDK 28 using runner SDK
         shell: bash
         run: |
-          sdkmanager --install "platforms;android-37" "ndk;28.0.13004108"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          SDK_MANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+          if [ -z "$SDK_MANAGER" ]; then
+            echo "No SDK manager in preinstalled Android SDK" >&2
+            exit 1
+          fi
+          yes | "$SDK_MANAGER" --licenses >/dev/null || true
+          "$SDK_MANAGER" --install "platforms;android-37" "ndk;28.0.13004108"
 
       - name: Set up Gradle build cache
         uses: gradle/actions/setup-gradle@v4
