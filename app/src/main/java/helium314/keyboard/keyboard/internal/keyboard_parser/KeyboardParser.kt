@@ -19,6 +19,7 @@ import helium314.keyboard.latin.define.DebugFlags
 import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.utils.prefs
 import helium314.keyboard.smart.SmartPrefs
+import helium314.keyboard.smart.BottomRowOrder
 import helium314.keyboard.latin.utils.LayoutType
 import helium314.keyboard.latin.utils.POPUP_KEYS_LAYOUT
 import helium314.keyboard.latin.utils.POPUP_KEYS_NUMBER
@@ -271,10 +272,22 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
         if (bottom.none { it.label == KeyLabel.SPACE }) return
 
         // One combined punctuation key to the RIGHT of space, no separate left comma.
-        bottom.removeAll { it.label == KeyLabel.COMMA }
-        val period = bottom.indexOfFirst { it.label == KeyLabel.PERIOD }
+        // After locale-specific processing, the punctuation keys may be literal ','
+        // and '.' with group IDs rather than KeyLabel.COMMA / KeyLabel.PERIOD.
+        val period = bottom.indexOfFirst {
+            it.label == KeyLabel.PERIOD || (it.groupId == KeyData.GROUP_PERIOD && it.label == ".")
+        }
         if (period >= 0) {
-            bottom[period] = bottom[period].copy(newLabel = ".,", newCode = '.'.code)
+            bottom.removeAll {
+                it.label == KeyLabel.COMMA ||
+                    (it.groupId == KeyData.GROUP_COMMA && it.label == ",")
+            }
+            val right = bottom.indexOfFirst {
+                it.label == KeyLabel.PERIOD || (it.groupId == KeyData.GROUP_PERIOD && it.label == ".")
+            }
+            if (right >= 0) {
+                bottom[right] = bottom[right].copy(newLabel = ".,", newCode = '.'.code)
+            }
         }
 
         val prefs = context.prefs()
@@ -286,11 +299,9 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
         val movableLabels = setOf("emoji", KeyLabel.LANGUAGE_SWITCH, KeyLabel.NUMPAD)
         val movable = bottom.filter { it.label in movableLabels }
         bottom.removeAll(movable.toSet())
-        val ids = prefs.getString(SmartPrefs.BOTTOM_ORDER, SmartPrefs.DEFAULT_BOTTOM_ORDER)
-            ?.split('|') ?: SmartPrefs.DEFAULT_BOTTOM_ORDER.split('|')
-        val ordered = movable.sortedBy { key ->
-            ids.indexOf(key.label).let { if (it < 0) Int.MAX_VALUE else it }
-        }
+        val ids = BottomRowOrder.sort(movable.map { it.label },
+            prefs.getString(SmartPrefs.BOTTOM_ORDER, null))
+        val ordered = movable.sortedBy { ids.indexOf(it.label) }
         val spaceIndex = bottom.indexOfFirst { it.label == KeyLabel.SPACE }
         if (spaceIndex >= 0) bottom.addAll(spaceIndex, ordered)
     }

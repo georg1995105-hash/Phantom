@@ -30,7 +30,7 @@ import kotlin.math.abs
 /**
  * Resize mode: the keyboard stays at its place, dimmed, with a thin frame and drag handles.
  * Top handle changes the height, side handles the width, the center button moves the keyboard up.
- * "Сброс" and "Готово" are placed in the middle of the keyboard.
+ * "Сброс" and "Готово" are anchored to the top strip instead of hiding the keys.
  */
 class ResizeOverlayView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
 
@@ -57,7 +57,7 @@ class ResizeOverlayView @JvmOverloads constructor(context: Context, attrs: Attri
         isClickable = true
         controls.orientation = LinearLayout.HORIZONTAL
         controls.gravity = Gravity.CENTER_VERTICAL
-        addView(controls, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        addView(controls, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.TOP))
     }
 
     private fun buildControls() {
@@ -72,12 +72,12 @@ class ResizeOverlayView @JvmOverloads constructor(context: Context, attrs: Attri
             compoundDrawablePadding = SvUi.dp(context, 6)
             setOnClickListener { SvUi.haptic(it); SmartUi.finishResize() }
         }
-        val size = SvUi.dp(context, 56)
+        val size = SvUi.dp(context, 40)
         moveButton.setImageDrawable(SvUi.icon(context, R.drawable.ic_sv_move, SvUi.onAccent()))
         moveButton.scaleType = ImageView.ScaleType.CENTER
         moveButton.background = SvUi.rounded(SvUi.accent(), size / 2f)
         moveButton.contentDescription = context.getString(R.string.sv_resize_move)
-        val m = SvUi.dp(context, 18)
+        val m = SvUi.dp(context, 10)
         controls.addView(reset)
         controls.addView(moveButton, LinearLayout.LayoutParams(size, size).apply { leftMargin = m; rightMargin = m })
         controls.addView(done)
@@ -157,11 +157,10 @@ class ResizeOverlayView @JvmOverloads constructor(context: Context, attrs: Attri
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
         updateFrame()
-        // keep the buttons in the middle of the keyboard frame
-        val cx = frame.centerX()
-        val cy = frame.centerY()
-        controls.translationX = cx - (width / 2f)
-        controls.translationY = cy - (height / 2f)
+        // The top suggestion strip is reserved for controls while resizing.
+        // The typing keys and resize handles remain visible and uncovered.
+        controls.translationX = frame.centerX() - controls.width / 2f - controls.left
+        controls.translationY = frame.top + SvUi.dp(context, 4) - controls.top
     }
 
     override fun onDraw(canvas: Canvas) {

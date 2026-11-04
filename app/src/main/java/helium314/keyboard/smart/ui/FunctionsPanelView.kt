@@ -35,6 +35,7 @@ import helium314.keyboard.latin.utils.SubtypeLocaleUtils.displayName
 import helium314.keyboard.latin.utils.SubtypeSettings
 import helium314.keyboard.latin.utils.prefs
 import helium314.keyboard.smart.SmartPrefs
+import helium314.keyboard.smart.BottomRowOrder
 
 /** The panel behind the 4-dots button: large function icons, plus quick theme and language pages. */
 class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : FrameLayout(context, attrs) {
@@ -169,9 +170,20 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         if (item.id in hiddenItems()) {
             prefs.edit().putStringSet(SmartPrefs.FUNCTIONS_HIDDEN, hiddenItems() - item.id).apply()
         }
+        refreshBottomRowInPlace()
+    }
+
+    /**
+     * Re-read the changed preference before reloading, otherwise SettingsValues keeps
+     * the previous emoji/language-key state. Do not hide/show the system IME.
+     */
+    private fun refreshBottomRowInPlace() {
+        val settings = Settings.getInstance()
+        val active = settings.current
+        settings.loadSettings(context, active.mLocale, active.mInputAttributes)
         KeyboardLayoutSet.onKeyboardThemeChanged()
         hide()
-        KeyboardSwitcher.getInstance().setThemeNeedsReload()
+        KeyboardSwitcher.getInstance().reloadMainKeyboard()
     }
 
     private fun hiddenItems(): Set<String> =
@@ -195,17 +207,14 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         val fromId = bottomKey(items().first { it.id == from })
         val toId = bottomKey(items().first { it.id == to })
         if (fromId != null && toId != null) {
-            val bottomOrder = (prefs.getString(SmartPrefs.BOTTOM_ORDER, SmartPrefs.DEFAULT_BOTTOM_ORDER)
-                ?: SmartPrefs.DEFAULT_BOTTOM_ORDER).split('|').toMutableList()
-            if (bottomOrder.remove(fromId)) bottomOrder.add(bottomOrder.indexOf(toId), fromId)
-            edit.putString(SmartPrefs.BOTTOM_ORDER, bottomOrder.joinToString("|"))
+            edit.putString(
+                SmartPrefs.BOTTOM_ORDER,
+                BottomRowOrder.move(prefs.getString(SmartPrefs.BOTTOM_ORDER, null), fromId, toId)
+            )
         }
         edit.apply()
-        if (fromId != null && toId != null) {
-            KeyboardLayoutSet.onKeyboardThemeChanged()
-            hide()
-            KeyboardSwitcher.getInstance().setThemeNeedsReload()
-        } else showPage(Page.MAIN)
+        if (fromId != null && toId != null) refreshBottomRowInPlace()
+        else showPage(Page.MAIN)
     }
 
     private fun mainGrid(): View {
