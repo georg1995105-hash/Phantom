@@ -173,6 +173,7 @@ class InputLogicTest {
     @Test fun insertLetterIntoWordHangulFails() {
         if (BuildConfig.BUILD_TYPE == "runTests") return
         latinIME.switchToSubtype(SubtypeSettings.getResourceSubtypesForLocale("ko".constructLocale()).first())
+        currentScript = ScriptUtils.SCRIPT_HANGUL
         chainInput("ㅛㅎㄹㅎㅕㅛ")
         setCursorPosition(3)
         input('ㄲ') // fails, as expected from the hangul issue when processing the event in onCodeInput

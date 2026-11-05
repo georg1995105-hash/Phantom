@@ -43,6 +43,12 @@ object DebugSnapshot {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action == ACTION_UI) {
                     val latin = ime as? helium314.keyboard.latin.LatinIME ?: return
+                    // The service registers before Android has created its input view. Adb callers
+                    // must wait for the visible keyboard just as a touch caller does.
+                    if (helium314.keyboard.keyboard.KeyboardSwitcher.getInstance().mainKeyboardView == null) {
+                        Log.w(TAG, "Ignoring UI command before the keyboard view is ready")
+                        return
+                    }
                     intent.getStringExtra("type")?.codePoints()?.forEach { latin.onCodeInput(it, 0, 0, false) }
                     when (intent.getStringExtra("page")) {
                         "functions" -> helium314.keyboard.smart.ui.SmartUi.toggleFunctions()

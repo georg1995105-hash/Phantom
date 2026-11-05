@@ -49,6 +49,9 @@ jobs:
           df -h "$HOME"
           free_mb="$(df -Pm "$HOME" | awk 'NR==2 {print $4}')"
           test "$free_mb" -ge 11000 || { echo "Insufficient disk for AVD: ${free_mb} MB" >&2; exit 1; }
+      - name: Allow emulator hardware acceleration on the disposable runner
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
       - name: Install, open and enable IME on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
