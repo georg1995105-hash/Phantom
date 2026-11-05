@@ -676,7 +676,7 @@ public final class KeyboardSwitcher {
             mEmojiTabStripView.setVisibility(View.GONE);
             mSuggestionStripView.setVisibility(View.GONE);
             mStripContainer.setVisibility(getSecondaryStripVisibility());
-            mClipboardStripScrollView.post(() -> mClipboardStripScrollView.fullScroll(HorizontalScrollView.FOCUS_RIGHT));
+            mClipboardStripScrollView.post(() -> mClipboardStripScrollView.fullScroll(HorizontalScrollView.FOCUS_LEFT));
             mClipboardStripScrollView.setVisibility(View.VISIBLE);
             mEmojiPalettesView.setVisibility(View.GONE);
             mClipboardHistoryView.startClipboardHistory(mLatinIME.getClipboardHistoryManager(), mKeyboardView.getKeyVisualAttribute(),
