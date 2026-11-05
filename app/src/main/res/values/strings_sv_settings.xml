@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_set_keyboard_main">Keyboard</string>
+    <string name="sv_set_keyboard_main_summary">Appearance, size and vibration</string>
+    <string name="sv_set_languages_input">Languages and typing</string>
+    <string name="sv_set_languages_input_summary">Languages, swipe and autocorrection</string>
+    <string name="sv_set_voice_correct">Voice and corrections</string>
+    <string name="sv_set_voice_correct_summary">Dictation and text cleanup</string>
     <string name="sv_set_layout">Layout and size</string>
     <string name="sv_set_layout_summary">Number row, symbol hints, height, one-handed mode</string>
     <string name="sv_set_input">Text input and gestures</string>

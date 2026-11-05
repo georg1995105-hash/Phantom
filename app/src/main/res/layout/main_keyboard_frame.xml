@@ -73,11 +73,6 @@
             android:layout_gravity="top"
             />
 
-        <helium314.keyboard.smart.voice.VoicePanelView
-            android:id="@+id/sv_voice_panel"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone" />
     </helium314.keyboard.latin.KeyboardWrapperView>
     <LinearLayout
         android:id="@+id/float_handle_container"

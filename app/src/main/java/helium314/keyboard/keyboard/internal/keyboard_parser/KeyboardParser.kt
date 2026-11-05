@@ -17,6 +17,9 @@ import helium314.keyboard.keyboard.internal.keyboard_parser.floris.TextKeyData
 import helium314.keyboard.latin.common.isEmoji
 import helium314.keyboard.latin.define.DebugFlags
 import helium314.keyboard.latin.settings.Settings
+import helium314.keyboard.latin.utils.prefs
+import helium314.keyboard.smart.SmartPrefs
+import helium314.keyboard.smart.BottomRowOrder
 import helium314.keyboard.latin.utils.LayoutType
 import helium314.keyboard.latin.utils.POPUP_KEYS_LAYOUT
 import helium314.keyboard.latin.utils.POPUP_KEYS_NUMBER
@@ -114,6 +117,7 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
 
         val allFunctionalKeys = LayoutParser.parseLayout(LayoutType.FUNCTIONAL, params, context)
         adjustBottomFunctionalRowAndBaseKeys(allFunctionalKeys, baseKeys)
+        customizeSmartBottomRow(allFunctionalKeys)
 
         if (allFunctionalKeys.none { it.singleOrNull()?.isKeyPlaceholder() == true })
             // add a placeholder so splitAt does what we really want
@@ -256,6 +260,78 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
             }
         }
         baseKeys.add(mutableListOf())
+    }
+
+    /**
+     * Only regular alphabet layouts get the compact SmartVoice bottom row.
+     * Preserve mail/URL specialized @ and / keys, and preserve the symbol/numpad layouts.
+     */
+    private fun customizeSmartBottomRow(rows: MutableList<MutableList<KeyData>>) {
+        if (!params.mId.element.isAlphaOrSymbol) return
+        val bottom = rows.lastOrNull() ?: return
+        if (bottom.none { it.label == KeyLabel.SPACE }) return
+
+        // One combined punctuation key to the RIGHT of space, no separate left comma.
+        // After locale-specific processing, the punctuation keys may be literal ','
+        // and '.' with group IDs rather than KeyLabel.COMMA / KeyLabel.PERIOD.
+        val period = bottom.indexOfFirst {
+            it.label == KeyLabel.PERIOD || (it.groupId == KeyData.GROUP_PERIOD && it.label == ".")
+        }
+        val specializedComma = bottom.any {
+            it.groupId == KeyData.GROUP_COMMA &&
+                it.label !in setOf(KeyLabel.COMMA, ",")
+        }
+        if (period >= 0 && !specializedComma) {
+            bottom.removeAll {
+                it.label == KeyLabel.COMMA ||
+                    (it.groupId == KeyData.GROUP_COMMA && it.label == ",")
+            }
+            val right = bottom.indexOfFirst {
+                it.label == KeyLabel.PERIOD || (it.groupId == KeyData.GROUP_PERIOD && it.label == ".")
+            }
+            if (right >= 0) {
+                bottom[right] = bottom[right].copy(newLabel = ".,", newCode = '.'.code)
+            }
+        }
+
+        val prefs = context.prefs()
+        // In symbol mode, get rid of the legacy cursor and 123 shortcuts.
+        // Use the same user-selected actions as the alphabet layout.
+        if (!params.mId.element.isAlphabet) {
+            bottom.removeAll { it.label == KeyLabel.DPAD }
+            if (prefs.getBoolean(Settings.PREF_SHOW_EMOJI_KEY,
+                    helium314.keyboard.latin.settings.Defaults.PREF_SHOW_EMOJI_KEY)
+                && bottom.none { it.label == "emoji" }) {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = "emoji", code = KeyCode.EMOJI,
+                        type = KeyType.FUNCTION, width = 0.12f))
+            }
+            if (prefs.getBoolean(Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY,
+                    helium314.keyboard.latin.settings.Defaults.PREF_SHOW_LANGUAGE_SWITCH_KEY)
+                && bottom.none { it.label == KeyLabel.LANGUAGE_SWITCH }) {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = KeyLabel.LANGUAGE_SWITCH,
+                        code = KeyCode.LANGUAGE_SWITCH,
+                        type = KeyType.FUNCTION, width = 0.12f))
+            }
+        }
+        if (prefs.getBoolean(SmartPrefs.BOTTOM_NUMPAD, false)) {
+            if (bottom.none { it.label == KeyLabel.NUMPAD }) {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = KeyLabel.NUMPAD, code = KeyCode.NUMPAD,
+                        type = KeyType.FUNCTION, width = 0.12f))
+            }
+        } else {
+            bottom.removeAll { it.label == KeyLabel.NUMPAD }
+        }
+        val movableLabels = setOf("emoji", KeyLabel.LANGUAGE_SWITCH, KeyLabel.NUMPAD)
+        val movable = bottom.filter { it.label in movableLabels }
+        bottom.removeAll(movable.toSet())
+        val ids = BottomRowOrder.sort(movable.map { it.label },
+            prefs.getString(SmartPrefs.BOTTOM_ORDER, null))
+        val ordered = movable.sortedBy { ids.indexOf(it.label) }
+        val spaceIndex = bottom.indexOfFirst { it.label == KeyLabel.SPACE }
+        if (spaceIndex >= 0) bottom.addAll(spaceIndex, ordered)
     }
 
     // ideally we would get all functional keys in a nice list of pairs from the start, but at least it works...

@@ -17,11 +17,15 @@ object SmartPrefs {
     const val CLIP_CHIP_MINUTES = "sv_clip_chip_minutes"
 
     const val FUNCTIONS_ORDER = "sv_functions_order"
+    const val FUNCTIONS_HIDDEN = "sv_functions_hidden"
+    const val BOTTOM_NUMPAD = "sv_bottom_numpad"
+    const val BOTTOM_ORDER = "sv_bottom_order"
+    const val DEFAULT_BOTTOM_ORDER = "emoji|language_switch|numpad"
 
     const val DEF_VOICE_LANGUAGE = "auto"
     const val DEF_VOICE_SMART_PUNCTUATION = true
     const val DEF_VOICE_REMOVE_FILLERS = true
-    const val DEF_VOICE_COMMANDS = true
+    const val DEF_VOICE_COMMANDS = false
     const val DEF_VOICE_SEND_COMMAND = false
     const val DEF_VOICE_PREFER_OFFLINE = false
     const val DEF_VOICE_CONTINUOUS = true

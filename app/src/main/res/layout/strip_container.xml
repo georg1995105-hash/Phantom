@@ -42,4 +42,17 @@
                 android:layout_weight="1" />
         </LinearLayout>
     </HorizontalScrollView>
+    <!-- In-keyboard recording controls replace the suggestion bar without adding
+         any new height above the conversation. Typing keys remain available. -->
+    <helium314.keyboard.smart.voice.VoicePanelView
+        android:id="@+id/sv_voice_panel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+    <!-- Lower-row editor is embedded inside the keyboard, replacing suggestions. -->
+    <helium314.keyboard.smart.ui.BottomRowEditorView
+        android:id="@+id/sv_bottom_editor"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 </FrameLayout>

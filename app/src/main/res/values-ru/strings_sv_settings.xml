@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_set_keyboard_main">Клавиатура</string>
+    <string name="sv_set_keyboard_main_summary">Вид, размер, тема и вибрация</string>
+    <string name="sv_set_languages_input">Языки и ввод</string>
+    <string name="sv_set_languages_input_summary">Языки, свайп и автозамена</string>
+    <string name="sv_set_voice_correct">Голос и исправление</string>
+    <string name="sv_set_voice_correct_summary">Диктовка и обработка текста</string>
     <string name="sv_set_layout">Раскладка и размер</string>
     <string name="sv_set_layout_summary">Ряд цифр, подписи символов, высота, одна рука</string>
     <string name="sv_set_input">Ввод текста и жесты</string>

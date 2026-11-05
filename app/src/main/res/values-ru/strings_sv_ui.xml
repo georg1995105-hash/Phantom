@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_bottom_edit_label">Низ</string>
+    <string name="sv_bottom_toggle_desc">Нажмите, чтобы показать или скрыть %1$s. Перетащите, чтобы изменить порядок.</string>
+    <string name="sv_emoji_back">АБВ</string>
+    <string name="sv_emoji_space">Пробел</string>
+    <string name="sv_emoji_delete">⌫</string>
+    <string name="sv_correct_button">Исправить</string>
+    <string name="sv_correct_button_description">Исправить последнее слово. Удерживать — отменить исправление</string>
+    <string name="sv_correct_protected">В этом поле исправление отключено</string>
+    <string name="sv_correct_select_word">Поставьте курсор после слова или выделите одно слово</string>
+    <string name="sv_correct_no_service">Системная проверка орфографии недоступна</string>
+    <string name="sv_correct_nothing">Подходящих исправлений не найдено</string>
+    <string name="sv_functions_edit">Изменить</string>
+    <string name="sv_functions_done">Готово</string>
     <string name="sv_functions_button">Меню</string>
     <string name="sv_functions_title">Функции</string>
     <string name="sv_fn_clipboard">Буфер обмена</string>

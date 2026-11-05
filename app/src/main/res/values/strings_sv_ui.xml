@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_bottom_edit_label">Row</string>
+    <string name="sv_bottom_toggle_desc">Tap to show or hide %1$s; drag to reorder</string>
+    <string name="sv_emoji_back">ABC</string>
+    <string name="sv_emoji_space">Space</string>
+    <string name="sv_emoji_delete">⌫</string>
+    <string name="sv_correct_button">Fix</string>
+    <string name="sv_correct_button_description">Correct last word. Long-press to undo</string>
+    <string name="sv_correct_protected">Corrections are disabled for this field</string>
+    <string name="sv_correct_select_word">Place cursor after a word or select one word</string>
+    <string name="sv_correct_no_service">System spelling service is unavailable</string>
+    <string name="sv_correct_nothing">No spelling correction found</string>
+    <string name="sv_functions_edit">Edit</string>
+    <string name="sv_functions_done">Done</string>
     <string name="sv_functions_button">Menu</string>
     <string name="sv_functions_title">Functions</string>
     <string name="sv_fn_clipboard">Clipboard</string>
