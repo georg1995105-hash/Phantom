@@ -2,12 +2,15 @@
 package helium314.keyboard.smart.ui
 
 import android.content.Context
+import android.content.ClipData
+import android.os.Build
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.text.TextUtils
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.DragEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -20,6 +23,7 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.toColorInt
 import androidx.core.view.isVisible
 import helium314.keyboard.keyboard.KeyboardSwitcher
+import helium314.keyboard.smart.SmartPrefs
 import helium314.keyboard.keyboard.KeyboardTheme
 import helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode
 import helium314.keyboard.latin.LatinIME
@@ -38,6 +42,9 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
 
     private enum class Page { MAIN, THEME, LANGUAGES }
     private var page = Page.MAIN
+    private var isEditing = false
+    private var order = mutableListOf<String>()
+    private var hidden = mutableSetOf<String>()
 
     private val header = LinearLayout(context)
     private val title = SvUi.label(context, 16f, bold = true)
@@ -65,6 +72,8 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     }
 
     fun show() {
+        isEditing = false
+        loadLayout()
         showPage(Page.MAIN)
         visibility = VISIBLE
     }
@@ -74,7 +83,9 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     }
 
     fun onBack() {
-        if (page != Page.MAIN) showPage(Page.MAIN) else hide()
+        if (page != Page.MAIN) showPage(Page.MAIN)
+        else if (isEditing) { isEditing = false; showPage(Page.MAIN) }
+        else hide()
     }
 
     private fun buildHeader() {
@@ -83,6 +94,19 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         header.addView(back, LinearLayout.LayoutParams(SvUi.dp(context, 52), LayoutParams.MATCH_PARENT))
         title.setTextColor(SvUi.text())
         header.addView(title, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        if (page == Page.MAIN) {
+            val edit = SvUi.label(context, 14f, SvUi.accent()).apply {
+                text = context.getString(if (isEditing) R.string.sv_functions_done else R.string.sv_functions_edit)
+                background = SvUi.ripple(null, SvUi.dp(context, 14).toFloat())
+                setPadding(SvUi.dp(context, 12), 0, SvUi.dp(context, 12), 0)
+                setOnClickListener {
+                    SvUi.haptic(it)
+                    isEditing = !isEditing
+                    showPage(Page.MAIN)
+                }
+            }
+            header.addView(edit, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        }
     }
 
     private fun showPage(p: Page) {
@@ -97,7 +121,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         }
     }
 
-    private class Item(val icon: Int, val label: Int, val action: () -> Unit)
+    private class Item(val id: String, val icon: Int, val label: Int, val action: () -> Unit)
 
     private fun code(code: Int) {
         hide()
@@ -105,63 +129,192 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     }
 
     private fun items() = listOf(
-        Item(R.drawable.ic_sv_clipboard, R.string.sv_fn_clipboard) { code(KeyCode.CLIPBOARD) },
-        Item(R.drawable.ic_sv_settings, R.string.sv_fn_settings) { hide(); ime?.svLaunchSettings(null) },
-        Item(R.drawable.ic_sv_palette, R.string.sv_fn_theme) { showPage(Page.THEME) },
-        Item(R.drawable.ic_sv_resize, R.string.sv_fn_resize) { SmartUi.startResize() },
-        Item(R.drawable.ic_sv_one_hand, R.string.sv_fn_one_hand) { code(KeyCode.TOGGLE_ONE_HANDED_MODE) },
-        Item(R.drawable.ic_sv_language, R.string.sv_fn_languages) { showPage(Page.LANGUAGES) },
-        Item(R.drawable.ic_sv_mic, R.string.sv_fn_voice) { hide(); ime?.svLaunchSettings("voice") },
-        Item(R.drawable.ic_sv_emoji, R.string.sv_fn_emoji) { code(KeyCode.EMOJI) },
-        Item(R.drawable.ic_dpad, R.string.sv_fn_cursor) { code(KeyCode.DPAD) },
-        Item(R.drawable.sym_keyboard_numpad_key_lxx, R.string.sv_fn_numpad) { code(KeyCode.NUMPAD) },
-        Item(R.drawable.sym_keyboard_incognito_lxx, R.string.sv_fn_incognito) { code(KeyCode.TOGGLE_INCOGNITO_MODE) },
-        Item(R.drawable.ic_sv_text, R.string.sv_fn_split) { code(KeyCode.SPLIT_LAYOUT) },
+        Item("clipboard", R.drawable.ic_sv_clipboard, R.string.sv_fn_clipboard) { code(KeyCode.CLIPBOARD) },
+        Item("theme", R.drawable.ic_sv_palette, R.string.sv_fn_theme) { showPage(Page.THEME) },
+        Item("resize", R.drawable.ic_sv_resize, R.string.sv_fn_resize) { SmartUi.startResize() },
+        Item("emoji", R.drawable.ic_sv_emoji, R.string.sv_fn_emoji) { code(KeyCode.EMOJI) },
+        Item("settings", R.drawable.ic_sv_settings, R.string.sv_fn_settings) { hide(); ime?.svLaunchSettings(null) },
+        Item("languages", R.drawable.ic_sv_language, R.string.sv_fn_languages) { showPage(Page.LANGUAGES) },
+        Item("one_hand", R.drawable.ic_sv_one_hand, R.string.sv_fn_one_hand) { code(KeyCode.TOGGLE_ONE_HANDED_MODE) },
+        Item("voice", R.drawable.ic_sv_mic, R.string.sv_fn_voice) { hide(); ime?.svLaunchSettings("voice") },
+        Item("cursor", R.drawable.ic_dpad, R.string.sv_fn_cursor) { code(KeyCode.DPAD) },
+        Item("numpad", R.drawable.sym_keyboard_numpad_key_lxx, R.string.sv_fn_numpad) { code(KeyCode.NUMPAD) },
+        Item("incognito", R.drawable.sym_keyboard_incognito_lxx, R.string.sv_fn_incognito) { code(KeyCode.TOGGLE_INCOGNITO_MODE) },
+        Item("split", R.drawable.ic_sv_text, R.string.sv_fn_split) { code(KeyCode.SPLIT_LAYOUT) },
     )
 
-    private fun mainGrid(): View {
-        val scroll = ScrollView(context).apply { isVerticalScrollBarEnabled = false }
-        val grid = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(SvUi.dp(context, 8), 0, SvUi.dp(context, 8), SvUi.dp(context, 8)) }
-        val cols = 4
-        val incognito = Settings.getValues()?.mIncognitoModeEnabled == true
-        items().chunked(cols).forEach { rowItems ->
-            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-            rowItems.forEach { item ->
-                val active = item.label == R.string.sv_fn_incognito && incognito
-                row.addView(itemView(item, active), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            }
-            repeat(cols - rowItems.size) { row.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f)) }
-            grid.addView(row)
-        }
-        scroll.addView(grid)
-        return scroll
+    // The saved state contains every action; hidden ones are never discarded.
+    // Unknown IDs are ignored and newly introduced functions are appended.
+    private fun loadLayout() {
+        val ids = items().map { it.id }
+        val prefs = context.prefs()
+        val stored = prefs.getString(SmartPrefs.FUNCTIONS_ORDER, null)
+        order = (stored?.split(',')?.filter { it in ids }?.distinct().orEmpty() + ids).distinct().toMutableList()
+        val savedHidden = prefs.getString(SmartPrefs.FUNCTIONS_HIDDEN, null)
+        hidden = (savedHidden?.split(',')?.filter { it in ids }
+            ?: ids.filterNot { it in listOf("clipboard", "theme", "resize", "emoji", "settings") }).toMutableSet()
     }
 
-    private fun itemView(item: Item, active: Boolean): View {
-        val v = LinearLayout(context).apply {
+    private fun saveLayout() {
+        context.prefs().edit()
+            .putString(SmartPrefs.FUNCTIONS_ORDER, order.joinToString(","))
+            .putString(SmartPrefs.FUNCTIONS_HIDDEN, hidden.joinToString(","))
+            .apply()
+    }
+
+    private fun toggleVisibility(id: String) {
+        if (!hidden.add(id)) hidden.remove(id)
+        // Keep entries in the user's chosen order even after hiding/showing.
+        saveLayout()
+        showPage(Page.MAIN)
+    }
+
+    private fun move(id: String, beforeId: String?, intoHidden: Boolean) {
+        if (id !in order || (beforeId != null && beforeId == id)) return
+        if (intoHidden) hidden.add(id) else hidden.remove(id)
+        order.remove(id)
+        val insertAt = when {
+            beforeId != null -> order.indexOf(beforeId).takeIf { it >= 0 } ?: order.size
+            intoHidden -> order.size
+            else -> (order.indexOfLast { it !in hidden } + 1).coerceAtLeast(0)
+        }
+        order.add(insertAt, id)
+        saveLayout()
+        showPage(Page.MAIN)
+    }
+
+    private fun acceptDrag(target: View, beforeId: String?, intoHidden: Boolean) {
+        target.setOnDragListener { v, event ->
+            val dragged = event.localState as? String
+            if (!isEditing || dragged == null || dragged !in order) return@setOnDragListener false
+            when (event.action) {
+                DragEvent.ACTION_DRAG_STARTED -> true
+                DragEvent.ACTION_DRAG_ENTERED -> { v.alpha = 0.65f; true }
+                DragEvent.ACTION_DRAG_EXITED, DragEvent.ACTION_DRAG_ENDED -> { v.alpha = 1f; true }
+                DragEvent.ACTION_DROP -> {
+                    v.alpha = 1f
+                    move(dragged, beforeId, intoHidden)
+                    true
+                }
+                else -> true
+            }
+        }
+    }
+
+    private fun functionGrid(list: List<Item>, intoHidden: Boolean): View {
+        val container = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val columns = 4
+        list.chunked(columns).forEach { rowItems ->
+            val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
+            rowItems.forEach { item ->
+                row.addView(itemView(item, intoHidden), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            }
+            repeat(columns - rowItems.size) {
+                row.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+            }
+            container.addView(row)
+        }
+        // Dropping between cards or into an empty group appends to that group.
+        if (isEditing) {
+            val dropArea = SvUi.label(context, 12f, SvUi.secondaryText()).apply {
+                text = context.getString(R.string.sv_functions_drop_here)
+                background = SvUi.rounded(SvUi.key(), SvUi.dp(context, 12).toFloat())
+            }
+            container.addView(dropArea, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, SvUi.dp(context, 34)).apply {
+                setMargins(SvUi.dp(context, 5), SvUi.dp(context, 5), SvUi.dp(context, 5), SvUi.dp(context, 5))
+            })
+            acceptDrag(dropArea, null, intoHidden)
+        }
+        return container
+    }
+
+    private fun mainGrid(): View {
+        val allItems = items().associateBy { it.id }
+        val active = order.filter { it !in hidden }.mapNotNull(allItems::get)
+        val inactive = order.filter { it in hidden }.mapNotNull(allItems::get)
+        val column = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(SvUi.dp(context, 2), SvUi.dp(context, 4), SvUi.dp(context, 2), SvUi.dp(context, 4))
-            background = SvUi.ripple(null, SvUi.dp(context, 16).toFloat())
+            setPadding(SvUi.dp(context, 8), SvUi.dp(context, 4), SvUi.dp(context, 8), SvUi.dp(context, 10))
+        }
+        if (isEditing) {
+            column.addView(sectionLabel(R.string.sv_functions_drag_hint))
+            column.addView(sectionLabel(R.string.sv_functions_active))
+        }
+        column.addView(functionGrid(active, false))
+        if (isEditing) {
+            column.addView(sectionLabel(R.string.sv_functions_hidden))
+            column.addView(functionGrid(inactive, true))
+        }
+        return ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            isFillViewport = true
+            addView(column)
+        }
+    }
+
+    private fun sectionLabel(res: Int) = SvUi.label(context, 13f, SvUi.secondaryText()).apply {
+        text = context.getString(res)
+        gravity = Gravity.CENTER_VERTICAL or Gravity.START
+        setPadding(SvUi.dp(context, 8), SvUi.dp(context, 10), 0, SvUi.dp(context, 8))
+    }
+
+    private fun itemView(item: Item, inHidden: Boolean): View {
+        val isIncognito = item.id == "incognito" && Settings.getValues()?.mIncognitoModeEnabled == true
+        val panelColor = if (inHidden) ColorUtils.setAlphaComponent(SvUi.text(), 0x10)
+            else ColorUtils.setAlphaComponent(SvUi.text(), 0x16)
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            minimumHeight = SvUi.dp(context, 100)
+            setPadding(SvUi.dp(context, 2), SvUi.dp(context, 7), SvUi.dp(context, 2), SvUi.dp(context, 7))
+            val radius = SvUi.dp(context, 16).toFloat()
+            background = SvUi.ripple(
+                SvUi.rounded(panelColor, radius,
+                    ColorUtils.setAlphaComponent(SvUi.text(), if (isEditing) 0x42 else 0x18), SvUi.dp(context, 1)),
+                radius
+            )
             contentDescription = context.getString(item.label)
-            setOnClickListener { SvUi.haptic(it); item.action() }
+            setOnClickListener {
+                SvUi.haptic(it)
+                if (isEditing) toggleVisibility(item.id) else item.action()
+            }
+            if (isEditing) setOnLongClickListener {
+                SvUi.haptic(it)
+                val clip = ClipData.newPlainText("function", item.id)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+                    it.startDragAndDrop(clip, View.DragShadowBuilder(it), item.id, 0)
+                else it.startDrag(clip, View.DragShadowBuilder(it), item.id, 0)
+                true
+            }
         }
-        val box = SvUi.dp(context, 50)
-        val iconBg = if (active) SvUi.accent() else SvUi.key().let { if (android.graphics.Color.alpha(it) < 0x40) ColorUtils.setAlphaComponent(SvUi.text(), 0x18) else it }
+        val iconSize = SvUi.dp(context, 48)
+        val tint = if (isIncognito) SvUi.onAccent() else SvUi.text()
         val icon = ImageView(context).apply {
-            setImageDrawable(SvUi.icon(context, item.icon, if (active) SvUi.onAccent() else SvUi.text()))
+            setImageDrawable(SvUi.icon(context, item.icon, tint))
             scaleType = ImageView.ScaleType.CENTER
-            background = SvUi.rounded(iconBg, SvUi.dp(context, 18).toFloat())
+            background = SvUi.rounded(
+                if (isIncognito) SvUi.accent() else SvUi.key(), SvUi.dp(context, 15).toFloat())
         }
-        v.addView(icon, LinearLayout.LayoutParams(box, box))
+        card.addView(icon, LinearLayout.LayoutParams(iconSize, iconSize))
         val label = SvUi.label(context, 12f).apply {
             text = context.getString(item.label)
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
-            setPadding(0, SvUi.dp(context, 4), 0, 0)
+            setPadding(0, SvUi.dp(context, 6), 0, 0)
         }
-        v.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        return v
+        card.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (isEditing) {
+            card.addView(SvUi.label(context, 11f, SvUi.secondaryText()).apply {
+                text = if (inHidden) "+" else "−"
+                contentDescription = context.getString(if (inHidden) R.string.sv_functions_show else R.string.sv_functions_hide)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, SvUi.dp(context, 17)))
+            acceptDrag(card, item.id, inHidden)
+        }
+        return FrameLayout(context).apply {
+            val lp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.setMargins(SvUi.dp(context, 3), SvUi.dp(context, 3), SvUi.dp(context, 3), SvUi.dp(context, 3))
+            addView(card, lp)
+        }
     }
 
     // ---------- theme page ----------
