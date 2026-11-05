@@ -315,7 +315,9 @@ class ClipboardHistoryView @JvmOverloads constructor(
 
     override fun onClipMenu(entry: ClipboardHistoryEntry, anchor: View) {
         val menu = LinearLayout(context).apply { orientation = VERTICAL; setPadding(8, 8, 8, 8) }
-        val popup = android.widget.PopupWindow(menu, SvUi.dp(context, 220), LayoutParams.WRAP_CONTENT, true).apply {
+        val scroll = android.widget.ScrollView(context).apply { addView(menu) }
+        val popupHeight = minOf(SvUi.dp(context, 240), height - SvUi.dp(context, 12)).coerceAtLeast(SvUi.dp(context, 48))
+        val popup = android.widget.PopupWindow(scroll, SvUi.dp(context, 220), popupHeight, true).apply {
             setBackgroundDrawable(SvUi.surface(SvUi.panelBackground(), SvUi.dp(context, 18).toFloat()))
             isOutsideTouchable = true
             elevation = SvUi.dp(context, 6).toFloat()
@@ -342,7 +344,10 @@ class ClipboardHistoryView @JvmOverloads constructor(
         }
         option(R.string.sv_clip_select) { onClipLongClick(entry) }
         option(R.string.sv_clip_delete) { pendingDelete = listOf(entry.id); updateHeader() }
-        popup.showAsDropDown(anchor)
+        // A card near the IME's lower edge has no room for a dropdown. Anchor the
+        // scrollable actions above the system navigation region instead.
+        val nav = rootWindowInsets?.stableInsetBottom ?: 0
+        popup.showAtLocation(this, Gravity.BOTTOM or Gravity.END, SvUi.dp(context, 8), nav + SvUi.dp(context, 8))
     }
 
     // ---------- lifecycle ----------
