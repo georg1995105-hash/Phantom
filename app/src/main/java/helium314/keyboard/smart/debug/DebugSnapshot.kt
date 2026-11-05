@@ -82,8 +82,13 @@ object DebugSnapshot {
                     return null
                 }
                 val target = inputView(decor) ?: decor
-                val bmp = Bitmap.createBitmap(target.width, target.height, Bitmap.Config.ARGB_8888)
-                target.draw(Canvas(bmp))
+                // Render the actual measured keyboard frame, including overlays; the
+                // transparent area reserved for popups above it is not keyboard content.
+                val frame = target.findViewById<View>(R.id.main_keyboard_frame) ?: target
+                val bmp = Bitmap.createBitmap(frame.width, frame.height, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                if (frame !== target) canvas.translate(-frame.left.toFloat(), -frame.top.toFloat())
+                target.draw(canvas)
                 val dir = ime.getExternalFilesDir(null) ?: ime.filesDir
                 File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 Log.i(TAG, "saved $name")

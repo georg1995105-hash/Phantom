@@ -178,7 +178,7 @@ class ClipboardHistoryView @JvmOverloads constructor(
                     ClipCategory.LINKS -> R.drawable.ic_sv_link
                     ClipCategory.PINNED -> R.drawable.ic_sv_pin
                 }
-                setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, icon, if (cat == category) SvUi.onAccent() else SvUi.text()), null, null, null)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, icon, if (cat == category) android.graphics.Color.WHITE else SvUi.text()), null, null, null)
                 compoundDrawablePadding = SvUi.dp(context, 4)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(SvUi.dp(context, 11), SvUi.dp(context, 6), SvUi.dp(context, 11), SvUi.dp(context, 6))
