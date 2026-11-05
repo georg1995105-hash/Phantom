@@ -77,6 +77,7 @@ object SvUi {
 
     fun iconButton(context: Context, res: Int, description: CharSequence, sizeDp: Int = 48, onClick: (View) -> Unit): ImageButton =
         ImageButton(context).apply {
+            setPadding(0, 0, 0, 0)
             setImageDrawable(icon(context, res))
             contentDescription = description
             scaleType = ImageView.ScaleType.CENTER

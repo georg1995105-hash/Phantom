@@ -39,4 +39,5 @@
         <item quantity="many">%d символов</item>
         <item quantity="other">%d символа</item>
     </plurals>
+    <string name="sv_clip_paste_fallback">Пробуем системную вставку. Если фото не появилось, выберите «Поделиться» в меню карточки.</string>
 </resources>

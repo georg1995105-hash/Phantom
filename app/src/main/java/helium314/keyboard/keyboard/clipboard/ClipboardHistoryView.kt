@@ -327,6 +327,12 @@ class ClipboardHistoryView @JvmOverloads constructor(
             }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
         option(R.string.sv_fn_paste) { onClipClick(entry) }
+        if (entry.filename != null) option(R.string.sv_clip_share_title) {
+            if (java.io.File(ClipboardDao.clipFilesDir, entry.filename).isFile) {
+                val content = entry.getContentInfo(context)
+                SmartClipboard.shareFallback(context, content.contentUri, content.description)
+            } else android.widget.Toast.makeText(context, R.string.sv_clip_missing, android.widget.Toast.LENGTH_LONG).show()
+        }
         option(if (entry.isPinned) R.string.sv_clip_unpin else R.string.sv_clip_pin) {
             clipboardHistoryManager?.setPinned(listOf(entry.id), !entry.isPinned)
         }
