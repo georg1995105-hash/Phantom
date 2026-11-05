@@ -147,7 +147,9 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
             val keyCountPerPage = computeMaxKeyCountPerPage()
             val sortedKeysPages = sortKeysGrouped(keyboard.sortedKeys, keyCountPerPage)
             for (pageId in sortedKeysPages.indices) {
-                val tempKeyboard = DynamicGridKeyboard.ofKeyCount(prefs,
+                val tempKeyboard = if (category == Category.EMOTICONS)
+                    DynamicGridKeyboard.ofTextEmoticons(prefs, layoutSet.getKeyboard(KeyboardElement.EMOJI_RECENTS), keyCountPerPage, currentWidth)
+                else DynamicGridKeyboard.ofKeyCount(prefs,
                     layoutSet.getKeyboard(KeyboardElement.EMOJI_RECENTS),
                     keyCountPerPage, category == Category.RECENTS, currentWidth)
                 for (emojiKey in sortedKeysPages[pageId]) {

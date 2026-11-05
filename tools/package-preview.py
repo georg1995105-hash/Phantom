@@ -34,6 +34,6 @@ assets = sorted(p for p in out.iterdir() if p.suffix in (".apk", ".zip", ".png")
 digest = hashlib.sha256(target.read_bytes()).hexdigest()
 (out / "RELEASE_NOTES.md").write_text(
     (root / "docs/validation/fixes/REPORT_RU.md").read_text() +
-    f"\n\nAPK SHA-256: `{digest}`. Пакет: `ru.smartvoice.keyboard.preview`. Версия: `0.2.0-alpha5-input-fixes-test`.\n" +
-    "Архив сравнения: распакуйте ZIP и откройте COMPARE.html. Подпись тестовая; при конфликте подписи удалите только старую SmartVoice Test, стабильную клавиатуру оставьте.\n")
+    f"\n\nAPK SHA-256: `{digest}`. Пакет: `ru.smartvoice.keyboard.previewfix`. Версия: `0.2.0-alpha5-input-fixes-test`.\n" +
+    "Архив сравнения: распакуйте ZIP и откройте COMPARE.html. Сборка SmartVoice Test Fix устанавливается рядом с прежней SmartVoice Test и стабильной клавиатурой, не заменяя их данные.\n")
 print("Packaged", len(assets), "assets; APK SHA-256:", digest)

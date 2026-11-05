@@ -18,6 +18,7 @@ class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callb
     private var catalog = emptyList<Triple<Key, String, String>>()
     private val indexWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private fun index(keys: List<Key>) {
+        if (indexWorker.isShutdown) return
         indexWorker.execute {
             val json = context.assets.open("emoji_search_keywords.json").bufferedReader().use { org.json.JSONObject(it.readText()) }
             val built = keys.distinctBy { it.label }.mapNotNull { key ->

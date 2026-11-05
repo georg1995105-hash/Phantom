@@ -54,12 +54,12 @@ android {
             isMinifyEnabled = false
             isJniDebuggable = false
             signingConfig = signingConfigs.getByName("debug")
-            applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".preview" else ".debug"
+            applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".previewfix" else ".debug"
             if (providers.gradleProperty("smartvoicePreview").orNull == "true") {
                 versionNameSuffix = "-input-fixes-test"
-                manifestPlaceholders["keyboardLabel"] = "SmartVoice Test"
-                manifestPlaceholders["clipProviderAuthority"] = "ru.smartvoice.keyboard.preview.clipprovider"
-                manifestPlaceholders["gestureProviderAuthority"] = "ru.smartvoice.keyboard.preview.gestureprovider"
+                manifestPlaceholders["keyboardLabel"] = "SmartVoice Test Fix"
+                manifestPlaceholders["clipProviderAuthority"] = "ru.smartvoice.keyboard.previewfix.clipprovider"
+                manifestPlaceholders["gestureProviderAuthority"] = "ru.smartvoice.keyboard.previewfix.gestureprovider"
             }
             isDefault = true
         }

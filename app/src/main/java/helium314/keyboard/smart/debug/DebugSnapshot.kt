@@ -122,7 +122,7 @@ object DebugSnapshot {
             p.textSize = 90f
             if (source == null) c.drawText(intent.getStringExtra("label") ?: "Test fixture", 160f, 1100f, p)
             file.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            val uri = FileProvider.getUriForFile(ime, if (ime.packageName.endsWith(".preview")) ime.packageName + ".clipprovider" else ime.getString(R.string.clipboard_provider_authority), file)
+            val uri = FileProvider.getUriForFile(ime, if (ime.packageName.startsWith("ru.smartvoice.keyboard.preview")) ime.packageName + ".clipprovider" else ime.getString(R.string.clipboard_provider_authority), file)
             ClipData.newUri(ime.contentResolver, "Screenshot", uri)
         } else ClipData.newPlainText("debug", intent.getStringExtra("text") ?: "")
         if (android.os.Build.VERSION.SDK_INT >= 24 && intent.getBooleanExtra("sensitive", false))

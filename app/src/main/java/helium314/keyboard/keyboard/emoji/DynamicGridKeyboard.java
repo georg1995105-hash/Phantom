@@ -42,6 +42,7 @@ final class DynamicGridKeyboard extends Keyboard {
     private final int mHorizontalGap;
     private final int mVerticalStep;
     private final int mColumnsNum;
+    private final boolean mTextEmoticons;
     private final int mMaxKeyCount;
     private final boolean mFixedRowCount;
     private final boolean mIsRecents;
@@ -61,9 +62,19 @@ final class DynamicGridKeyboard extends Keyboard {
         return new DynamicGridKeyboard(prefs, templateKeyboard, maxRowCount, isRecents, width, true);
     }
 
+    public static DynamicGridKeyboard ofTextEmoticons(SharedPreferences prefs, Keyboard template, int maxKeys, int width) {
+        return new DynamicGridKeyboard(prefs, template, maxKeys, false, width, false, true);
+    }
+
     private DynamicGridKeyboard(SharedPreferences prefs, Keyboard templateKeyboard,
             int maxCount, boolean isRecents, int width, boolean fixedRowCount) {
+        this(prefs, templateKeyboard, maxCount, isRecents, width, fixedRowCount, false);
+    }
+
+    private DynamicGridKeyboard(SharedPreferences prefs, Keyboard templateKeyboard,
+            int maxCount, boolean isRecents, int width, boolean fixedRowCount, boolean textEmoticons) {
         super(templateKeyboard);
+        mTextEmoticons = textEmoticons;
         // todo: would be better to keep them final and not require width, but how to properly set width of the template keyboard?
         //  an alternative would be to always create the templateKeyboard with full width
         final int paddingWidth = mOccupiedWidth - mBaseWidth;
@@ -109,7 +120,7 @@ final class DynamicGridKeyboard extends Keyboard {
     // determine a width scale so emojis evenly fill the entire width
     private float determineWidthScale(final float horizontalStep) {
         final float columnsNumRaw = mBaseWidth / horizontalStep;
-        final float columnsNum = Math.max(4, Math.round(8f * mOccupiedWidth /
+        final float columnsNum = Math.max(4, Math.round((mTextEmoticons ? 4f : 8f) * mOccupiedWidth /
                 (360f * android.content.res.Resources.getSystem().getDisplayMetrics().density)));
         return columnsNumRaw / columnsNum;
     }

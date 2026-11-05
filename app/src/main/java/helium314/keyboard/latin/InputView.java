@@ -87,10 +87,14 @@ public final class InputView extends FrameLayout {
         android.graphics.Point real = new android.graphics.Point();
         getDisplay().getRealSize(real);
         int nav = android.os.Build.VERSION.SDK_INT < 23 || getRootWindowInsets() == null ? 0 : getRootWindowInsets().getStableInsetBottom();
+        int navLeft = android.os.Build.VERSION.SDK_INT < 23 || getRootWindowInsets() == null ? 0 : getRootWindowInsets().getStableInsetLeft();
+        int navRight = android.os.Build.VERSION.SDK_INT < 23 || getRootWindowInsets() == null ? 0 : getRootWindowInsets().getStableInsetRight();
+        int leftOverlap = Math.max(0, navLeft - pos[0]);
+        int availableWidth = Math.max(1, Math.min(frame.getWidth(), real.x - navRight - pos[0]) - leftOverlap);
         int available = Math.max(1, Math.min(frame.getHeight(), real.y - nav - pos[1]));
-        panel.measure(MeasureSpec.makeMeasureSpec(frame.getWidth(), MeasureSpec.EXACTLY),
+        panel.measure(MeasureSpec.makeMeasureSpec(availableWidth, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(available, MeasureSpec.EXACTLY));
-        panel.layout(frame.getLeft(), frame.getTop(), frame.getRight(), frame.getTop() + available);
+        panel.layout(frame.getLeft() + leftOverlap, frame.getTop(), frame.getLeft() + leftOverlap + availableWidth, frame.getTop() + available);
 
     }
 
