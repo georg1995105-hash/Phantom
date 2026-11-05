@@ -24,7 +24,14 @@ class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callb
                 val value = (key.outputText ?: key.label ?: "").toString()
                 if (value.isEmpty()) return@mapNotNull null
                 val neutral = value.replace("\uFE0F", "")
-                val name = value.codePoints().toArray().map { Character.getName(it) }.filterNotNull().joinToString(" ")
+                val name = buildList {
+                    var offset = 0
+                    while (offset < value.length) {
+                        val code = value.codePointAt(offset)
+                        Character.getName(code)?.let { add(it) }
+                        offset += Character.charCount(code)
+                    }
+                }.joinToString(" ")
                 Triple(key, value, (json.optString(value) + " " + json.optString(neutral) + " " + name).lowercase())
             }
             post { if (isAttachedToWindow) { catalog = built; refresh() } }

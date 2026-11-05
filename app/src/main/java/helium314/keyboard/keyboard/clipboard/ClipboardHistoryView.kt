@@ -346,7 +346,7 @@ class ClipboardHistoryView @JvmOverloads constructor(
         option(R.string.sv_clip_delete) { pendingDelete = listOf(entry.id); updateHeader() }
         // A card near the IME's lower edge has no room for a dropdown. Anchor the
         // scrollable actions above the system navigation region instead.
-        val nav = rootWindowInsets?.stableInsetBottom ?: 0
+        val nav = if (android.os.Build.VERSION.SDK_INT >= 23) rootWindowInsets?.stableInsetBottom ?: 0 else 0
         popup.showAtLocation(this, Gravity.BOTTOM or Gravity.END, SvUi.dp(context, 8), nav + SvUi.dp(context, 8))
     }
 

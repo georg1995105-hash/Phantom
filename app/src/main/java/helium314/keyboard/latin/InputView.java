@@ -86,7 +86,7 @@ public final class InputView extends FrameLayout {
         frame.getLocationOnScreen(pos);
         android.graphics.Point real = new android.graphics.Point();
         getDisplay().getRealSize(real);
-        int nav = getRootWindowInsets() == null ? 0 : getRootWindowInsets().getStableInsetBottom();
+        int nav = android.os.Build.VERSION.SDK_INT < 23 || getRootWindowInsets() == null ? 0 : getRootWindowInsets().getStableInsetBottom();
         int available = Math.max(1, Math.min(frame.getHeight(), real.y - nav - pos[1]));
         panel.measure(MeasureSpec.makeMeasureSpec(frame.getWidth(), MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(available, MeasureSpec.EXACTLY));
