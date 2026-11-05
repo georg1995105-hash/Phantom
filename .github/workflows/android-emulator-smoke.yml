@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   android-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx3g
@@ -44,6 +44,9 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
+          disk-size: 2048M
+          ram-size: 2048M
+          emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
