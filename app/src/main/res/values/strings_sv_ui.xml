@@ -24,4 +24,12 @@
     <string name="sv_resize_reset">Reset</string>
     <string name="sv_resize_done">Done</string>
     <string name="sv_resize_move">Move keyboard</string>
+    <string name="sv_functions_edit">Edit</string>
+    <string name="sv_functions_done">Done</string>
+    <string name="sv_functions_active">Visible functions</string>
+    <string name="sv_functions_hidden">Hidden functions</string>
+    <string name="sv_functions_drag_hint">Hold and drag to reorder. Tap to show or hide.</string>
+    <string name="sv_functions_drop_here">Drop here</string>
+    <string name="sv_functions_show">Show function</string>
+    <string name="sv_functions_hide">Hide function</string>
 </resources>
