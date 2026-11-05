@@ -393,6 +393,11 @@ public class KeyboardView extends View {
         if (label != null) {
             paint.setTypeface(KeyboardTypeface.resolve(label, key.selectTypeface(params)));
             paint.setTextSize(key.selectTextSize(params) * mFontSizeMultiplier);
+            if (this instanceof helium314.keyboard.keyboard.emoji.EmojiPageKeyboardView && !StringUtilsKt.isEmoji(label)) {
+                paint.setTextSize(16 * getResources().getDisplayMetrics().scaledDensity);
+                float w = paint.measureText(label);
+                if (w > keyWidth - 8 && w > 0) paint.setTextSize(paint.getTextSize() * (keyWidth - 8) / w);
+            }
             final float labelCharHeight = TypefaceUtils.getReferenceCharHeight(paint);
             final float labelCharWidth = TypefaceUtils.getReferenceCharWidth(paint);
 
@@ -465,6 +470,11 @@ public class KeyboardView extends View {
             // TODO: Should add a way to specify type face for hint letters
             paint.setTypeface(KeyboardTypeface.resolve(hintLabel, Typeface.DEFAULT_BOLD));
             blendAlpha(paint, params.mAnimAlpha);
+            if (this instanceof helium314.keyboard.keyboard.emoji.EmojiPageKeyboardView && !StringUtilsKt.isEmoji(label)) {
+                paint.setTextSize(16 * getResources().getDisplayMetrics().scaledDensity);
+                float w = paint.measureText(label);
+                if (w > keyWidth - 8 && w > 0) paint.setTextSize(paint.getTextSize() * (keyWidth - 8) / w);
+            }
             final float labelCharHeight = TypefaceUtils.getReferenceCharHeight(paint);
             final float labelCharWidth = TypefaceUtils.getReferenceCharWidth(paint);
             final boolean isFunctionalKeyAndRoundedStyle = mColors.getThemeStyle().equals(STYLE_ROUNDED) && key.hasFunctionalBackground();
@@ -594,6 +604,12 @@ public class KeyboardView extends View {
             paint.setColor(key.selectTextColor(mKeyDrawParams));
             paint.setTypeface(key.selectTypeface(mKeyDrawParams));
             paint.setTextSize(key.selectTextSize(mKeyDrawParams) * mFontSizeMultiplier);
+            if (this instanceof helium314.keyboard.keyboard.emoji.EmojiPageKeyboardView && key.getLabel() != null
+                    && !StringUtilsKt.isEmoji(key.getLabel())) {
+                paint.setTextSize(16 * getResources().getDisplayMetrics().scaledDensity);
+                float width = paint.measureText(key.getLabel());
+                if (width > key.getWidth() - 8 && width > 0) paint.setTextSize(paint.getTextSize() * (key.getWidth() - 8) / width);
+            }
         }
         return paint;
     }

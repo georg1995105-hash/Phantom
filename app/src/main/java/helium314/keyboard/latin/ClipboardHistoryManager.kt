@@ -47,9 +47,15 @@ class ClipboardHistoryManager(
     private lateinit var clipboardManager: ClipboardManager
     private var clipboardSuggestionView: View? = null
     private var clipboardDao: ClipboardDao? = null
+    private val imageWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var tempPrimaryClip = false
 
+    private val screenshots = helium314.keyboard.smart.clipboard.ScreenshotHistory(latinIME) {
+        latinIME.mSettings.current.mClipboardHistoryEnabled && !latinIME.mSettings.current.mIncognitoModeEnabled &&
+            !InputTypeUtils.isPasswordInputType(latinIME.currentInputEditorInfo?.inputType ?: 0)
+    }
     fun onCreate() {
+        screenshots.start()
         clipboardManager = latinIME.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboardManager.addPrimaryClipChangedListener(this)
         clipboardDao = ClipboardDao.getInstance(latinIME)
@@ -58,6 +64,8 @@ class ClipboardHistoryManager(
     }
 
     fun onDestroy() {
+        screenshots.close()
+        imageWorker.shutdownNow()
         clipboardManager.removePrimaryClipChangedListener(this)
     }
 
@@ -81,14 +89,17 @@ class ClipboardHistoryManager(
         val timeStamp = ClipboardManagerCompat.getClipTimestamp(clipData)
         // never keep content Android marks as sensitive (passwords, OTPs), nor anything copied in incognito mode
         if (ClipboardManagerCompat.getClipSensitivity(description) == true) return
-        if (latinIME.mSettings.current.mIncognitoModeEnabled) return
+        if (latinIME.mSettings.current.mIncognitoModeEnabled ||
+            InputTypeUtils.isPasswordInputType(latinIME.currentInputEditorInfo?.inputType ?: 0)) return
 
-        if (description.hasMimeType("text/*")) {
+        if (description.hasMimeType("image/*") && maySaveFromUri(clipItem.uri, latinIME)) {
+            imageWorker.execute { clipboardDao?.addClipUri(timeStamp, false, clipItem.uri, description, latinIME) }
+        } else if (description.hasMimeType("text/*")) {
             val content = clipItem.coerceToText(latinIME)
             if (TextUtils.isEmpty(content)) return
             clipboardDao?.addClip(timeStamp, false, content.toString())
         } else if (maySaveFromUri(clipItem.uri, latinIME)) {
-            clipboardDao?.addClipUri(timeStamp, false, clipItem.uri, description, latinIME)
+            imageWorker.execute { clipboardDao?.addClipUri(timeStamp, false, clipItem.uri, description, latinIME) }
         }
     }
 
@@ -166,7 +177,7 @@ class ClipboardHistoryManager(
 
     // We do not want to update history while user is visualizing it, so we check retention only
     // when history is about to be shown
-    fun prepareClipboardHistory() = clipboardDao?.clearOldClips(true)
+    fun prepareClipboardHistory() { screenshots.start(); clipboardDao?.clearOldClips(true) }
 
     fun getHistorySize() = clipboardDao?.count() ?: 0
 

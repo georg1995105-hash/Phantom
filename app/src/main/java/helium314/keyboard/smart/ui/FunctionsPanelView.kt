@@ -151,7 +151,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     private fun bottomKey(item: Item): String? = when (item.id) {
         "emoji" -> "emoji"
         "languages" -> "language_switch"
-        "numpad" -> "numpad"
+        "numpad" -> null
         else -> null
     }
 
@@ -261,7 +261,16 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
             grid.addView(SvUi.label(context, 13f, SvUi.secondaryText()).apply {
                 setText(R.string.sv_functions_help); setPadding(0, 0, 0, SvUi.dp(context, 8))
             })
-            grid.addView(dropZone(R.string.sv_drop_top) { item ->
+            grid.addView(SvUi.chip(context, "Восстановить стандартный набор").apply {
+                setOnClickListener {
+                    context.prefs().edit().remove(SmartPrefs.FUNCTIONS_ORDER)
+                        .remove(SmartPrefs.FUNCTIONS_HIDDEN).remove(SmartPrefs.BOTTOM_ORDER)
+                        .putBoolean(SmartPrefs.BOTTOM_NUMPAD, false).apply()
+                    showPage(Page.MAIN)
+                }
+            })
+            val zones = LinearLayout(context)
+            zones.addView(dropZone(R.string.sv_drop_top) { item ->
                 toolbarKey(item)?.let { key ->
                     val prefs = context.prefs()
                     val pinned = getPinnedToolbarKeys(prefs)
@@ -271,10 +280,15 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
                 }
                 showPage(Page.MAIN)
             })
-            grid.addView(dropZone(R.string.sv_drop_bottom) { item ->
+            zones.addView(dropZone(R.string.sv_drop_bottom) { item ->
                 if (bottomKey(item) != null) toggleBottomKey(item)
             })
-            grid.addView(dropZone(R.string.sv_drop_hide) { toggleHidden(it) })
+            zones.addView(dropZone(R.string.sv_drop_hide) { toggleHidden(it) })
+            for (i in 0 until zones.childCount) {
+                (zones.getChildAt(i) as TextView).apply { textSize = 11f; setPadding(4,4,4,4) }
+                zones.getChildAt(i).layoutParams = LinearLayout.LayoutParams(0, SvUi.dp(context, 52), 1f)
+            }
+            grid.addView(zones)
         }
         val hidden = hiddenItems()
         orderedItems().filter { editing || it.id !in hidden }.let { if (editing) it else it.take(9) }.chunked(3).forEach { rowItems ->

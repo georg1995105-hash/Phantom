@@ -1460,7 +1460,8 @@ public class LatinIME extends InputMethodService implements
         InputTransaction completeInputTransaction = mInputLogic.onTextInput(mSettings.getCurrent(),
             event, mKeyboardSwitcher.getKeyboardCapsMode(), mHandler);
         updateStateAfterInputTransaction(completeInputTransaction);
-        mInputLogic.restartSuggestionsOnWordTouchedByCursor(mSettings.getCurrent(), mKeyboardSwitcher.getCurrentKeyboardScript());
+        if (mKeyboardSwitcher.getKeyboardSwitchState() != KeyboardSwitcher.KeyboardSwitchState.EMOJI)
+            mInputLogic.restartSuggestionsOnWordTouchedByCursor(mSettings.getCurrent(), mKeyboardSwitcher.getCurrentKeyboardScript());
         mKeyboardSwitcher.onEvent(event, getCurrentAutoCapsState(), getCurrentRecapitalizeState());
     }
 
@@ -1824,9 +1825,7 @@ public class LatinIME extends InputMethodService implements
     }
 
     public void launchEmojiSearch() {
-        Log.d(EmojiSearchActivityKt.TAG, "before activity launch");
-        startActivity(new Intent().setClass(this, EmojiSearchActivity.class)
-                          .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_MULTIPLE_TASK));
+        mKeyboardSwitcher.openEmojiSearch();
     }
 
     private void onEmojiSearchDone(Intent intent) {

@@ -21,7 +21,7 @@ class XLinkTest { // Without the X, SubtypeTests fail with ClassCastException. W
         val context = ApplicationProvider.getApplicationContext<App>()
         val urls = mutableSetOf<String>()
         context.assets.open("dictionaries_in_dict_repo.txt").reader().readLines().forEach { line ->
-            getKnownDictionariesForLocale(line.split(",")[1].constructLocale(), context).forEach {
+            getKnownDictionariesForLocale(line.substringAfter(',', line.substringAfter('_').substringBefore("__")).constructLocale(), context).forEach {
                 urls.add(it.second)
             }
         }
@@ -73,6 +73,8 @@ class XLinkTest { // Without the X, SubtypeTests fail with ClassCastException. W
             return checkWikiLink(link)
         val url = URL(link)
         val connection = url.openConnection() as HttpURLConnection
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
         connection.requestMethod = "HEAD"
         if (connection.responseCode != 200)
             println("error checking $link")

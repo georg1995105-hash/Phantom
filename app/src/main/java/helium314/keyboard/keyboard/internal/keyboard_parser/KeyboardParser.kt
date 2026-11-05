@@ -315,15 +315,7 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
                         type = KeyType.FUNCTION, width = 0.12f))
             }
         }
-        if (prefs.getBoolean(SmartPrefs.BOTTOM_NUMPAD, false)) {
-            if (bottom.none { it.label == KeyLabel.NUMPAD }) {
-                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
-                    TextKeyData(label = KeyLabel.NUMPAD, code = KeyCode.NUMPAD,
-                        type = KeyType.FUNCTION, width = 0.12f))
-            }
-        } else {
-            bottom.removeAll { it.label == KeyLabel.NUMPAD }
-        }
+        bottom.removeAll { it.label == KeyLabel.NUMPAD }
         val movableLabels = setOf("emoji", KeyLabel.LANGUAGE_SWITCH, KeyLabel.NUMPAD)
         val movable = bottom.filter { it.label in movableLabels }
         bottom.removeAll(movable.toSet())

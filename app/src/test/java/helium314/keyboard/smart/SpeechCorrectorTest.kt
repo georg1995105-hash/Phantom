@@ -84,4 +84,7 @@ class SpeechCorrectorTest {
         assertEquals(-1, VoiceTextOps.findLast("Завтра встречами", "встреча"))
         assertEquals("Созвон", VoiceTextOps.matchCase("Встреча", "созвон"))
     }
+    @org.junit.Test fun bareDomainKeepsOriginalCaseAndPath() {
+        org.junit.Assert.assertEquals("example.com/CaseSensitive", SpeechCorrector.correct("example.com/CaseSensitive", null))
+    }
 }

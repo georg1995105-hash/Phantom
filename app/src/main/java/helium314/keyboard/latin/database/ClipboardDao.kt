@@ -61,7 +61,7 @@ class ClipboardDao private constructor(private val db: Database) {
 
     fun addClip(timestamp: Long, pinned: Boolean, text: String) = synchronized(this) {
         clearOldClips()
-        val existingIndex = cache.indexOfFirst { it.text == text }
+        val existingIndex = cache.indexOfFirst { it.filename == null && it.text == text }
         if (existingIndex >= 0 && cache[existingIndex].timeStamp == timestamp)
             return@synchronized // nothing to do
         if (existingIndex >= 0) {
@@ -71,29 +71,43 @@ class ClipboardDao private constructor(private val db: Database) {
         insertNewEntry(timestamp, pinned, text, null, null, null)
     }
 
-    fun addClipUri(timestamp: Long, pinned: Boolean, uri: Uri, description: ClipDescription, context: Context) = synchronized(this) {
-        clearOldClips()
-        val extension = if (description.mimeTypeCount == 0) ""
-            else ".${MimeTypeMap.getSingleton().getExtensionFromMimeType(description.getMimeType(0))}"
-        val tempFile = File(context.filesDir, "temp_clip")
-        tempFile.delete()
-        runCatching { FileUtils.copyContentUriToNewFile(uri, context, tempFile) }.onFailure { return@synchronized }
-
-        // we set the file name to the sha256 of the content to have virtually unique names and an easy way to find duplicates
-        val sha256 = ChecksumCalculator.checksum(tempFile)
-        val file = File(clipFilesDir, sha256 + extension)
-
-        val existingIndex = cache.indexOfFirst { it.filename == file.name }
-        if (existingIndex >= 0) {
-            if (cache[existingIndex].timeStamp != timestamp)
-                updateTimestampAt(existingIndex, timestamp)
-            tempFile.delete()
-            return@synchronized
-        }
-        tempFile.renameTo(file)
-        // we could try getting a thumbnail using context.contentResolver.loadThumbnail(uri, Size(a, b), null)
-        // but currently we don't cache them anyway, so no use for that
-        insertNewEntry(timestamp, pinned, description.label?.toString(), file.name, description.getMimeTypes(), context)
+    fun addClipUri(timestamp: Long, pinned: Boolean, uri: Uri, description: ClipDescription, context: Context): Boolean {
+        val mime = description.getMimeTypes().firstOrNull { it.startsWith("image/") }
+            ?: description.getMimeTypes().firstOrNull()
+        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)?.let { ".$it" } ?: ".bin"
+        val tempFile = File.createTempFile("clip_", ".tmp", context.cacheDir)
+        val limit = context.prefs().getInt(Settings.PREF_CLIPBOARD_FILES_SIZE_LIMIT, Defaults.PREF_CLIPBOARD_FILES_SIZE_LIMIT).coerceAtLeast(1) * 1_000_000L
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                tempFile.outputStream().use { output ->
+                    val buffer = ByteArray(32768)
+                    var total = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > limit) throw java.io.IOException("Clipboard file exceeds configured limit")
+                        output.write(buffer, 0, count)
+                    }
+                }
+            } ?: return false
+            if (tempFile.length() == 0L) return false
+            val file = File(clipFilesDir, ChecksumCalculator.checksum(tempFile) + extension)
+            synchronized(this) {
+                clearOldClips()
+                val existingIndex = cache.indexOfFirst { it.filename == file.name }
+                if (existingIndex >= 0) {
+                    if (cache[existingIndex].timeStamp != timestamp) updateTimestampAt(existingIndex, timestamp)
+                    return true
+                }
+                if (!tempFile.renameTo(file)) return false
+                insertNewEntry(timestamp, pinned, description.label?.toString(), file.name, description.getMimeTypes(), context)
+            }
+            return true
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to keep clipboard URI", e)
+            return false
+        } finally { tempFile.delete() }
     }
 
     // keep pinned and the first non-pinned, others can be deleted
@@ -132,14 +146,14 @@ class ClipboardDao private constructor(private val db: Database) {
             deleteIfSizeExceeded(context.prefs())
         cache.add(entry)
         cache.sort()
-        listener?.onClipInserted(cache.indexOf(entry))
+        android.os.Handler(android.os.Looper.getMainLooper()).post { listener?.onClipInserted(cache.indexOf(entry)) }
     }
 
     private fun updateTimestampAt(index: Int, timestamp: Long) {
         val entry = cache[index]
         entry.timeStamp = timestamp
         cache.sort()
-        listener?.onClipMoved(index, cache.indexOf(entry))
+        android.os.Handler(android.os.Looper.getMainLooper()).post { listener?.onClipMoved(index, cache.indexOf(entry)) }
         val cv = ContentValues(1)
         cv.put(COLUMN_TIMESTAMP, timestamp)
         db.writableDatabase.update(TABLE, cv, "$COLUMN_ID = ${entry.id}", null)
@@ -151,7 +165,7 @@ class ClipboardDao private constructor(private val db: Database) {
 
     fun get(id: Long) = cache.first { it.id == id }
 
-    fun getAll(): List<ClipboardHistoryEntry> = cache
+    fun getAll(): List<ClipboardHistoryEntry> = synchronized(this) { cache.toList() }
 
     fun count() = cache.size
 
@@ -217,7 +231,7 @@ class ClipboardDao private constructor(private val db: Database) {
             db.writableDatabase.update(TABLE, cv, "$COLUMN_ID = ${e.id}", null)
         }
         cache.sort()
-        listener?.onClipMoved(index, cache.indexOf(entry))
+        android.os.Handler(android.os.Looper.getMainLooper()).post { listener?.onClipMoved(index, cache.indexOf(entry)) }
         true
     }
 

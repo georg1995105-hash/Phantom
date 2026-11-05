@@ -285,7 +285,7 @@ public final class EmojiPalettesView extends LinearLayout
             search.setCompoundDrawablePadding(ui.dp(getContext(), 4));
             search.setTextSize(12);
             search.setPadding(ui.dp(getContext(), 8), 0, ui.dp(getContext(), 6), 0);
-            search.setOnClickListener(v -> mKeyboardActionListener.onCodeInput(KeyCode.EMOJI_SEARCH, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
+            search.setOnClickListener(v -> openSearch());
             mTabStrip.addView(search, new LinearLayout.LayoutParams(ui.dp(getContext(), 102), ui.dp(getContext(), 38)));
             LinearLayout categories = new LinearLayout(getContext());
             android.widget.HorizontalScrollView categoryScroll = new android.widget.HorizontalScrollView(getContext());
@@ -420,7 +420,19 @@ public final class EmojiPalettesView extends LinearLayout
         }
     }
 
+    public void openSearch() {
+                java.util.List<Key> keys = new java.util.ArrayList<>();
+                for (var props : mEmojiCategory.getShownCategories()) {
+                    var cat = props.getCategory();
+                    if (cat == EmojiCategory.Category.RECENTS || cat == EmojiCategory.Category.EMOTICONS) continue;
+                    for (int page = 0; page < mEmojiCategory.getCategoryPageCount(cat); page++)
+                        keys.addAll(mEmojiCategory.getKeyboard(cat, page).getSortedKeys());
+                }
+                helium314.keyboard.smart.ui.SmartUi.openEmojiSearch(keys, this);
+    }
+
     private void addRecentKey(Key key) {
+        if (key.getLabel() == null || !helium314.keyboard.latin.common.StringUtilsKt.isEmoji(key.getLabel())) return;
         if (Settings.getValues().mIncognitoModeEnabled) {
             // We do not want to log recent keys while being in incognito
             return;
@@ -431,6 +443,7 @@ public final class EmojiPalettesView extends LinearLayout
         }
         getRecentsKeyboard().addKeyFirst(key);
         mPager.getAdapter().notifyItemChanged(mEmojiCategory.getRecentTabId());
+        updateRecentStrip();
     }
 
     private void setupBottomRowKeyboard(EditorInfo editorInfo, KeyboardActionListener keyboardActionListener) {

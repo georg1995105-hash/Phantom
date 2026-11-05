@@ -119,7 +119,7 @@ object SpeechCorrector {
         if (t.isEmpty()) return ""
         // Do not split or capitalize inside URLs and email addresses.
         val protected = LinkedHashMap<String, String>()
-        t = Regex("(?:https?://|www\\.)[^\\s]+|[\\w.+-]+@[\\w.-]+\\.[a-zA-Z]{2,}").replace(t) {
+        t = Regex("(?:https?://|www\\.)[^\\s]+|[\\w.+-]+@[\\w.-]+\\.[a-zA-Z]{2,}|(?<![\\p{L}\\p{N}])(?:[a-zA-Z0-9-]+\\.)+[a-zA-Z]{2,}(?:/[^\\s]*)?|\\b\\d+(?:[.,:/-]\\d+)+\\b").replace(t) {
             val key = "\uE000${protected.size}\uE001"
             protected[key] = it.value
             key

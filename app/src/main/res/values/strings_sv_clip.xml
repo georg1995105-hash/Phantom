@@ -38,4 +38,5 @@
         <item quantity="other">%d characters</item>
     </plurals>
     <string name="sv_clip_paste_fallback">Trying system paste. If the image does not appear, choose Share from the clip menu.</string>
+    <string name="sv_screenshot_setup">Новые снимки экрана</string>
 </resources>

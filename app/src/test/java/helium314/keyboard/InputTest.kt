@@ -5,6 +5,7 @@ import helium314.keyboard.keyboard.KeyboardElement
 import helium314.keyboard.keyboard.KeyboardSwitcher
 import helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode
 import helium314.keyboard.latin.LatinIME
+import helium314.keyboard.latin.utils.prefs
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -24,9 +25,20 @@ import kotlin.test.assertEquals
 class InputTest {
     private val latinIME = Robolectric.setupService(LatinIME::class.java)
     private val keyboardSwitcher = KeyboardSwitcher.getInstance()
+    private val originalSubtype = helium314.keyboard.latin.RichInputMethodManager.getInstance().currentSubtype.rawSubtype
+    private val originalEnabled = latinIME.prefs().getString(helium314.keyboard.latin.settings.Settings.PREF_ENABLED_SUBTYPES, null)
+    @org.junit.After fun restoreSubtype() {
+        helium314.keyboard.latin.RichInputMethodManager.getInstance().onSubtypeChanged(originalSubtype)
+        latinIME.prefs().edit().putString(helium314.keyboard.latin.settings.Settings.PREF_ENABLED_SUBTYPES, originalEnabled).commit()
+        helium314.keyboard.latin.utils.SubtypeSettings.reloadEnabledSubtypes(latinIME)
+    }
     init {
         ShadowLog.setupLogging()
         ShadowLog.stream = System.out
+        // This suite asserts English letters; production defaults may be Russian.
+        val english = helium314.keyboard.latin.utils.SubtypeSettings.getResourceSubtypesForLocale(java.util.Locale.US).first()
+        helium314.keyboard.latin.utils.SubtypeSettings.addEnabledSubtype(latinIME.prefs(), english)
+        latinIME.onCurrentInputMethodSubtypeChanged(english)
         // create keyboardView
         keyboardSwitcher.onCreateInputView(latinIME, true)
         // create and set keyboard

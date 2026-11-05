@@ -217,6 +217,11 @@ public final class KeyboardSwitcher {
         mState.onFinishSlidingInput(currentAutoCapsState, currentRecapitalizeState);
     }
 
+    public void openEmojiSearch() {
+        setEmojiKeyboard();
+        mEmojiPalettesView.post(() -> mEmojiPalettesView.openSearch());
+    }
+
     public void setEmojiKeyboard() {
         mState.setLayout(LayoutDirective.Utility.EMOJI);
     }

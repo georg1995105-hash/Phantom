@@ -194,6 +194,7 @@ fun SvClipboardScreen(onClickBack: () -> Unit) {
             if (history) Settings.PREF_CLIPBOARD_HISTORY_RETENTION_TIME else null,
             if (history) Settings.PREF_CLIPBOARD_HISTORY_PINNED_FIRST else null,
             if (history) Settings.PREF_CLIPBOARD_USE_FILES else null,
+            "sv_screenshot_setup",
             SmartPrefs.CLIP_CHIP,
             if (chip) SmartPrefs.CLIP_CHIP_MINUTES else null,
             SvSettingKeys.CLIP_SENSITIVE,
@@ -336,6 +337,12 @@ fun createSvSettings(context: Context) = listOf(
     },
     Setting(context, SmartPrefs.VOICE_SEND_COMMAND, R.string.sv_set_voice_send, R.string.sv_set_voice_send_summary) {
         SwitchPreference(it, SmartPrefs.DEF_VOICE_SEND_COMMAND)
+    },
+    Setting(context, "sv_screenshot_setup", R.string.sv_screenshot_setup) {
+        val ctx = LocalContext.current
+        Preference(name = it.title, description = "Только новые скриншоты · разрешения Android", onClick = {
+            ctx.startActivity(Intent(ctx, helium314.keyboard.smart.clipboard.ScreenshotPermissionActivity::class.java))
+        })
     },
     Setting(context, SmartPrefs.CLIP_CHIP, R.string.sv_set_clip_chip, R.string.sv_set_clip_chip_summary) {
         SwitchPreference(it, SmartPrefs.DEF_CLIP_CHIP)

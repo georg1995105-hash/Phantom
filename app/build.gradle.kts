@@ -56,7 +56,7 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".preview" else ".debug"
             if (providers.gradleProperty("smartvoicePreview").orNull == "true") {
-                versionNameSuffix = "-reference-test"
+                versionNameSuffix = "-input-fixes-test"
                 manifestPlaceholders["keyboardLabel"] = "SmartVoice Test"
                 manifestPlaceholders["clipProviderAuthority"] = "ru.smartvoice.keyboard.preview.clipprovider"
                 manifestPlaceholders["gestureProviderAuthority"] = "ru.smartvoice.keyboard.preview.gestureprovider"
