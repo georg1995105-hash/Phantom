@@ -91,6 +91,23 @@ def full():
     value = start()
     checks['initial_geometry'] = value
     assert '-205' not in value['keys'], 'Default row unexpectedly contains numpad'
+    # Copy text -> real screen PNG -> text -> another real screen PNG through ClipboardManager.
+    # Never depend on old unpinned fixtures surviving a previously configured retention interval.
+    seed = uuid.uuid4().hex[:8]
+    for index in range(2):
+        adb('shell','am','broadcast','-a','ru.smartvoice.DEBUG_CLIP','-p',pkg,'--es','text',f'Проверка буфера {seed} {index+1}')
+        if index: broadcast(page='functions')
+        source = f'/storage/emulated/0/Android/data/{pkg}/files/native-clip-{index}.png'
+        adb('shell','screencap','-p',source)
+        adb('shell','am','broadcast','-a','ru.smartvoice.DEBUG_CLIP','-p',pkg,'--ez','image','true','--es','imageSource',source)
+        if index: adb('shell','input','keyevent','4')
+    for _ in range(12):
+        seeded = db('history-seeded.db')
+        if sum(v[3] is not None and seed in v[3] for v in seeded) == 2 and sum(v[4] is not None for v in seeded) >= 2: break
+        time.sleep(.5)
+    assert sum(v[3] is not None and seed in v[3] for v in seeded) == 2 and sum(v[4] is not None for v in seeded) >= 2, seeded
+    checks['mixed_copy_sequence'] = 'text, actual screencap PNG, text, actual screencap PNG'
+
     broadcast(page='emoji')
     tap('sv_emoji_studio_banner')
     tap('sv_test_emoji_128570')  # actual cat choice in the compositor
@@ -110,7 +127,7 @@ def full():
     tap('sv_emoji_back')
     # Verify the four clipboard items survive another process restart with their files/IDs.
     before = db('history-final-before.db')
-    assert len(before) == 4 and sum(v[4] is not None for v in before) == 2, before
+    assert len(before) >= 4 and sum(v[4] is not None for v in before) >= 2, before
     checks['history_before'] = [{'id':v[0],'pinned':bool(v[2]),'image':v[4] is not None,'file':v[4]} for v in before]
     start()
     after = db('history-final-after.db')
@@ -206,12 +223,13 @@ def extras():
     for x in [frame[2]-44,frame[0]+324,frame[0]+412]: adb('shell','input','tap',str(x),str(y))
     time.sleep(.5)
     before = db('history-pinned-before.db')
-    assert len(before) == 4 and all(v[2] for v in before), before
+    assert len(before) >= 4 and all(v[2] for v in before), before
     screen('04-clipboard.png')
     start()
     after = db('history-pinned-after.db')
     assert [(v[0],v[2:]) for v in before] == [(v[0],v[2:]) for v in after]
     checks['four_pins_survive_restart'] = True
+    checks['pinned_clip_count'] = len(after)
     checks['saved_media_files'] = adb('shell','ls','-l',f'/data/user/0/{pkg}/files/stickers').decode()
     path.write_text(json.dumps(checks,ensure_ascii=False,indent=2))
     print('Verified library insert/delete, original GIF MIME, RU/EN, physical 7, four pinned clips after restart',flush=True)
