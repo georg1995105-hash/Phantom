@@ -436,6 +436,11 @@ public final class EmojiPalettesView extends LinearLayout
             boolean selected = (id == R.id.sv_emoji_space) == (category == EmojiCategory.Category.EMOTICONS);
             int color = selected ? ui.onAccent() : ui.text();
             button.setTextColor(color);
+            if (id == R.id.sv_emoji_mode) {
+                button.setCompoundDrawablesRelativeWithIntrinsicBounds(ui.icon(getContext(), R.drawable.ic_sv_emoji, color), null, null, null);
+                if (android.os.Build.VERSION.SDK_INT >= 23)
+                    button.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(color));
+            }
             for (android.graphics.drawable.Drawable icon : button.getCompoundDrawablesRelative())
                 if (icon != null) icon.mutate().setTint(color);
             float radius = ui.dp(getContext(), 12);
