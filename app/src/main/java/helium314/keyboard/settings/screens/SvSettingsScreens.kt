@@ -67,6 +67,7 @@ import helium314.keyboard.settings.SettingsActivity
 import helium314.keyboard.settings.SettingsDestination
 import helium314.keyboard.settings.SettingsWithoutKey
 import helium314.keyboard.settings.dialogs.ConfirmationDialog
+import helium314.keyboard.settings.dialogs.TextInputDialog
 import helium314.keyboard.settings.preferences.ListPreference
 import helium314.keyboard.settings.preferences.Preference
 import helium314.keyboard.settings.preferences.SwitchPreference
@@ -176,6 +177,11 @@ fun SvVoiceScreen(onClickBack: () -> Unit) {
             SmartPrefs.VOICE_LANGUAGE,
             SmartPrefs.VOICE_SMART_PUNCTUATION,
             SmartPrefs.VOICE_REMOVE_FILLERS,
+            SmartPrefs.VOICE_PREFER_OFFLINE,
+            SmartPrefs.VOICE_CONTINUOUS,
+            SmartPrefs.VOICE_COMMANDS,
+            SmartPrefs.VOICE_VOCABULARY_ENABLED,
+            SmartPrefs.VOICE_VOCABULARY,
         )
     )
 }
@@ -337,6 +343,29 @@ fun createSvSettings(context: Context) = listOf(
     },
     Setting(context, SmartPrefs.VOICE_SEND_COMMAND, R.string.sv_set_voice_send, R.string.sv_set_voice_send_summary) {
         SwitchPreference(it, SmartPrefs.DEF_VOICE_SEND_COMMAND)
+    },
+    Setting(context, SmartPrefs.VOICE_VOCABULARY_ENABLED, R.string.sv_voice_vocabulary_enabled, R.string.sv_voice_vocabulary_summary) {
+        SwitchPreference(it, false)
+    },
+    Setting(context, SmartPrefs.VOICE_VOCABULARY, R.string.sv_voice_vocabulary_terms, R.string.sv_voice_vocabulary_help) { setting ->
+        val prefs = LocalContext.current.prefs()
+        var editing by rememberSaveable { mutableStateOf(false) }
+        Preference(name = setting.title, description = setting.description, onClick = { editing = true })
+        if (editing) TextInputDialog(
+            onDismissRequest = { editing = false },
+            title = { Text(setting.title) },
+            description = { Text(stringResource(R.string.sv_voice_vocabulary_help)) },
+            initialText = prefs.getString(SmartPrefs.VOICE_VOCABULARY, "").orEmpty(),
+            singleLine = false,
+            checkTextValid = { text ->
+                val terms = text.split('\n', ';').filter { it.isNotBlank() }
+                text.length <= helium314.keyboard.smart.voice.VoiceVocabulary.MAX_INPUT && terms.size <= 100 && terms.all { it.trim().length <= 80 }
+            },
+            onConfirmed = { text -> prefs.edit { putString(SmartPrefs.VOICE_VOCABULARY,
+                helium314.keyboard.smart.voice.VoiceVocabulary.parse(text).joinToString("\n")) } },
+            neutralButtonText = stringResource(R.string.sv_clip_delete),
+            onNeutral = { prefs.edit { remove(SmartPrefs.VOICE_VOCABULARY) } },
+        )
     },
     Setting(context, "sv_screenshot_setup", R.string.sv_screenshot_setup) {
         val ctx = LocalContext.current

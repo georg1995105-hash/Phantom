@@ -19,4 +19,21 @@ class SpeechHypothesesTest {
         assertEquals("", SpeechHypotheses.choose(emptyList(), null))
         assertEquals("текст", SpeechHypotheses.choose(listOf(" ", " текст "), null))
     }
+    @Test fun formattingPairIsNotRankedAsTwoIndependentHypotheses() {
+        assertEquals("Встреча в 25-м офисе.", SpeechHypotheses.choose(
+            listOf("Встреча в 25-м офисе.", "встреча в двадцать пятом офисе"),
+            floatArrayOf(.1f, .95f), formattedPair = true))
+    }
+    @Test fun explicitTermCanResolveOneCloseWordWhenEngineAlsoPrefersIt() {
+        assertEquals("Открой Котлин", SpeechHypotheses.choose(
+            listOf("Открой Котлинн", "Открой Котлин"), floatArrayOf(.82f, .87f), personalTerms = listOf("Котлин")))
+        assertEquals("Открой Котлинн", SpeechHypotheses.choose(
+            listOf("Открой Котлинн", "Открой Котлин"), floatArrayOf(.87f, .82f), personalTerms = listOf("Котлин")))
+    }
+    @Test fun dictionaryDoesNotRewriteNumbersOrDistantMeanings() {
+        assertEquals("Встреча 15 мая", SpeechHypotheses.choose(
+            listOf("Встреча 15 мая", "Встреча 50 мая"), floatArrayOf(.8f, .85f), personalTerms = listOf("50")))
+        assertEquals("Купи хлеб", SpeechHypotheses.choose(
+            listOf("Купи хлеб", "Позвони Игорю"), floatArrayOf(.8f, .85f), personalTerms = listOf("Игорю")))
+    }
 }

@@ -17,6 +17,7 @@ import helium314.keyboard.latin.R
 import helium314.keyboard.latin.RichInputConnection
 import helium314.keyboard.latin.utils.Log
 import helium314.keyboard.latin.utils.prefs
+import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.smart.SmartPrefs
 import java.util.Locale
 
@@ -51,6 +52,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     private val handler = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var recognizerIsOnDevice = false
+    private var formattedResultsRequested = false
     private var listening = false
     private var generation = 0
     private var segmentBefore: CharSequence? = null
@@ -194,7 +196,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         val onDeviceAvailable = Build.VERSION.SDK_INT >= 31 && runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(ime) }.getOrDefault(false)
         val defaultAvailable = runCatching { SpeechRecognizer.isRecognitionAvailable(ime) }.getOrDefault(false)
         return try {
-            if (onDeviceAvailable && (preferOffline || !defaultAvailable) && Build.VERSION.SDK_INT >= 31) {
+            if (onDeviceAvailable && Build.VERSION.SDK_INT >= 31) {
                 recognizerIsOnDevice = true
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(ime)
             } else if (defaultAvailable && !preferOffline) {
@@ -212,16 +214,32 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
         putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, ime.packageName)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 12000L)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 8000L)
         if (prefs.getBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, SmartPrefs.DEF_VOICE_PREFER_OFFLINE))
             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+        formattedResultsRequested = Build.VERSION.SDK_INT >= 33 && options().smartPunctuation
         if (Build.VERSION.SDK_INT >= 33) {
-            putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_QUALITY)
+            if (formattedResultsRequested)
+                putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_QUALITY)
             putExtra(RecognizerIntent.EXTRA_MASK_OFFENSIVE_WORDS, false)
+            // Never disclose the personal dictionary or field context to a remote recognizer.
+            val terms = personalTerms()
+            if (recognizerIsOnDevice && terms.isNotEmpty()) {
+                val before = connection.getTextBeforeCursor(240, 0) ?: ""
+                putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, VoiceVocabulary.onDeviceHints(terms, before))
+            }
         }
+    }
+
+    private fun personalTerms(): List<String> {
+        if (!prefs.getBoolean(SmartPrefs.VOICE_VOCABULARY_ENABLED, false)) return emptyList()
+        val settings = Settings.getValues() ?: return emptyList()
+        if (settings.mIncognitoModeEnabled || settings.mInputAttributes.mNoLearning ||
+            settings.mInputAttributes.mIsPasswordField) return emptyList()
+        return VoiceVocabulary.parse(prefs.getString(SmartPrefs.VOICE_VOCABULARY, "").orEmpty())
     }
 
     private fun startListening() {
@@ -332,6 +350,9 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         if (display != composing) {
             composing = display
             connection.setComposingText(display, 1)
+            // Active speech must not hit the startup watchdog merely because a provider
+            // omitted onReadyForSpeech, nor a fixed two-minute deadline on a long phrase.
+            if (!pauseRequested && !finishRequested && state != State.PROCESSING) watchdog(120000)
         }
     }
 
@@ -341,7 +362,8 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         handler.removeCallbacksAndMessages(null)
         val text = SpeechHypotheses.choose(
             results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty(),
-            results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES))
+            results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES),
+            formattedResultsRequested, personalTerms())
         destroyRecognizer()
         if (text.isEmpty()) {
             finishComposingAsDictation()
@@ -369,6 +391,11 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         if (finishRequested) { finishComposingAsDictation(); close(); return }
         listening = false
         destroyRecognizer()
+        if (pauseRequested) {
+            finishComposingAsDictation()
+            setState(State.PAUSED)
+            return
+        }
         Log.i(TAG, "recognizer error $error")
         when (error) {
             SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
@@ -508,6 +535,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
             VoiceCommand.Stop -> {
                 setState(State.PAUSED, ime.getString(R.string.sv_voice_tap_to_continue))
             }
+            VoiceCommand.Finish -> close()
             VoiceCommand.NewLine -> {
                 conn.commitText("\n", 1)
                 pushUndo(UndoAction.Inserted("\n"))

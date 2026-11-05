@@ -6,6 +6,7 @@ on:
     paths:
       - 'app/**'
       - '.github/workflows/android-emulator-smoke.yml'
+      - 'tools/android-emulator-smoke.sh'
   workflow_dispatch:
 
 permissions:
@@ -63,23 +64,4 @@ jobs:
           emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -eu
-            PACKAGE='ru.smartvoice.keyboard.debug'
-            IME="$PACKAGE/helium314.keyboard.latin.LatinIME"
-            APK="$(find app/build/outputs/apk/debugNoMinify -maxdepth 1 -name '*.apk' -print -quit)"
-            test -f "$APK"
-            adb install -r "$APK"
-            adb shell pm path "$PACKAGE" | grep -q 'package:'
-            adb shell am start -W -n "$PACKAGE/helium314.keyboard.settings.SettingsActivity"
-            sleep 5
-            adb shell pidof "$PACKAGE" | grep -Eq '[0-9]+'
-            adb shell ime list -s | grep -F "$IME"
-            adb shell ime enable "$IME"
-            adb shell ime set "$IME"
-            adb shell settings get secure default_input_method | grep -F "$IME"
-            if adb logcat -d -b crash | grep -E 'FATAL EXCEPTION|Process: ru.smartvoice.keyboard.debug'; then
-              echo 'Android crash detected' >&2
-              exit 1
-            fi
-            echo 'Verified: APK installed; settings launched; IME registered and selected; no crash in buffer.'
+          script: bash tools/android-emulator-smoke.sh

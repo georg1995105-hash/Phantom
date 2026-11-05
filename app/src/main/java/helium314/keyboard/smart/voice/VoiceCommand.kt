@@ -11,6 +11,7 @@ sealed class VoiceCommand {
     data object Undo : VoiceCommand()
     data object Send : VoiceCommand()
     data object Stop : VoiceCommand()
+    data object Finish : VoiceCommand()
     data object NewLine : VoiceCommand()
     data class Replace(val target: String, val replacement: String) : VoiceCommand()
 
@@ -22,6 +23,7 @@ sealed class VoiceCommand {
         private val undo = Regex("^(?:отмени(?:ть)?|отмена|верни(?: как было)?)$|^undo(?: that)?$", o)
         private val send = Regex("^(?:отправь|отправить|отправляй)(?: сообщение)?$|^send(?: it| message| the message)?$", o)
         private val stop = Regex("^(?:стоп|хватит|закончи(?:ть)?(?: диктовку)?|выключи микрофон)$|^stop(?: listening| dictation)?$", o)
+        private val finish = Regex("^(?:готово|заверши(?:ть)? диктовку|done|finish dictation)$", o)
         private val newLine = Regex("^(?:новая строка|с новой строки|новый абзац)$|^new (?:line|paragraph)$", o)
         private val replace = Regex("^(?:замени(?:ть)?|исправь|поменяй) (.+?) на (.+)$|^(?:replace|change) (.+?) (?:with|to) (.+)$", o)
 
@@ -38,6 +40,7 @@ sealed class VoiceCommand {
                 undo.matches(t) -> Undo
                 send.matches(t) -> Send
                 stop.matches(t) -> Stop
+                finish.matches(t) -> Finish
                 newLine.matches(t) -> NewLine
                 else -> replace.matchEntire(t)?.let { m ->
                     val g = m.groupValues

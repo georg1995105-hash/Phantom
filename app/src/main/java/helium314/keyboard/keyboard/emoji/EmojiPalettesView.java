@@ -407,13 +407,6 @@ public final class EmojiPalettesView extends LinearLayout
     private void updateRecentStrip() {
         LinearLayout row = findViewById(R.id.sv_emoji_recent);
         row.removeAllViews();
-        if (mEmojiCategory.getCurrentCategory() == EmojiCategory.Category.EMOTICONS) {
-            android.widget.TextView title = helium314.keyboard.smart.ui.SvUi.INSTANCE.label(getContext(), 12f,
-                    helium314.keyboard.smart.ui.SvUi.INSTANCE.secondaryText(), false);
-            title.setText(R.string.sv_text_emoticons_title);
-            row.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            return;
-        }
         var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
         android.widget.TextView label = ui.label(getContext(), 12f, ui.secondaryText(), false);
         label.setText(R.string.sv_emoji_recent);
@@ -430,10 +423,10 @@ public final class EmojiPalettesView extends LinearLayout
 
     private void updateBottomSelection(EmojiCategory.Category category) {
         var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
-        for (int id : new int[] { R.id.sv_emoji_mode, R.id.sv_emoji_space }) {
+        for (int id : new int[] { R.id.sv_emoji_mode }) {
             android.widget.TextView button = findViewById(id);
             if (button == null) continue;
-            boolean selected = (id == R.id.sv_emoji_space) == (category == EmojiCategory.Category.EMOTICONS);
+            boolean selected = category == EmojiCategory.Category.SMILEYS;
             int color = selected ? ui.onAccent() : ui.text();
             button.setTextColor(color);
             if (id == R.id.sv_emoji_mode) {
@@ -477,7 +470,7 @@ public final class EmojiPalettesView extends LinearLayout
     private void setupBottomRowKeyboard(EditorInfo editorInfo, KeyboardActionListener keyboardActionListener) {
         // Explicit keyboard-theme colors: the system Activity theme can be light while
         // the IME is dark, making textColorPrimary invisible on this panel.
-        for (int id : new int[]{R.id.sv_emoji_back, R.id.sv_emoji_mode, R.id.sv_emoji_space, R.id.sv_emoji_delete}) {
+        for (int id : new int[]{R.id.sv_emoji_back, R.id.sv_emoji_mode, R.id.sv_emoji_delete}) {
             android.widget.TextView action = findViewById(id);
             action.setTextColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.text());
             action.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.ripple(
@@ -492,9 +485,6 @@ public final class EmojiPalettesView extends LinearLayout
         findViewById(R.id.sv_emoji_back).setOnClickListener(view ->
             keyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
         findViewById(R.id.sv_emoji_mode).setOnClickListener(view -> setCurrentCategory(EmojiCategory.Category.SMILEYS, false));
-        findViewById(R.id.sv_emoji_space).setOnClickListener(view -> setCurrentCategory(EmojiCategory.Category.EMOTICONS, false));
-        boolean hasEmoticons = mEmojiCategory.getShownCategories().stream().anyMatch(p -> p.getCategory() == EmojiCategory.Category.EMOTICONS);
-        findViewById(R.id.sv_emoji_space).setVisibility(hasEmoticons ? VISIBLE : GONE);
         findViewById(R.id.sv_emoji_delete).setOnClickListener(view ->
             keyboardActionListener.onCodeInput(KeyCode.DELETE, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
     }

@@ -12,6 +12,8 @@ object SmartPrefs {
     const val VOICE_SEND_COMMAND = "sv_voice_send_command"
     const val VOICE_PREFER_OFFLINE = "sv_voice_prefer_offline"
     const val VOICE_CONTINUOUS = "sv_voice_continuous"
+    const val VOICE_VOCABULARY_ENABLED = "sv_voice_vocabulary_enabled"
+    const val VOICE_VOCABULARY = "sv_voice_vocabulary"
 
     const val CLIP_CHIP = "sv_clip_chip"
     const val CLIP_CHIP_MINUTES = "sv_clip_chip_minutes"

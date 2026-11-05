@@ -49,16 +49,16 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
         CategoryProperties(Category.ACTIVITIES),
         CategoryProperties(Category.OBJECTS),
         CategoryProperties(Category.SYMBOLS),
-        if (canShowFlagEmoji()) CategoryProperties(Category.FLAGS) else null,
-        CategoryProperties(Category.EMOTICONS)
+        if (canShowFlagEmoji()) CategoryProperties(Category.FLAGS) else null
     )
 
     private val categoryKeyboardMap = ConcurrentHashMap<Long, DynamicGridKeyboard>()
 
     var currentCategory: Category = defaultCategory
         set(value) {
-            field = value
-            prefs.edit { putInt(Settings.PREF_LAST_SHOWN_EMOJI_CATEGORY_ID, value.ordinal) }
+            // Keep the old enum ordinal readable, but never reopen the retired ASCII panel.
+            field = if (value == Category.EMOTICONS) defaultCategory else value
+            prefs.edit { putInt(Settings.PREF_LAST_SHOWN_EMOJI_CATEGORY_ID, field.ordinal) }
         }
 
     var currentCategoryPageId = 0
@@ -69,7 +69,7 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
 
     fun initialize() {
         val recentsKbd = getKeyboard(Category.RECENTS, 0)
-        currentCategory = Category.entries[prefs.getInt(Settings.PREF_LAST_SHOWN_EMOJI_CATEGORY_ID, defaultCategory.ordinal)]
+        currentCategory = Category.entries.getOrNull(prefs.getInt(Settings.PREF_LAST_SHOWN_EMOJI_CATEGORY_ID, defaultCategory.ordinal)) ?: defaultCategory
         currentCategoryPageId =
             prefs.getInt(Settings.PREF_LAST_SHOWN_EMOJI_CATEGORY_PAGE_ID, Defaults.PREF_LAST_SHOWN_EMOJI_CATEGORY_PAGE_ID)
         if (shownCategories.none { it.category == currentCategory }) {
