@@ -37,4 +37,8 @@
     <string name="sv_resize_reset">Reset</string>
     <string name="sv_resize_done">Done</string>
     <string name="sv_resize_move">Move keyboard</string>
+    <string name="sv_fn_paste">Paste</string>
+    <string name="sv_fn_copy">Copy</string>
+    <string name="sv_fn_select_all">Select all</string>
+    <string name="sv_fn_undo">Undo</string>
 </resources>

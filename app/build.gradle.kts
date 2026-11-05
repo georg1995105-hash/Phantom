@@ -51,7 +51,8 @@ android {
             isMinifyEnabled = false
             isJniDebuggable = false
             signingConfig = signingConfigs.getByName("debug")
-            applicationIdSuffix = ".debug"
+            // A preview APK installs independently; ordinary debug builds keep their existing ID.
+            applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".preview" else ".debug"
             isDefault = true
         }
 
