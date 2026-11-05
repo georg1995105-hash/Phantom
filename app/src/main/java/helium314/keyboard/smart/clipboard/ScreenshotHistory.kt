@@ -75,8 +75,27 @@ class ScreenshotPermissionActivity : Activity() {
             .setPositiveButton("Включить") { _, _ ->
                 prefs().edit().putLong(ScreenshotHistory.SINCE, System.currentTimeMillis()/1000).putLong(ScreenshotHistory.LAST, 0).apply()
                 if (ScreenshotHistory.permitted(this)) enable() else requestPermissions(arrayOf(ScreenshotHistory.permission()), 31)
+            }.setNeutralButton("Выбрать снимок") { _, _ ->
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE)
+                }, 32)
             }.setNegativeButton("Выключить") { _, _ -> prefs().edit().putBoolean(ScreenshotHistory.ENABLED, false).apply(); finish() }
             .setOnCancelListener { finish() }.show()
+    }
+    override fun onActivityResult(request: Int, result: Int, data: Intent?) {
+        super.onActivityResult(request, result, data)
+        val uri = data?.data
+        if (request != 32 || result != RESULT_OK || uri == null) { finish(); return }
+        // Explicit document selection works without gallery-wide access. Copy while
+        // this Activity still owns the transient URI grant, then release the Activity.
+        Thread {
+            val saved = ClipboardDao.getInstance(this)?.addClipUri(System.currentTimeMillis(), false, uri,
+                ClipDescription("Изображение", arrayOf(contentResolver.getType(uri) ?: "image/png")), this) == true
+            runOnUiThread {
+                android.widget.Toast.makeText(this, if (saved) "Сохранено в истории" else "Изображение недоступно или превышает лимит", android.widget.Toast.LENGTH_LONG).show()
+                finish()
+            }
+        }.start()
     }
     private fun enable() {
         var last = 0L

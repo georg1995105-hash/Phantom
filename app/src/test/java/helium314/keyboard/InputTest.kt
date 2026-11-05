@@ -51,6 +51,16 @@ class InputTest {
         assertEquals(KeyboardElement.ALPHABET_MANUAL_SHIFTED, keyboardSwitcher.keyboard?.mId?.element)
     }
 
+    @Test fun legacyBottomNumpadPinDoesNotCreateAnExtraKey() {
+        latinIME.prefs().edit().putBoolean(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD, true).commit()
+        try {
+            keyboardSwitcher.reloadMainKeyboard()
+            kotlin.test.assertNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.NUMPAD))
+        } finally {
+            latinIME.prefs().edit().remove(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD).commit()
+        }
+    }
+
     @Test fun keyInput() {
         touchKey('a'.code, MotionEvent.ACTION_DOWN)
         touchKey('a'.code, MotionEvent.ACTION_UP)

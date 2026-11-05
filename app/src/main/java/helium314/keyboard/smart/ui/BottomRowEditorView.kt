@@ -28,7 +28,6 @@ class BottomRowEditorView @JvmOverloads constructor(context: Context, attrs: Att
     private data class Shortcut(val id: String, val glyph: String, val pref: String, val defaultValue: Boolean)
 
     private val shortcuts = listOf(
-        Shortcut("numpad", "123", SmartPrefs.BOTTOM_NUMPAD, false),
         Shortcut("emoji", "☺", Settings.PREF_SHOW_EMOJI_KEY, Defaults.PREF_SHOW_EMOJI_KEY),
         Shortcut("language_switch", "🌐", Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY, Defaults.PREF_SHOW_LANGUAGE_SWITCH_KEY)
     )

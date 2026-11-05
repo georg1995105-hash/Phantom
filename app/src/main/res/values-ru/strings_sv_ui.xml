@@ -44,7 +44,7 @@
     <string name="sv_fn_autocorrect">Автокоррекция</string>
     <string name="sv_functions_help">Удерживайте и переносите карточки или перемещайте в зоны. Тап — скрыть или вернуть.</string>
     <string name="sv_drop_top">Верхняя панель · добавить / убрать</string>
-    <string name="sv_drop_bottom">Нижний ряд · эмодзи / язык / цифры</string>
+    <string name="sv_drop_bottom">Нижний ряд · эмодзи / язык</string>
     <string name="sv_drop_hide">Скрыть / вернуть</string>
     <string name="sv_customize_functions">Настроить набор функций</string>
     <string name="sv_emoji_search">Поиск</string>
