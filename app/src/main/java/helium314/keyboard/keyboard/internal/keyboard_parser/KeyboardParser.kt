@@ -316,8 +316,22 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
             }
         }
         bottom.removeAll { it.label == KeyLabel.NUMPAD }
+        val numpadMode = helium314.keyboard.smart.BottomNumpad.get(prefs)
+        when (numpadMode) {
+            helium314.keyboard.smart.BottomNumpad.Mode.EXTRA -> {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = KeyLabel.NUMPAD, code = KeyCode.NUMPAD,
+                        type = KeyType.FUNCTION, width = 0.10f))
+            }
+            helium314.keyboard.smart.BottomNumpad.Mode.REPLACE_SYMBOLS -> if (params.mId.element.isAlphabet) {
+                val toggle = bottom.indexOfFirst { it.label == KeyLabel.SYMBOL_ALPHA }
+                if (toggle >= 0) bottom[toggle] = bottom[toggle].copy(newLabel = KeyLabel.NUMPAD, newCode = KeyCode.NUMPAD)
+            }
+            else -> Unit
+        }
         val movableLabels = setOf("emoji", KeyLabel.LANGUAGE_SWITCH, KeyLabel.NUMPAD)
-        val movable = bottom.filter { it.label in movableLabels }
+        val movable = bottom.filter { it.label in movableLabels &&
+            !(it.label == KeyLabel.NUMPAD && numpadMode == helium314.keyboard.smart.BottomNumpad.Mode.REPLACE_SYMBOLS) }
         bottom.removeAll(movable.toSet())
         val ids = BottomRowOrder.sort(movable.map { it.label },
             prefs.getString(SmartPrefs.BOTTOM_ORDER, null))

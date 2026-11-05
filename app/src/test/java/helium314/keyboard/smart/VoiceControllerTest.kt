@@ -153,6 +153,40 @@ class VoiceControllerTest {
         voice.onResults(result("поздний текст"))
         assertEquals("", ShadowInputMethodService.text)
     }
+    private fun enableSystemRecognizer() {
+        val service = android.content.pm.ResolveInfo().apply {
+            serviceInfo = android.content.pm.ServiceInfo().apply {
+                packageName = "test.speech"; name = "test.speech.Service"
+            }
+        }
+        shadowOf(ime.packageManager).addResolveInfoForIntent(Intent(android.speech.RecognitionService.SERVICE_INTERFACE), service)
+    }
+    private fun onDevice() = VoiceController::class.java.getDeclaredField("recognizerIsOnDevice")
+        .apply { isAccessible = true }.getBoolean(voice)
+    @Test fun userCanSelectSystemServiceWithoutForcingLocalRecognizer() {
+        voice.close(); enableSystemRecognizer()
+        ime.prefs().edit().putBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, false)
+            .putString(SmartPrefs.VOICE_ENGINE_MODE, "system").apply()
+        voice.open()
+        assertFalse(onDevice())
+        assertNotEquals(VoiceController.State.UNAVAILABLE, voice.state)
+    }
+    @Test fun offlineChoiceOverridesSystemMode() {
+        voice.close(); enableSystemRecognizer()
+        ime.prefs().edit().putString(SmartPrefs.VOICE_ENGINE_MODE, "system").apply()
+        voice.open()
+        assertTrue(onDevice())
+    }
+    @Test fun missingLocalLanguageDoesNotRetryLocalEngineOnEveryPhrase() {
+        enableSystemRecognizer()
+        ime.prefs().edit().putBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, false)
+            .putBoolean(SmartPrefs.VOICE_CONTINUOUS, true).apply()
+        voice.onError(SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE)
+        assertFalse(onDevice())
+        voice.onResults(result("следующая фраза"))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(150))
+        assertFalse(onDevice())
+    }
     private fun recognitionIntent() = VoiceController::class.java.getDeclaredMethod("recognizerIntent")
         .apply { isAccessible = true }.invoke(voice) as Intent
     @Test fun punctuationSettingControlsEngineFormattingToo() {

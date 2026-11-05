@@ -51,14 +51,47 @@ class InputTest {
         assertEquals(KeyboardElement.ALPHABET_MANUAL_SHIFTED, keyboardSwitcher.keyboard?.mId?.element)
     }
 
-    @Test fun legacyBottomNumpadPinDoesNotCreateAnExtraKey() {
-        latinIME.prefs().edit().putBoolean(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD, true).commit()
+    private fun withNumpad(mode: helium314.keyboard.smart.BottomNumpad.Mode, check: () -> Unit) {
+        val prefs = latinIME.prefs()
+        val saved = prefs.getString(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD_MODE, null)
+        val legacy = prefs.getBoolean(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD, false)
         try {
+            helium314.keyboard.smart.BottomNumpad.set(prefs, mode)
+            helium314.keyboard.keyboard.KeyboardLayoutSet.onKeyboardThemeChanged()
             keyboardSwitcher.reloadMainKeyboard()
-            kotlin.test.assertNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.NUMPAD))
+            check()
         } finally {
-            latinIME.prefs().edit().remove(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD).commit()
+            prefs.edit().putString(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD_MODE, saved)
+                .putBoolean(helium314.keyboard.smart.SmartPrefs.BOTTOM_NUMPAD, legacy).commit()
+            helium314.keyboard.keyboard.KeyboardLayoutSet.onKeyboardThemeChanged()
         }
+    }
+
+    @Test fun defaultBottomRowHasNoExtraNumpad() = withNumpad(helium314.keyboard.smart.BottomNumpad.Mode.OFF) {
+        kotlin.test.assertNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.NUMPAD))
+        kotlin.test.assertNotNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.SYMBOL_ALPHA))
+    }
+
+    @Test fun extraNumpadKeepsSymbolsAndSpace() = withNumpad(helium314.keyboard.smart.BottomNumpad.Mode.EXTRA) {
+        kotlin.test.assertNotNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.NUMPAD))
+        kotlin.test.assertNotNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.SYMBOL_ALPHA))
+        kotlin.test.assertNotNull(keyboardSwitcher.keyboard!!.getKey(' '.code))
+        latinIME.onCodeInput(KeyCode.NUMPAD, -1, -1, false)
+        assertEquals(KeyboardElement.NUMPAD, keyboardSwitcher.keyboard!!.mId.element)
+        latinIME.onCodeInput('7'.code, -1, -1, false)
+        assertEquals("7", ShadowInputMethodService.text)
+    }
+
+    @Test fun numpadCanReplaceSymbolToggle() = withNumpad(helium314.keyboard.smart.BottomNumpad.Mode.REPLACE_SYMBOLS) {
+        val keyboard = keyboardSwitcher.keyboard!!
+        kotlin.test.assertNull(keyboard.getKey(KeyCode.SYMBOL_ALPHA))
+        val numpad = kotlin.test.assertNotNull(keyboard.getKey(KeyCode.NUMPAD))
+        kotlin.test.assertTrue(numpad.x < keyboard.mOccupiedWidth / 5)
+        latinIME.onCodeInput(KeyCode.NUMPAD, -1, -1, false)
+        assertEquals(KeyboardElement.NUMPAD, keyboardSwitcher.keyboard!!.mId.element)
+        // The dedicated keypad exposes separate ABC and symbols actions.
+        kotlin.test.assertNotNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.ALPHA))
+        kotlin.test.assertNotNull(keyboardSwitcher.keyboard!!.getKey(KeyCode.SYMBOL))
     }
 
     @Test fun keyInput() {

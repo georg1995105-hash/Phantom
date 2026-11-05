@@ -15,12 +15,18 @@
     android:background="@android:color/transparent"
     style="?attr/emojiPalettesViewStyle"
 >
-    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="36dp"
+    <helium314.keyboard.smart.ui.EmojiStudioBanner
+        android:id="@+id/sv_emoji_studio_banner"
+        android:layout_width="match_parent" android:layout_height="68dp"
+        android:layout_marginHorizontal="8dp" android:layout_marginVertical="4dp" />
+    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="44dp"
         android:scrollbars="none">
         <LinearLayout android:id="@+id/sv_emoji_recent" android:orientation="horizontal"
             android:gravity="center_vertical" android:paddingHorizontal="8dp"
             android:layout_width="wrap_content" android:layout_height="match_parent" />
     </HorizontalScrollView>
+    <View android:layout_width="match_parent" android:layout_height="1dp"
+        android:layout_marginHorizontal="10dp" android:background="#30485270"/>
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/emoji_pager"
         android:layout_width="match_parent"
@@ -33,14 +39,14 @@
     <LinearLayout
         android:id="@+id/sv_emoji_actions"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="54dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:paddingHorizontal="4dp">
         <TextView
             android:id="@+id/sv_emoji_back"
-            android:layout_width="68dp"
-            android:layout_height="44dp"
+            android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="46dp"
             android:layout_marginHorizontal="3dp"
             android:gravity="center"
             android:background="?android:attr/selectableItemBackground"
@@ -51,13 +57,20 @@
         <ImageView
             android:id="@+id/sv_emoji_mode"
             android:layout_width="0dp" android:layout_weight="1"
-            android:layout_height="44dp" android:layout_marginHorizontal="3dp"
+            android:layout_height="46dp" android:layout_marginHorizontal="3dp"
             android:scaleType="center"
             android:contentDescription="@string/sv_fn_emoji" />
+        <TextView android:id="@+id/sv_emoji_gif" android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="46dp" android:layout_marginHorizontal="3dp"
+            android:gravity="center" android:text="GIF" android:textSize="15sp"
+            android:contentDescription="@string/sv_gif_library" />
+        <ImageView android:id="@+id/sv_emoji_stickers" android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="46dp" android:layout_marginHorizontal="3dp" android:scaleType="center"
+            android:contentDescription="@string/sv_sticker_library" />
         <TextView
             android:id="@+id/sv_emoji_delete"
-            android:layout_width="68dp"
-            android:layout_height="44dp"
+            android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="46dp"
             android:layout_marginHorizontal="3dp"
             android:gravity="center"
             android:background="?android:attr/selectableItemBackground"

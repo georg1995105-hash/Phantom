@@ -174,6 +174,8 @@ fun SvVoiceScreen(onClickBack: () -> Unit) {
         settings = listOf(
             SvSettingKeys.VOICE_PERMISSION,
             SvSettingKeys.VOICE_ENGINE,
+            SmartPrefs.VOICE_ENGINE_MODE,
+            "sv_voice_download_model",
             SmartPrefs.VOICE_LANGUAGE,
             SmartPrefs.VOICE_SMART_PUNCTUATION,
             SmartPrefs.VOICE_REMOVE_FILLERS,
@@ -317,6 +319,17 @@ fun createSvSettings(context: Context) = listOf(
                 }
             }
         )
+    },
+    Setting(context, SmartPrefs.VOICE_ENGINE_MODE, R.string.sv_voice_engine_mode, R.string.sv_voice_engine_mode_help) {
+        val ctx = LocalContext.current
+        ListPreference(it, listOf(ctx.getString(R.string.sv_voice_engine_auto) to "auto",
+            ctx.getString(R.string.sv_voice_engine_system) to "system"), "auto")
+    },
+    Setting(context, "sv_voice_download_model", R.string.sv_voice_download_model, R.string.sv_voice_download_model_help) {
+        val ctx = LocalContext.current
+        Preference(name = it.title, description = it.description, onClick = {
+            ctx.startActivity(Intent(ctx, helium314.keyboard.smart.voice.VoiceModelActivity::class.java))
+        })
     },
     Setting(context, SmartPrefs.VOICE_LANGUAGE, R.string.sv_set_voice_language) {
         val ctx = LocalContext.current

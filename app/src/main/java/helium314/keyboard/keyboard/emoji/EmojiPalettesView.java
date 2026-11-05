@@ -98,7 +98,7 @@ public final class EmojiPalettesView extends LinearLayout
 
         @Override
         public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
-            recyclerView.setItemViewCacheSize(mEmojiCategory.getShownCategories().size());
+            recyclerView.setItemViewCacheSize(2);
         }
 
         @NonNull
@@ -175,7 +175,7 @@ public final class EmojiPalettesView extends LinearLayout
             final int offset = recyclerView.computeVerticalScrollOffset();
             final int extent = recyclerView.computeVerticalScrollExtent();
             final int range = recyclerView.computeVerticalScrollRange();
-            final float percentage = offset / (float) (range - extent);
+            final float percentage = range > extent ? offset / (float) (range - extent) : 0f;
 
             final int currentCategorySize = mEmojiCategory.getCurrentCategoryPageCount();
             final int a = (int) (percentage * currentCategorySize);
@@ -229,7 +229,7 @@ public final class EmojiPalettesView extends LinearLayout
         // The main keyboard expands to the entire this {@link KeyboardView}.
         final int width = ResourceUtils.getKeyboardWidth(getContext(), Settings.getValues())
                 + getPaddingLeft() + getPaddingRight();
-        final int height = ResourceUtils.getSecondaryKeyboardHeight(res, Settings.getValues())
+        final int height = mEmojiLayoutParams.getPanelHeight()
                 + getPaddingTop() + getPaddingBottom();
         mEmojiCategoryPageIndicatorView.mWidth = width;
         setMeasuredDimension(width, height);
@@ -256,7 +256,7 @@ public final class EmojiPalettesView extends LinearLayout
         iconView.setContentDescription(mEmojiCategory.getAccessibilityDescription(category));
         iconView.setTag(category);
         host.addView(iconView);
-        iconView.setLayoutParams(new LinearLayout.LayoutParams((int) (44 * getResources().getDisplayMetrics().density), ViewGroup.LayoutParams.MATCH_PARENT));
+        iconView.setLayoutParams(new LinearLayout.LayoutParams((int) (32 * getResources().getDisplayMetrics().density), ViewGroup.LayoutParams.MATCH_PARENT));
         iconView.setOnClickListener(this);
         if (category == EmojiCategory.Category.RECENTS) {
             iconView.setOnLongClickListener(v -> {
@@ -276,27 +276,31 @@ public final class EmojiPalettesView extends LinearLayout
         if (Settings.getValues().isSecondaryStripVisible()) {
             mTabStrip.removeAllViews();
             final var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
-            final int buttonWidth = ui.dp(getContext(), 44);
+            final int buttonWidth = ui.dp(getContext(), 36);
             mTabStrip.addView(ui.iconButton(getContext(), R.drawable.ic_sv_back, getContext().getString(R.string.sv_back), 44,
                 v -> { mKeyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false); return kotlin.Unit.INSTANCE; }),
                 new LinearLayout.LayoutParams(buttonWidth, ViewGroup.LayoutParams.MATCH_PARENT));
             android.widget.TextView search = ui.chip(getContext(), getContext().getString(R.string.sv_emoji_search), false);
-            search.setCompoundDrawablesRelativeWithIntrinsicBounds(ui.icon(getContext(), R.drawable.sym_keyboard_search_lxx, ui.text()), null, null, null);
+            var searchIcon = ui.icon(getContext(), R.drawable.sym_keyboard_search_lxx, ui.text());
+            searchIcon.setBounds(0, 0, ui.dp(getContext(), 18), ui.dp(getContext(), 18));
+            search.setCompoundDrawablesRelative(searchIcon, null, null, null);
             search.setCompoundDrawablePadding(ui.dp(getContext(), 4));
-            search.setTextSize(12);
+            search.setTextSize(11);
+            search.setSingleLine(true);
             search.setPadding(ui.dp(getContext(), 8), 0, ui.dp(getContext(), 6), 0);
             search.setOnClickListener(v -> openSearch());
-            mTabStrip.addView(search, new LinearLayout.LayoutParams(ui.dp(getContext(), 102), ui.dp(getContext(), 38)));
+            mTabStrip.addView(search, new LinearLayout.LayoutParams(ui.dp(getContext(), 116), ui.dp(getContext(), 38)));
             LinearLayout categories = new LinearLayout(getContext());
             android.widget.HorizontalScrollView categoryScroll = new android.widget.HorizontalScrollView(getContext());
             categoryScroll.setHorizontalScrollBarEnabled(false);
             categoryScroll.addView(categories);
             mTabStrip.addView(categoryScroll, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
             for (EmojiCategory.CategoryProperties properties : mEmojiCategory.getShownCategories()) {
-                addTab(categories, properties.getCategory());
+                if (properties.getCategory() != EmojiCategory.Category.RECENTS) addTab(categories, properties.getCategory());
             }
         }
 
+        findViewById(R.id.sv_emoji_studio_banner).setVisibility(mEmojiLayoutParams.getShowStudioBanner() ? VISIBLE : GONE);
         mPager = findViewById(R.id.emoji_pager);
         mPager.setAdapter(new PagerAdapter(mPager));
         mEmojiLayoutParams.setEmojiListProperties(mPager);
@@ -344,8 +348,6 @@ public final class EmojiPalettesView extends LinearLayout
         addRecentKey(key);
         final int code = key.getCode();
         if (code == KeyCode.MULTIPLE_CODE_POINTS) {
-            // todo: when we enter some emoticons, e.g. :-D, inline emoji search is triggered and emoji view is closed
-            //  (one more instance of "emoji search should recognize emoticons", but in this case could be fixed in other ways)
             mKeyboardActionListener.onTextInput(key.getOutputText());
         } else if (code != KeyCode.UNSPECIFIED) {
             mKeyboardActionListener.onCodeInput(code, NOT_A_COORDINATE, NOT_A_COORDINATE, false);
@@ -412,13 +414,20 @@ public final class EmojiPalettesView extends LinearLayout
         label.setText(R.string.sv_emoji_recent);
         label.setOnClickListener(v -> setCurrentCategory(EmojiCategory.Category.RECENTS, false));
         row.addView(label, new LinearLayout.LayoutParams(ui.dp(getContext(), 80), ViewGroup.LayoutParams.MATCH_PARENT));
-        for (String emoji : RecentEmojis.get().subList(0, Math.min(8, RecentEmojis.get().size()))) {
+        var recent = RecentEmojis.get();
+        for (String emoji : recent.subList(0, Math.min(8, recent.size()))) {
             android.widget.TextView item = ui.label(getContext(), 23f, ui.text(), false);
             item.setText(emoji);
             item.setContentDescription(emoji);
-            item.setOnClickListener(v -> mKeyboardActionListener.onTextInput(emoji));
+            item.setOnClickListener(v -> {
+                mKeyboardActionListener.onTextInput(emoji);
+                if (!Settings.getValues().mIncognitoModeEnabled) { RecentEmojis.add(emoji); updateRecentStrip(); }
+            });
             row.addView(item, new LinearLayout.LayoutParams(ui.dp(getContext(), 40), ViewGroup.LayoutParams.MATCH_PARENT));
         }
+        row.addView(ui.iconButton(getContext(), R.drawable.ic_sv_next, getContext().getString(R.string.sv_emoji_recent), 32,
+            v -> { setCurrentCategory(EmojiCategory.Category.RECENTS, false); return kotlin.Unit.INSTANCE; }),
+            new LinearLayout.LayoutParams(ui.dp(getContext(), 32), ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
     private void updateBottomSelection(EmojiCategory.Category category) {
@@ -435,14 +444,7 @@ public final class EmojiPalettesView extends LinearLayout
     }
 
     public void openSearch() {
-                java.util.List<Key> keys = new java.util.ArrayList<>();
-                for (var props : mEmojiCategory.getShownCategories()) {
-                    var cat = props.getCategory();
-                    if (cat == EmojiCategory.Category.RECENTS || cat == EmojiCategory.Category.EMOTICONS) continue;
-                    for (int page = 0; page < mEmojiCategory.getCategoryPageCount(cat); page++)
-                        keys.addAll(mEmojiCategory.getKeyboard(cat, page).getSortedKeys());
-                }
-                helium314.keyboard.smart.ui.SmartUi.openEmojiSearch(keys, this);
+        helium314.keyboard.smart.ui.SmartUi.openEmojiSearch(mEmojiCategory.getSearchKeys(), this);
     }
 
     private void addRecentKey(Key key) {
@@ -463,7 +465,7 @@ public final class EmojiPalettesView extends LinearLayout
     private void setupBottomRowKeyboard(EditorInfo editorInfo, KeyboardActionListener keyboardActionListener) {
         // Explicit keyboard-theme colors: the system Activity theme can be light while
         // the IME is dark, making textColorPrimary invisible on this panel.
-        for (int id : new int[]{R.id.sv_emoji_back, R.id.sv_emoji_mode, R.id.sv_emoji_delete}) {
+        for (int id : new int[]{R.id.sv_emoji_back, R.id.sv_emoji_mode, R.id.sv_emoji_gif, R.id.sv_emoji_stickers, R.id.sv_emoji_delete}) {
             View action = findViewById(id);
             if (action instanceof android.widget.TextView text)
                 text.setTextColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.text());
@@ -474,6 +476,10 @@ public final class EmojiPalettesView extends LinearLayout
                 ((android.widget.ImageView)action).setImageDrawable(helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_emoji, helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent()));
             }
         }
+        ((ImageView)findViewById(R.id.sv_emoji_stickers)).setImageDrawable(
+            helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_sticker, helium314.keyboard.smart.ui.SvUi.INSTANCE.text()));
+        findViewById(R.id.sv_emoji_gif).setOnClickListener(view -> helium314.keyboard.smart.ui.SmartUi.openGifLibrary());
+        findViewById(R.id.sv_emoji_stickers).setOnClickListener(view -> helium314.keyboard.smart.ui.SmartUi.openStickerStudio(true));
         findViewById(R.id.sv_emoji_actions).setBackgroundColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.panelBackground());
         findViewById(R.id.sv_emoji_back).setOnClickListener(view ->
             keyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false));

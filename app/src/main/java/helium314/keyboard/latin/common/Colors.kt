@@ -44,6 +44,7 @@ interface Colors {
     val themeStyle: String
     /** used in parser to decide background of ZWNJ key */
     val hasKeyBorders: Boolean
+    val flatKeySurface: Boolean get() = false
     val accentShiftedIcon: Boolean get() =
         Settings.getCurrentContext().prefs().getBoolean(Settings.PREF_ACCENT_SHIFTED_ICON, Defaults.PREF_ACCENT_SHIFTED_ICON)
 
@@ -65,6 +66,18 @@ interface Colors {
 
     /** returns a colored drawable selected from [attr], which must contain using R.styleable.KeyboardView_* */
     fun selectAndColorDrawable(attr: TypedArray, color: ColorType): Drawable {
+        if (hasKeyBorders && flatKeySurface && color in setOf(KEY_BACKGROUND, FUNCTIONAL_KEY_BACKGROUND, SPACE_BAR_BACKGROUND, ACTION_KEY_BACKGROUND)) {
+            val density = Settings.getCurrentContext().resources.displayMetrics.density
+            val base = if (color == ACTION_KEY_BACKGROUND) get(FUNCTIONAL_KEY_BACKGROUND) else get(color)
+            fun surface(pressed: Boolean) = GradientDrawable().apply {
+                setColor(if (pressed) ColorUtils.blendARGB(base, Color.WHITE, .18f) else base)
+                cornerRadius = density * if (color == ACTION_KEY_BACKGROUND) 24f else 7f
+            }
+            return android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), surface(true))
+                addState(intArrayOf(), surface(false))
+            }
+        }
         if (hasKeyBorders && get(MAIN_BACKGROUND) == android.graphics.Color.rgb(0x10, 0x13, 0x1C) &&
             color in setOf(KEY_BACKGROUND, FUNCTIONAL_KEY_BACKGROUND, SPACE_BAR_BACKGROUND, ACTION_KEY_BACKGROUND)) {
             val density = Settings.getCurrentContext().resources.displayMetrics.density
@@ -399,6 +412,7 @@ class DefaultColors (
     private val spaceBarText: Int = keyHintText,
     private val gesture: Int = accent,
     private var keyboardBackground: Drawable? = null,
+    override val flatKeySurface: Boolean = false,
 ) : Colors {
     private val navBar: Int
     /** brightened or darkened variant of [background], to be used if exact background color would be

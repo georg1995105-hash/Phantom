@@ -151,19 +151,23 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     private fun bottomKey(item: Item): String? = when (item.id) {
         "emoji" -> "emoji"
         "languages" -> "language_switch"
-        "numpad" -> null
+        "numpad" -> "numpad"
         else -> null
     }
 
     private fun pinned(item: Item): Boolean = when (item.id) {
         "emoji" -> context.prefs().getBoolean(Settings.PREF_SHOW_EMOJI_KEY, Defaults.PREF_SHOW_EMOJI_KEY)
         "languages" -> context.prefs().getBoolean(Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY, Defaults.PREF_SHOW_LANGUAGE_SWITCH_KEY)
-        "numpad" -> context.prefs().getBoolean(SmartPrefs.BOTTOM_NUMPAD, false)
+        "numpad" -> helium314.keyboard.smart.BottomNumpad.get(context.prefs()) != helium314.keyboard.smart.BottomNumpad.Mode.OFF
         else -> false
     }
 
     /** Editing a movable item shifts it between the keyboard's bottom row and this menu. */
     private fun toggleBottomKey(item: Item) {
+        if (item.id == "numpad") {
+            BottomRowEditorView.showNumpadChoices(context) { refreshBottomRowInPlace() }
+            return
+        }
         val key = when (item.id) {
             "emoji" -> Settings.PREF_SHOW_EMOJI_KEY
             "languages" -> Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY
@@ -265,8 +269,9 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
                 setOnClickListener {
                     context.prefs().edit().remove(SmartPrefs.FUNCTIONS_ORDER)
                         .remove(SmartPrefs.FUNCTIONS_HIDDEN).remove(SmartPrefs.BOTTOM_ORDER)
+                        .remove(SmartPrefs.BOTTOM_NUMPAD_MODE)
                         .putBoolean(SmartPrefs.BOTTOM_NUMPAD, false).apply()
-                    showPage(Page.MAIN)
+                    refreshBottomRowInPlace()
                 }
             })
             val zones = LinearLayout(context)
@@ -397,10 +402,13 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
                 setPadding(0, SvUi.dp(context, 6), 0, 0)
                 if (selected) paint.isFakeBoldText = true
             })
-            row.addView(card, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            card.tag = "sv_theme_${t.id}"
+            row.addView(card, LinearLayout.LayoutParams(SvUi.dp(context, 86), ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
-        column.addView(row)
+        column.addView(android.widget.HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false; addView(row)
+        })
         val more = SvUi.chip(context, context.getString(R.string.sv_theme_more)).apply {
             setOnClickListener { SvUi.haptic(it); hide(); ime?.svLaunchSettings("theme") }
         }
@@ -512,12 +520,14 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
     companion object {
         /** background, key, functional key, accent */
         fun themeColors(name: String): IntArray = when (name) {
-            KeyboardTheme.THEME_SV_DARK -> intArrayOf("#202124".toColorInt(), "#3C4043".toColorInt(), "#2D2F31".toColorInt(), "#A8C7FA".toColorInt())
+            KeyboardTheme.THEME_SV_DARK -> intArrayOf("#10131C".toColorInt(), "#292E39".toColorInt(), "#303C54".toColorInt(), "#96B8FF".toColorInt())
+            KeyboardTheme.THEME_SV_CALM -> intArrayOf("#202124".toColorInt(), "#3C4043".toColorInt(), "#42485A".toColorInt(), "#A8B9EF".toColorInt())
             KeyboardTheme.THEME_SV_GRAPHITE -> intArrayOf("#141517".toColorInt(), "#2C2D30".toColorInt(), "#3D3F43".toColorInt(), "#A8C7FA".toColorInt())
             else -> intArrayOf("#EDEFF2".toColorInt(), "#FFFFFF".toColorInt(), "#D5D9DF".toColorInt(), "#0B57D0".toColorInt())
         }
 
         val THEMES = listOf(
+            ThemeChoice(KeyboardTheme.THEME_SV_CALM, R.string.sv_theme_calm, false, KeyboardTheme.THEME_SV_CALM, KeyboardTheme.THEME_SV_CALM),
             ThemeChoice("auto", R.string.sv_theme_auto, true, KeyboardTheme.THEME_SV_LIGHT, KeyboardTheme.THEME_SV_DARK),
             ThemeChoice(KeyboardTheme.THEME_SV_LIGHT, R.string.sv_theme_light, false, KeyboardTheme.THEME_SV_LIGHT, KeyboardTheme.THEME_SV_DARK),
             ThemeChoice(KeyboardTheme.THEME_SV_DARK, R.string.sv_theme_dark, false, KeyboardTheme.THEME_SV_DARK, KeyboardTheme.THEME_SV_DARK),

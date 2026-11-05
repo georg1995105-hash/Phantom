@@ -50,10 +50,15 @@ class ClipboardHistoryManager(
     private val imageWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var tempPrimaryClip = false
 
-    private val screenshots = helium314.keyboard.smart.clipboard.ScreenshotHistory(latinIME) {
+    private val screenshots = helium314.keyboard.smart.clipboard.ScreenshotHistory(latinIME, allowed = {
         latinIME.mSettings.current.mClipboardHistoryEnabled && !latinIME.mSettings.current.mIncognitoModeEnabled &&
+            !latinIME.mSettings.current.mInputAttributes.mNoLearning &&
             !InputTypeUtils.isPasswordInputType(latinIME.currentInputEditorInfo?.inputType ?: 0)
-    }
+    }, onSaved = {
+        dontShowCurrentSuggestion = false
+        latinIME.svOnScreenshotSaved()
+    })
+    fun onInputViewStarted() { screenshots.start() }
     fun onCreate() {
         screenshots.start()
         clipboardManager = latinIME.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -240,14 +245,25 @@ class ClipboardHistoryManager(
         if (!prefs.getBoolean(SmartPrefs.CLIP_CHIP, SmartPrefs.DEF_CLIP_CHIP)) return null
         if (dontShowCurrentSuggestion) return null
         if (parent == null) return null
-        val clipData = clipboardManager.primaryClip ?: return null
+        if (latinIME.mSettings.current.mIncognitoModeEnabled || latinIME.mSettings.current.mInputAttributes.mNoLearning ||
+            InputTypeUtils.isPasswordInputType(editorInfo?.inputType ?: 0)) return null
+        val primary = clipboardManager.primaryClip
+        val primaryTime = primary?.let(ClipboardManagerCompat::getClipTimestamp) ?: 0L
+        val windowMillis = prefs.getInt(SmartPrefs.CLIP_CHIP_MINUTES, SmartPrefs.DEF_CLIP_CHIP_MINUTES) * 60_000L
+        val screenshot = if (prefs.getBoolean(helium314.keyboard.smart.clipboard.ScreenshotHistory.ENABLED, false))
+            clipboardDao?.getAll()?.filter { it.filename != null && it.text == helium314.keyboard.smart.clipboard.ScreenshotHistory.LABEL &&
+                it.timeStamp > primaryTime && System.currentTimeMillis() - it.timeStamp in 0..windowMillis }
+                ?.maxByOrNull { it.timeStamp }
+        else null
+        val clipData = screenshot?.let {
+            ClipData(ClipDescription(it.text, it.mimeTypes?.toTypedArray() ?: arrayOf("image/png")), ClipData.Item(it.getContentUri(latinIME)))
+        } ?: primary ?: return null
         if (clipData.itemCount == 0) return null
         val clipItem = clipData.getItemAt(0) ?: return null
         val hasText = clipData.description?.hasMimeType("image/*") != true && clipData.description?.hasMimeType("text/*") == true
         val hasImage = clipData.description?.hasMimeType("image/*") == true && clipItem.uri != null
         if (!hasText && !hasImage) return null
-        val timeStamp = ClipboardManagerCompat.getClipTimestamp(clipData)
-        val windowMillis = prefs.getInt(SmartPrefs.CLIP_CHIP_MINUTES, SmartPrefs.DEF_CLIP_CHIP_MINUTES) * 60_000L
+        val timeStamp = screenshot?.timeStamp ?: primaryTime
         if (System.currentTimeMillis() - timeStamp > windowMillis) return null
         val content = clipItem.coerceToText(latinIME)
 
@@ -265,7 +281,7 @@ class ClipboardHistoryManager(
             KeyboardTypeface.applyToTextView(textView)
             textView.text = (if (isClipSensitive(inputType)) "*".repeat(shortenedContent.length) else shortenedContent)
         }
-        val storedImage = if (hasImage) clipboardDao?.getAll()?.firstOrNull { it.timeStamp == timeStamp && it.filename != null } else null
+        val storedImage = screenshot ?: if (hasImage) clipboardDao?.getAll()?.firstOrNull { it.timeStamp == timeStamp && it.filename != null } else null
         val onClickListener = View.OnClickListener {
             dontShowCurrentSuggestion = true
             if (hasText) latinIME.onTextInput(content.toString())
@@ -308,7 +324,7 @@ class ClipboardHistoryManager(
             imageView.contentDescription = latinIME.getString(R.string.sv_clip_image)
             imageView.setOnClickListener(onClickListener)
             if (!hasText) {
-                textView.text = null
+                textView.text = if (screenshot != null) helium314.keyboard.smart.clipboard.ScreenshotHistory.LABEL else null
                 textView.setPadding(textView.paddingStart, 0, 0, 0)
                 textView.layoutParams = (textView.layoutParams as android.widget.LinearLayout.LayoutParams).apply { width = ViewGroup.LayoutParams.WRAP_CONTENT; weight = 0f }
             }

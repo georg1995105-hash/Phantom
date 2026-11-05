@@ -4,8 +4,11 @@ package helium314.keyboard.smart.ui
 import android.content.Context
 import android.widget.*
 import android.view.ViewGroup
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import helium314.keyboard.keyboard.Key
 import helium314.keyboard.keyboard.emoji.EmojiViewCallback
+import helium314.keyboard.smart.emoji.EmojiSearchMatcher
 
 /** Local query keyboard: never opens a second IME connection or changes the host's focus. */
 class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callback: EmojiViewCallback,
@@ -13,18 +16,29 @@ class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callb
     private var query = ""
     private var russian = true
     private val label = SvUi.label(context, 16f)
-    private val results = GridLayout(context).apply { columnCount = 8 }
+    private val resultAdapter = ResultAdapter()
+    private val results = RecyclerView(context).apply {
+        layoutManager = GridLayoutManager(context, 8)
+        adapter = resultAdapter
+        itemAnimator = null
+    }
+    private val empty = SvUi.label(context, 14f)
     private val letters = LinearLayout(context).apply { orientation = VERTICAL }
     private var catalog = emptyList<Triple<Key, String, String>>()
     private val indexWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
     private fun index(keys: List<Key>) {
         if (indexWorker.isShutdown) return
         indexWorker.execute {
-            val json = context.assets.open("emoji_search_keywords.json").bufferedReader().use { org.json.JSONObject(it.readText()) }
+            val json = synchronized(keywordCache) {
+                annotations ?: context.assets.open("emoji_search_keywords.json").bufferedReader().use {
+                    org.json.JSONObject(it.readText()).also { parsed -> annotations = parsed }
+                }
+            }
             val built = keys.distinctBy { it.label }.mapNotNull { key ->
                 val value = (key.outputText ?: key.label ?: "").toString()
                 if (value.isEmpty()) return@mapNotNull null
                 val neutral = value.replace("\uFE0F", "")
+                val keywords = synchronized(keywordCache) { keywordCache.getOrPut(value) {
                 val name = buildList {
                     var offset = 0
                     while (offset < value.length) {
@@ -33,7 +47,9 @@ class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callb
                         offset += Character.charCount(code)
                     }
                 }.joinToString(" ")
-                Triple(key, value, (json.optString(value) + " " + json.optString(neutral) + " " + name).lowercase())
+                EmojiSearchMatcher.index(json.optString(value) + " " + json.optString(neutral) + " " + name)
+                } }
+                Triple(key, value, keywords)
             }
             post { if (isAttachedToWindow) { catalog = built; refresh() } }
         }
@@ -50,7 +66,8 @@ class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callb
             refresh()
         })
         addView(header)
-        addView(ScrollView(context).apply { addView(results) }, LayoutParams(-1, 0, 1f))
+        addView(empty, LayoutParams(-1, SvUi.dp(context, 28)))
+        addView(results, LayoutParams(-1, 0, 1f))
         addView(letters)
         buildLetters(); refresh(); post { index(keys) }
     }
@@ -71,14 +88,30 @@ class InlineEmojiSearchView(context: Context, keys: List<Key>, private val callb
     }
     private fun refresh() {
         label.text = query.ifEmpty { "Поиск эмодзи" }
-        results.removeAllViews()
-        val matches = catalog.filter { query.isBlank() || query.trim().split(Regex("\\s+")).all { word -> it.third.contains(word.lowercase()) } }.take(80)
-        matches.forEach { (key, value, _) ->
-            results.addView(SvUi.label(context, 27f).apply {
-                text = value; contentDescription = callback.getDescription(value) ?: value
-                setOnClickListener { callback.onReleaseKey(key) }
-            }, GridLayout.LayoutParams().apply { width = 0; height = SvUi.dp(context, 42); columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f) })
+        resultAdapter.matches = EmojiSearchMatcher.find(catalog, query) { it.third }
+        resultAdapter.notifyDataSetChanged()
+        empty.visibility = if (resultAdapter.matches.isEmpty()) VISIBLE else GONE
+        empty.text = if (catalog.isEmpty()) "Загрузка…" else "Ничего не найдено"
+    }
+
+    private inner class ResultAdapter : RecyclerView.Adapter<ResultAdapter.Holder>() {
+        var matches = emptyList<Triple<Key, String, String>>()
+        inner class Holder(val text: TextView) : RecyclerView.ViewHolder(text)
+        override fun getItemCount() = matches.size
+        override fun onCreateViewHolder(parent: ViewGroup, type: Int) = Holder(SvUi.label(context, 29f).apply {
+            layoutParams = ViewGroup.LayoutParams(-1, SvUi.dp(context, 44))
+            background = SvUi.ripple(null, SvUi.dp(context, 12).toFloat())
+        })
+        override fun onBindViewHolder(holder: Holder, position: Int) {
+            val (key, value, _) = matches[position]
+            holder.text.text = value
+            holder.text.contentDescription = callback.getDescription(value) ?: value
+            holder.text.setOnClickListener { callback.onReleaseKey(key) }
         }
-        if (matches.isEmpty()) results.addView(SvUi.label(context, 14f).apply { text = if (catalog.isEmpty()) "Загрузка…" else "Ничего не найдено" }, GridLayout.LayoutParams().apply { columnSpec = GridLayout.spec(0, 8) })
+    }
+
+    companion object {
+        private var annotations: org.json.JSONObject? = null
+        private val keywordCache = mutableMapOf<String, String>()
     }
 }

@@ -51,6 +51,7 @@ object DebugSnapshot {
                     }
                     intent.getStringExtra("type")?.codePoints()?.forEach { latin.onCodeInput(it, 0, 0, false) }
                     when (intent.getStringExtra("page")) {
+                        "geometry" -> geometry(ime, intent.getStringExtra("token").orEmpty())
                         "functions" -> helium314.keyboard.smart.ui.SmartUi.toggleFunctions()
                         "emoji" -> latin.onCodeInput(helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.EMOJI, 0, 0, false)
                         "clipboard" -> latin.onCodeInput(helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.CLIPBOARD, 0, 0, false)
@@ -67,6 +68,47 @@ object DebugSnapshot {
     fun unregister(ime: InputMethodService) {
         receiver?.let { runCatching { ime.unregisterReceiver(it) } }
         receiver = null
+    }
+
+    /** Numeric IME geometry for adb tests; no editor text or suggestion contents. */
+    private fun geometry(ime: InputMethodService, token: String) {
+        val decor = ime.window?.window?.decorView ?: return
+        decor.post {
+            val nodes = org.json.JSONObject()
+            val windowOrigin = IntArray(2)
+            decor.getLocationOnScreen(windowOrigin)
+            fun walk(view: View) {
+                val name = if (view.id == View.NO_ID) "" else runCatching { view.resources.getResourceEntryName(view.id) }.getOrDefault("")
+                val tag = view.tag as? String ?: ""
+                val key = if (tag.startsWith("sv_")) tag else name
+                if (key.startsWith("sv_") || key == "keyboard_view" || key == "main_keyboard_frame") {
+                    val rect = android.graphics.Rect()
+                    if (view.isShown && view.getGlobalVisibleRect(rect)) {
+                        // GlobalVisibleRect is relative to the ViewRoot, while adb
+                        // taps use screen coordinates (the status bar offsets this window).
+                        rect.offset(windowOrigin[0], windowOrigin[1])
+                        nodes.put(key, org.json.JSONArray(listOf(rect.left, rect.top, rect.right, rect.bottom)))
+                    }
+                }
+                if (view is ViewGroup) for (index in 0 until view.childCount) walk(view.getChildAt(index))
+            }
+            walk(decor)
+            val editor = ime.currentInputEditorInfo
+            val result = org.json.JSONObject().put("token", token).put("nodes", nodes)
+                .put("inputShown", ime.isInputViewShown).put("fieldId", editor?.fieldId ?: 0)
+                .put("package", editor?.packageName.orEmpty())
+            val keyboard = helium314.keyboard.keyboard.KeyboardSwitcher.getInstance().mainKeyboardView
+            val keys = org.json.JSONObject()
+            if (keyboard != null && keyboard.isShown) {
+                val origin = IntArray(2); keyboard.getLocationOnScreen(origin)
+                keyboard.keyboard?.sortedKeys?.forEach { key ->
+                    keys.put(key.code.toString(), org.json.JSONArray(listOf(origin[0] + key.x,
+                        origin[1] + key.y, origin[0] + key.x + key.width, origin[1] + key.y + key.height)))
+                }
+            }
+            result.put("keys", keys)
+            runCatching { File(ime.getExternalFilesDir(null) ?: ime.filesDir, "geometry.json").writeText(result.toString()) }
+        }
     }
 
     private fun invalidateKeys(v: View) {

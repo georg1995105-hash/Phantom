@@ -67,6 +67,10 @@ public final class InputView extends FrameLayout {
         if (frame != null && search != null) search.measure(
                 MeasureSpec.makeMeasureSpec(frame.getMeasuredWidth(), MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(frame.getMeasuredHeight(), MeasureSpec.EXACTLY));
+        final View inline = findViewWithTag("sv_inline_panel");
+        if (frame != null && inline != null) inline.measure(
+                MeasureSpec.makeMeasureSpec(frame.getMeasuredWidth(), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(frame.getMeasuredHeight(), MeasureSpec.EXACTLY));
     }
 
     @Override
@@ -79,6 +83,8 @@ public final class InputView extends FrameLayout {
         }
         final View search = findViewWithTag("sv_emoji_search");
         if (frame != null && search != null) layoutPanel(frame, search);
+        final View inline = findViewWithTag("sv_inline_panel");
+        if (frame != null && inline != null) layoutPanel(frame, inline);
     }
 
     private void layoutPanel(View frame, View panel) {
@@ -111,7 +117,7 @@ public final class InputView extends FrameLayout {
 
     @Override
     public boolean onInterceptTouchEvent(final MotionEvent me) {
-        if (helium314.keyboard.smart.ui.SmartUi.isEmojiSearchShown() || helium314.keyboard.smart.ui.SmartUi.isResizing() || helium314.keyboard.smart.ui.SmartUi.isVoiceShown() || helium314.keyboard.smart.ui.SmartUi.isBottomEditorShown() || helium314.keyboard.smart.ui.SmartUi.isFunctionsShown()) {
+        if (helium314.keyboard.smart.ui.SmartUi.isInlinePanelShown() || helium314.keyboard.smart.ui.SmartUi.isEmojiSearchShown() || helium314.keyboard.smart.ui.SmartUi.isResizing() || helium314.keyboard.smart.ui.SmartUi.isVoiceShown() || helium314.keyboard.smart.ui.SmartUi.isBottomEditorShown() || helium314.keyboard.smart.ui.SmartUi.isFunctionsShown()) {
             mActiveForwarder = null;
             return false;
         }

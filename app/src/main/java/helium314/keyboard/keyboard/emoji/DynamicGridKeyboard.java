@@ -87,7 +87,7 @@ final class DynamicGridKeyboard extends Keyboard {
         final float widthScale = determineWidthScale(key0.getWidth() + horizontalGap);
         mHorizontalGap = (int) (horizontalGap * widthScale);
         mHorizontalStep = (int) ((key0.getWidth() + horizontalGap) * widthScale);
-        mVerticalStep = (int) ((key0.getHeight() + mVerticalGap) / Math.sqrt(Settings.getValues().mKeyboardHeightScale));
+        mVerticalStep = mTextEmoticons ? (int) ((key0.getHeight() + mVerticalGap) / Math.sqrt(Settings.getValues().mKeyboardHeightScale)) : mHorizontalStep;
         mColumnsNum = mBaseWidth / mHorizontalStep;
         if (spacerWidth > 0)
             setSpacerColumns(spacerWidth);
@@ -279,6 +279,7 @@ final class DynamicGridKeyboard extends Keyboard {
 
     public void loadRecentKeys(Collection<DynamicGridKeyboard> keyboards) {
         List<String> emojis = RecentEmojis.get();
+        removeAllKeys();
         for (String emoji : emojis) {
             Key key;
             if (StringUtils.codePointCount(emoji) == 1) {
@@ -361,6 +362,9 @@ final class DynamicGridKeyboard extends Keyboard {
         public int getY() {
             return mCurrentY;
         }
+
+        @Override public int getWidth() { return Math.max(1, getHitBox().width() * 94 / 100); }
+        @Override public int getHeight() { return Math.max(1, getHitBox().height() * 94 / 100); }
 
         @Override
         public boolean equals(final Object o) {

@@ -56,7 +56,7 @@ android {
             signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".previewfix" else ".debug"
             if (providers.gradleProperty("smartvoicePreview").orNull == "true") {
-                versionNameSuffix = "-input-fixes-test"
+                versionNameSuffix = "-emoji-numpad-test"
                 manifestPlaceholders["keyboardLabel"] = "SmartVoice Test Fix"
                 manifestPlaceholders["clipProviderAuthority"] = "ru.smartvoice.keyboard.previewfix.clipprovider"
                 manifestPlaceholders["gestureProviderAuthority"] = "ru.smartvoice.keyboard.previewfix.gestureprovider"
@@ -74,6 +74,9 @@ android {
                 variant.proguardFiles.add(project.layout.buildDirectory.file(project.buildFile.parent + "/proguard-rules.pro"))
             }
             variant.outputs.forEach { output ->
+                if (variant.buildType == "debugNoMinify" && providers.gradleProperty("smartvoicePreview").orNull == "true") {
+                    output.versionCode.set(7)
+                }
                 if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
                     output.outputFileName = "SmartVoiceKeyboard_${defaultConfig.versionName}-${variant.buildType}.apk"
                 }

@@ -52,6 +52,7 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
         if (canShowFlagEmoji()) CategoryProperties(Category.FLAGS) else null
     )
 
+    private val baseKeyCache = mutableMapOf<Category, List<Key>>()
     private val categoryKeyboardMap = ConcurrentHashMap<Long, DynamicGridKeyboard>()
 
     var currentCategory: Category = defaultCategory
@@ -85,6 +86,7 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
 
     fun clearKeyboardCache() {
         categoryKeyboardMap.clear()
+        baseKeyCache.clear()
         for (props in shownCategories) props.mPageCount = -1 // reset page count in case size (number of keys per row) changed
     }
 
@@ -111,8 +113,7 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
     val recentTabId get() = getTabIdFromCategoryId(Category.RECENTS)
 
     private fun computeCategoryPageCount(category: Category): Int {
-        val keyboard = layoutSet.getKeyboard(category.element)
-        return (keyboard.sortedKeys.size - 1) / computeMaxKeyCountPerPage() + 1
+        return (getCategoryKeys(category).size - 1) / computeMaxKeyCountPerPage() + 1
     }
 
     // Returns a keyboard from the recycler view's adapter position.
@@ -143,26 +144,33 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
                 return kbd
             }
 
-            val keyboard = layoutSet.getKeyboard(category.element)
-            val keyCountPerPage = computeMaxKeyCountPerPage()
-            val sortedKeysPages = sortKeysGrouped(keyboard.sortedKeys, keyCountPerPage)
-            for (pageId in sortedKeysPages.indices) {
-                val tempKeyboard = if (category == Category.EMOTICONS)
-                    DynamicGridKeyboard.ofTextEmoticons(prefs, layoutSet.getKeyboard(KeyboardElement.EMOJI_RECENTS), keyCountPerPage, currentWidth)
-                else DynamicGridKeyboard.ofKeyCount(prefs,
-                    layoutSet.getKeyboard(KeyboardElement.EMOJI_RECENTS),
-                    keyCountPerPage, category == Category.RECENTS, currentWidth)
-                for (emojiKey in sortedKeysPages[pageId]) {
-                    if (emojiKey == null) {
-                        break
-                    }
-                    tempKeyboard.addKeyLast(emojiKey)
-                }
-                categoryKeyboardMap[getCategoryKeyboardMapKey(category, pageId)] = tempKeyboard
-            }
-            return categoryKeyboardMap[categoryKeyboardMapKey]!!
+            // Materialize only the visible page. Previously a first tab/search built
+            // every page in that category and retained all GridKeys in memory.
+            val keys = getCategoryKeys(category)
+            val perPage = computeMaxKeyCountPerPage()
+            val page = DynamicGridKeyboard.ofKeyCount(prefs,
+                layoutSet.getKeyboard(KeyboardElement.EMOJI_RECENTS), perPage, false, currentWidth)
+            keys.drop(id * perPage).take(perPage).forEach { page.addKeyLast(it) }
+            categoryKeyboardMap[categoryKeyboardMapKey] = page
+            return page
         }
     }
+
+    fun getCategoryKeys(category: Category): List<Key> = baseKeyCache.getOrPut(category) {
+        val original = layoutSet.getKeyboard(category.element).sortedKeys
+            .sortedWith(compareBy({ it.hitBox.top }, { it.hitBox.left }, { it.code }))
+        if (category != Category.SMILEYS) original else {
+            val source = original + layoutSet.getKeyboard(Category.PEOPLE.element).sortedKeys
+            fun text(key: Key) = (key.outputText ?: key.label).orEmpty().replace("\uFE0F", "")
+            val byEmoji = source.associateBy(::text)
+            val home = HOME_EMOJIS.mapNotNull { byEmoji[it.replace("\uFE0F", "")] }
+            (home + original).distinctBy(::text)
+        }
+    }
+
+    /** Search uses base keys, without creating or measuring page keyboards. */
+    fun getSearchKeys(): List<Key> = shownCategories.filter { it.category != Category.RECENTS }
+        .flatMap { getCategoryKeys(it.category) }.distinctBy { it.outputText ?: it.label }
 
     private fun computeMaxKeyCountPerPage(): Int {
         val tempKeyboard = DynamicGridKeyboard.ofKeyCount(prefs,
@@ -190,20 +198,15 @@ internal class EmojiCategory(private val context: Context, private val layoutSet
         private val TAG = EmojiCategory::class.java.simpleName
         private val defaultCategory = Category.SMILEYS
 
-        private const val MAX_LINE_COUNT_PER_PAGE = 3
+        private const val MAX_LINE_COUNT_PER_PAGE = 5
+        private val HOME_EMOJIS = listOf("😀", "😊", "😁", "😂", "🥰", "😎", "🤩", "😘",
+            "🙂", "🙃", "😉", "😛", "😆", "🤪", "😐", "🤔",
+            "😅", "🥺", "😭", "😡", "😤", "😑", "😶", "😬",
+            "🙏", "👍", "👎", "👌", "✌️", "🤟", "👏", "💪",
+            "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍")
 
         private fun getCategoryKeyboardMapKey(category: Category, id: Int) =
             ((category.ordinal.toLong()) shl Integer.SIZE) or id.toLong()
-
-        private fun sortKeysGrouped(inKeys: MutableList<Key>, maxPageCount: Int): Array<Array<Key?>> {
-            val keys = inKeys.sortedWith(compareBy({ it.hitBox.top }, { it.hitBox.left }, { it.code }))
-            val pageCount = (keys.size - 1) / maxPageCount + 1
-            val grouped = Array<Array<Key?>>(pageCount) { arrayOfNulls(maxPageCount) }
-            for (i in keys.indices) {
-                grouped[i / maxPageCount][i % maxPageCount] = keys[i]
-            }
-            return grouped
-        }
 
         private fun canShowFlagEmoji(): Boolean {
             val paint = Paint()

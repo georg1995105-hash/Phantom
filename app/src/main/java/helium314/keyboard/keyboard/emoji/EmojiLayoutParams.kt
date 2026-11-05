@@ -1,58 +1,32 @@
-/*
- * Copyright (C) 2013 The Android Open Source Project
- * modified
- * SPDX-License-Identifier: Apache-2.0 AND GPL-3.0-only
- */
+/* SPDX-License-Identifier: GPL-3.0-only */
 package helium314.keyboard.keyboard.emoji
 
+import android.content.res.Configuration
 import android.content.res.Resources
 import android.view.View
 import android.widget.LinearLayout
 import androidx.viewpager2.widget.ViewPager2
-import helium314.keyboard.keyboard.internal.KeyboardParams
 import helium314.keyboard.latin.R
 import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.utils.ResourceUtils
 
+/** Five square emoji rows on phones; the grid scrolls when available height is smaller. */
 internal class EmojiLayoutParams(res: Resources) {
-    private val emojiListBottomMargin: Int
-    val emojiKeyboardHeight: Int
-    private val emojiCategoryPageIdViewHeight: Int
-    val bottomRowKeyboardHeight: Int
-
-    init {
-        val sv = Settings.getValues()
-        val defaultKeyboardHeight = ResourceUtils.getSecondaryKeyboardHeight(res, sv)
-
-        val keyVerticalGap = (res.getFraction(R.fraction.config_key_vertical_gap_holo,
-            defaultKeyboardHeight, defaultKeyboardHeight) * sv.mKeyGapScale).toInt()
-        val bottomPadding = (res.getFraction(R.fraction.config_keyboard_bottom_padding_holo,
-            defaultKeyboardHeight, defaultKeyboardHeight) * sv.mBottomPaddingScale).toInt()
-        val topPadding = res.getFraction(R.fraction.config_keyboard_top_padding_holo,
-            defaultKeyboardHeight, defaultKeyboardHeight).toInt()
-
-        val rowCount = KeyboardParams.DEFAULT_KEYBOARD_ROWS + if (sv.mShowsNumberRow) 1 else 0
-        bottomRowKeyboardHeight = (defaultKeyboardHeight - bottomPadding - topPadding) / rowCount - keyVerticalGap / 2
-
-        val pageIdHeight = res.getDimension(R.dimen.config_emoji_category_page_id_height)
-        emojiCategoryPageIdViewHeight = pageIdHeight.toInt()
-        // The XML action row is exactly 48dp. Reserve that actual height rather than
-        // the unrelated alphabet bottom row, which left a gap or clipped controls.
-        emojiListBottomMargin = 0
-        emojiKeyboardHeight = (defaultKeyboardHeight - (84 * res.displayMetrics.density).toInt()
-            - emojiCategoryPageIdViewHeight).coerceAtLeast(1)
-    }
+    private val density = res.displayMetrics.density
+    val showStudioBanner = res.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
+    private val fixedHeight = ((if (showStudioBanner) 76 else 0) + 44 + 54 + 2 + 1) * density
+    private val stripHeight = res.getDimension(R.dimen.config_suggestions_strip_height)
+    private val width = ResourceUtils.getKeyboardWidth(Settings.getCurrentContext(), Settings.getValues())
+    private val columns = kotlin.math.round(8f * width / (360f * density)).toInt().coerceAtLeast(4)
+    val panelHeight = (width / columns * 5 + fixedHeight).toInt().coerceAtMost(
+        (res.displayMetrics.heightPixels * 0.78f - stripHeight).toInt().coerceAtLeast((180 * density).toInt()))
+    val emojiKeyboardHeight = (panelHeight - fixedHeight).toInt().coerceAtLeast((42 * density).toInt())
+    val bottomRowKeyboardHeight = (48 * density).toInt()
 
     fun setEmojiListProperties(vp: ViewPager2) {
-        val lp = vp.layoutParams as LinearLayout.LayoutParams
-        lp.height = emojiKeyboardHeight
-        lp.bottomMargin = emojiListBottomMargin
-        vp.layoutParams = lp
+        vp.layoutParams = (vp.layoutParams as LinearLayout.LayoutParams).apply { height = emojiKeyboardHeight }
     }
-
     fun setCategoryPageIdViewProperties(v: View) {
-        val lp = v.layoutParams as LinearLayout.LayoutParams
-        lp.height = emojiCategoryPageIdViewHeight
-        v.layoutParams = lp
+        v.layoutParams = (v.layoutParams as LinearLayout.LayoutParams).apply { height = (2 * density).toInt().coerceAtLeast(1) }
     }
 }

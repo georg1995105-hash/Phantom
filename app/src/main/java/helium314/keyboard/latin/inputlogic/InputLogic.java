@@ -498,6 +498,16 @@ public final class InputLogic {
         if (GestureDataGatheringKt.useBackgroundGathering && mWordComposer.isComposingWord() && mWordComposer.isCursorFrontOrMiddleOfComposingWord())
             BackgroundGatheringCache.INSTANCE.onEditWord(mWordComposer.getTypedWord());
 
+        if (ScriptUtils.SCRIPT_HANGUL.equals(currentKeyboardScript)
+                && mWordComposer.isComposingWord()
+                && mWordComposer.isCursorFrontOrMiddleOfComposingWord()
+                && (!event.isFunctionalKeyEvent() || event.getKeyCode() == KeyCode.DELETE)) {
+            // Hangul's syllable history describes the end of the composing span. Feeding
+            // a mid-word edit into it would replace the entire span and drop its suffix.
+            // Finish that span at the actual cursor and start a fresh syllable there.
+            resetEntireInputState(mConnection.getExpectedSelectionStart(),
+                    mConnection.getExpectedSelectionEnd(), false /* clearSuggestionStrip */);
+        }
         Event processedEvent = mWordComposer.processEvent(event);
         InputTransaction inputTransaction = new InputTransaction(settingsValues,
                 processedEvent, SystemClock.uptimeMillis(), mSpaceState,

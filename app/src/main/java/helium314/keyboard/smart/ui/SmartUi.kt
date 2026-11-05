@@ -11,6 +11,7 @@ import helium314.keyboard.smart.SmartWordCorrector
 /** Coordinates the SmartVoice overlays (functions menu, dictation, resize) of the current input view. */
 object SmartUi {
     private var emojiSearch: View? = null
+    private var inlinePanel: View? = null
     private var ime: LatinIME? = null
     private var voicePanel: VoicePanelView? = null
     private var functionsPanel: FunctionsPanelView? = null
@@ -26,6 +27,8 @@ object SmartUi {
 
     @JvmStatic
     fun attach(root: View, latinIme: LatinIME) {
+        closeEmojiSearch()
+        closeInlinePanel()
         ime = latinIme
         voicePanel = root.findViewById<VoicePanelView>(R.id.sv_voice_panel)?.also { it.controller = latinIme.svVoice() }
         functionsPanel = root.findViewById<FunctionsPanelView>(R.id.sv_functions_panel)?.also { it.ime = latinIme }
@@ -36,6 +39,33 @@ object SmartUi {
     }
 
     @JvmStatic val isEmojiSearchShown get() = emojiSearch != null
+    @JvmStatic val isInlinePanelShown get() = inlinePanel != null
+
+    @JvmStatic fun openInlinePanel(view: View) {
+        closeEmojiSearch()
+        closeInlinePanel()
+        val parent = functionsPanel?.parent as? android.widget.FrameLayout ?: return
+        inlinePanel = view.also {
+            it.tag = "sv_inline_panel"
+            it.isClickable = true
+            parent.addView(it, android.widget.FrameLayout.LayoutParams(-1, -1))
+        }
+    }
+
+    @JvmStatic fun openGifLibrary() {
+        val service = ime ?: return
+        openInlinePanel(StickerStudioView(service, library = true, gifs = true))
+    }
+
+    @JvmStatic fun closeInlinePanel() {
+        inlinePanel?.let { (it.parent as? android.view.ViewGroup)?.removeView(it) }
+        inlinePanel = null
+    }
+
+    @JvmStatic fun openStickerStudio(library: Boolean) {
+        val service = ime ?: return
+        openInlinePanel(StickerStudioView(service, library))
+    }
 
     @JvmStatic
     val isFunctionsShown get() = functionsPanel?.isVisible == true
@@ -80,6 +110,7 @@ object SmartUi {
 
     @JvmStatic
     fun openEmojiSearch(keys: List<helium314.keyboard.keyboard.Key>, callback: helium314.keyboard.keyboard.emoji.EmojiViewCallback) {
+        closeInlinePanel()
         closeEmojiSearch()
         val parent = functionsPanel?.parent as? android.widget.FrameLayout ?: return
         emojiSearch = InlineEmojiSearchView(parent.context, keys, callback) { closeEmojiSearch() }.also {
@@ -131,6 +162,7 @@ object SmartUi {
     /** Called when the keyboard is hidden or the input field changes. */
     @JvmStatic
     fun onFinishInputView() {
+        closeInlinePanel()
         closeEmojiSearch()
         hideBottomRowEditor()
         SmartWordCorrector.reset()
@@ -150,6 +182,7 @@ object SmartUi {
     /** System back: close the topmost SmartVoice layer. */
     @JvmStatic
     fun onBack(): Boolean {
+        if (inlinePanel != null) { closeInlinePanel(); return true }
         if (emojiSearch != null) { closeEmojiSearch(); return true }
         if (isBottomEditorShown) { hideBottomRowEditor(); return true }
         if (isResizing) { finishResize(); return true }

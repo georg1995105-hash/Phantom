@@ -68,7 +68,9 @@ private constructor(val themeId: Int, @JvmField val mStyleId: Int) {
         const val THEME_SV_LIGHT = "sv_light"
         const val THEME_SV_DARK = "sv_dark"
         const val THEME_SV_GRAPHITE = "sv_graphite"
+        const val THEME_SV_CALM = "sv_calm"
         fun getAvailableDefaultColors(prefs: SharedPreferences, isNight: Boolean) = listOfNotNull(
+            THEME_SV_CALM, THEME_SV_LIGHT, THEME_SV_DARK, THEME_SV_GRAPHITE,
             if (!isNight) THEME_LIGHT else null, THEME_DARK,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) THEME_DYNAMIC else null,
             if (prefs.getString(Settings.PREF_THEME_STYLE, Defaults.PREF_THEME_STYLE) == STYLE_HOLO) THEME_HOLO_WHITE else null,
@@ -176,6 +178,13 @@ private constructor(val themeId: Int, @JvmField val mStyleId: Int) {
                     "#F2F3FA".toColorInt(),
                     "#B8C0D3".toColorInt(),
                     keyboardBackground = backgroundImage
+                )
+                THEME_SV_CALM -> DefaultColors(
+                    themeStyle, hasBorders,
+                    "#A8B9EF".toColorInt(), "#202124".toColorInt(),
+                    "#3C4043".toColorInt(), "#42485A".toColorInt(), "#3C4043".toColorInt(),
+                    "#E8EAED".toColorInt(), "#B9BEC9".toColorInt(),
+                    keyboardBackground = backgroundImage, flatKeySurface = true
                 )
                 THEME_SV_GRAPHITE -> DefaultColors(
                     themeStyle, hasBorders,

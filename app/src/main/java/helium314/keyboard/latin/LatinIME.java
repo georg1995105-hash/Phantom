@@ -898,6 +898,7 @@ public class LatinIME extends InputMethodService implements
                 mSuggestionStripView.updateVoiceKey();
         }
 
+        mClipboardHistoryManager.onInputViewStarted();
         switcher.updateKeyboardTheme(mDisplayContext);
         MainKeyboardView mainKeyboardView = switcher.getMainKeyboardView();
         currentSettingsValues = mSettings.getCurrent(); // settingsValues may have been reloaded
@@ -1021,6 +1022,7 @@ public class LatinIME extends InputMethodService implements
                 currentSettingsValues.mGestureFloatingPreviewTextEnabled);
 
         mHandler.postDelayed(() -> helium314.keyboard.smart.clipboard.ClipboardSearchActivity.pasteOnReturn(this), 150);
+        mHandler.postDelayed(() -> helium314.keyboard.smart.emoji.GifImportActivity.onReturn(this), 200);
         if (TRACE) Debug.startMethodTracing("/data/trace/latinime");
     }
 
@@ -1580,6 +1582,11 @@ public class LatinIME extends InputMethodService implements
      *  Checks if a recent clipboard suggestion is available. If available, it is set in suggestion strip.
      *  returns whether a clipboard suggestion has been set.
      */
+    public void svOnScreenshotSaved() {
+        if (isInputViewShown() && !mVoice.isActive() && mInputLogic.getComposingLength() == 0)
+            tryShowClipboardSuggestion();
+    }
+
     public boolean tryShowClipboardSuggestion() {
         if (!hasSuggestionStripView()) return false;
         View clipboardView = mClipboardHistoryManager.getClipboardSuggestionView(getCurrentInputEditorInfo(), mSuggestionStripView);

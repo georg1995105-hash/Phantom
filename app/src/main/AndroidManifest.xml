@@ -54,7 +54,9 @@ SPDX-License-Identifier: Apache-2.0 AND GPL-3.0-only
         </service>
 
         <!-- Activities -->
+        <activity android:name="helium314.keyboard.smart.voice.VoiceModelActivity" android:exported="false" />
         <activity android:name="helium314.keyboard.smart.clipboard.ScreenshotPermissionActivity" android:exported="false" />
+        <activity android:name="helium314.keyboard.smart.emoji.GifImportActivity" android:exported="false" />
         <activity android:name="helium314.keyboard.smart.clipboard.ClipboardSearchActivity"
             android:exported="false" android:excludeFromRecents="true"
             android:windowSoftInputMode="adjustResize" />

@@ -199,6 +199,10 @@ class ClipboardHistoryView @JvmOverloads constructor(
                 SmartUi.openClipboardSearch()
             }
         }, LayoutParams(0, SvUi.dp(context, 36), 1f))
+        if (category == ClipCategory.IMAGES) search.addView(stripButton(R.drawable.ic_sv_image, R.string.sv_screenshot_setup) {
+            context.startActivity(android.content.Intent(context, helium314.keyboard.smart.clipboard.ScreenshotPermissionActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }, LayoutParams(SvUi.dp(context, 44), SvUi.dp(context, 40)))
         search.addView(stripButton(R.drawable.ic_sv_delete, R.string.sv_clip_clear_recent) {
             pendingDelete = entries().filter { !it.isPinned }.map { it.id }; updateHeader()
         }, LayoutParams(SvUi.dp(context, 44), SvUi.dp(context, 40)))

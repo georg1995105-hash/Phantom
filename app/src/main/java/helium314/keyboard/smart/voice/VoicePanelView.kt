@@ -118,7 +118,7 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
             VoiceController.State.ERROR -> message ?: context.getString(R.string.sv_voice_error_title)
             VoiceController.State.OFF -> ""
         }
-        done.isEnabled = state != VoiceController.State.PROCESSING && state != VoiceController.State.OFF
+        done.isEnabled = state != VoiceController.State.OFF
         done.alpha = if (done.isEnabled) 1f else 0.45f
     }
 

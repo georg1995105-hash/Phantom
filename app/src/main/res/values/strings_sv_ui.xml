@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_numpad_placement">Numeric keypad shortcut</string>
+    <string name="sv_numpad_off">Do not show</string>
+    <string name="sv_numpad_extra">Additional button in the bottom row</string>
+    <string name="sv_numpad_replace">Replace ?123 with the numeric keypad</string>
     <string name="sv_bottom_edit_label">Row</string>
     <string name="sv_bottom_toggle_desc">Tap to show or hide %1$s; drag to reorder</string>
     <string name="sv_emoji_back">ABC</string>
@@ -44,7 +48,7 @@
     <string name="sv_fn_autocorrect">Autocorrect</string>
     <string name="sv_functions_help">Hold and drag to reorder or move to a zone. Tap to hide or restore.</string>
     <string name="sv_drop_top">Top bar · add / remove</string>
-    <string name="sv_drop_bottom">Bottom row · emoji / language</string>
+    <string name="sv_drop_bottom">Bottom row · emoji / language / 123</string>
     <string name="sv_drop_hide">Hide / restore</string>
     <string name="sv_customize_functions">Customize functions</string>
     <string name="sv_emoji_search">Search</string>
@@ -52,4 +56,35 @@
     <string name="sv_emoji_emoticons">Emoticons</string>
     <string name="sv_top_slots_full">Top bar is full. Remove a shortcut first.</string>
     <string name="sv_text_emoticons_title">Text emoticons</string>
+    <string name="sv_sticker_studio">Emoji studio</string>
+    <string name="sv_sticker_banner">Create stickers from emoji\nLocally in SmartVoiceKeyboard</string>
+    <string name="sv_sticker_library">Stickers</string>
+    <string name="sv_gif_library">My GIFs</string>
+    <string name="sv_sticker_base">Base emoji</string>
+    <string name="sv_sticker_badge">Badge</string>
+    <string name="sv_sticker_no_badge">No badge</string>
+    <string name="sv_sticker_local_hint">PNG · 512 × 512 · no server</string>
+    <string name="sv_sticker_save">Save</string>
+    <string name="sv_sticker_save_insert">Save and insert</string>
+    <string name="sv_sticker_saved">Sticker saved</string>
+    <string name="sv_sticker_create">+ Create sticker</string>
+    <string name="sv_sticker_empty">Your saved stickers will appear here. Create your first one.</string>
+    <string name="sv_gif_empty">Import a GIF using + GIF. Files stay on your device; no online search. Maximum 16 MB per GIF.</string>
+    <string name="sv_sticker_delete_hint">Hold an item, then tap × to delete</string>
+    <string name="sv_sticker_confirm_delete">Tap again to delete</string>
+    <string name="sv_sticker_insert">Insert saved sticker</string>
+    <string name="sv_gif_insert">Insert GIF</string>
+    <string name="sv_gif_saved">GIF saved. Open My GIFs to insert it.</string>
+    <string name="sv_media_error">Unable to save. Check file access, free storage and the library limit (120 items).</string>
+    <string name="sv_theme_calm">Как Gboard</string>
+    <string name="theme_name_sv_calm">Спокойная · как Gboard</string>
+    <string name="theme_name_sv_light">SmartVoice · светлая</string>
+    <string name="theme_name_sv_dark">SmartVoice · тёмная</string>
+    <string name="theme_name_sv_graphite">SmartVoice · графит</string>
+    <string name="sv_voice_engine_mode">Способ распознавания</string>
+    <string name="sv_voice_engine_mode_help">Сравните варианты на своей речи. Системный сервис может использовать интернет и обработку у своего провайдера. «Только офлайн» всегда запрещает этот переход. Более высокая точность зависит от установленного движка.</string>
+    <string name="sv_voice_engine_auto">Авто · сначала локальный</string>
+    <string name="sv_voice_engine_system">Системный сервис · может использовать сеть</string>
+    <string name="sv_voice_download_model">Проверить языковой пакет</string>
+    <string name="sv_voice_download_model_help">Проверка и загрузка модели выбранного языка через локальный сервис Android 13+. Системный сервис управляет загрузкой.</string>
 </resources>

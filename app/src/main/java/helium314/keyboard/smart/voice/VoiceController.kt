@@ -52,6 +52,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     private val handler = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var recognizerIsOnDevice = false
+    private var useSystemForSession = false
     private var formattedResultsRequested = false
     private var listening = false
     private var generation = 0
@@ -75,6 +76,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     }
 
     fun open() {
+        useSystemForSession = false
         finishRequested = false
         emptyResults = 0
         retries = 0
@@ -196,7 +198,11 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         val onDeviceAvailable = Build.VERSION.SDK_INT >= 31 && runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(ime) }.getOrDefault(false)
         val defaultAvailable = runCatching { SpeechRecognizer.isRecognitionAvailable(ime) }.getOrDefault(false)
         return try {
-            if (onDeviceAvailable && Build.VERSION.SDK_INT >= 31) {
+            val systemSelected = prefs.getString(SmartPrefs.VOICE_ENGINE_MODE, "auto") == "system" || useSystemForSession
+            if (defaultAvailable && systemSelected && !preferOffline) {
+                recognizerIsOnDevice = false
+                SpeechRecognizer.createSpeechRecognizer(ime)
+            } else if (onDeviceAvailable && Build.VERSION.SDK_INT >= 31) {
                 recognizerIsOnDevice = true
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(ime)
             } else if (defaultAvailable && !preferOffline) {
@@ -409,6 +415,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
             }
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
                 if (retries++ < 2) {
+                    finishComposingAsDictation()
                     destroyRecognizer()
                     handler.postDelayed({ if (state != State.OFF) startListening() }, 300)
                 } else {
@@ -425,6 +432,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
                 if (!prefs.getBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, SmartPrefs.DEF_VOICE_PREFER_OFFLINE) && recognizerIsOnDevice && runCatching { SpeechRecognizer.isRecognitionAvailable(ime) }.getOrDefault(false) && retries++ < 1) {
                     // on-device model for this language is missing, use the regular service
                     destroyRecognizer()
+                    useSystemForSession = true
                     recognizer = SpeechRecognizer.createSpeechRecognizer(ime)
                     recognizerIsOnDevice = false
                     startListening()

@@ -97,7 +97,14 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
 
         val colors = Settings.getValues().mColors
         colors.setBackground(this, ColorType.STRIP_BACKGROUND)
-        repeat(SuggestedWords.MAX_SUGGESTIONS) {
+        // The strip displays three words (or five punctuation shortcuts). The
+        // remaining candidates are drawn by MoreSuggestionsView, not these Views.
+        // Creating 18 word/debug/divider triples delayed cold IME inflation.
+        val attributes = context.obtainStyledAttributes(attrs, R.styleable.SuggestionStripView,
+            defStyle, R.style.SuggestionStripView)
+        val stripSlots = maxOf(5, attributes.getInt(R.styleable.SuggestionStripView_suggestionsCountInStrip, 3))
+        attributes.recycle()
+        repeat(stripSlots) {
             val word = TextView(context, null, R.attr.suggestionWordStyle)
             word.contentDescription = resources.getString(R.string.spoken_empty_suggestion)
             word.setOnClickListener(this)
@@ -452,7 +459,7 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
                 suggestedWords, startIndexOfMoreSuggestions, moreSuggestionsContainer, layoutHelper, this
         ))
             return false
-        for (i in 0..<startIndexOfMoreSuggestions) {
+        for (i in 0..<minOf(startIndexOfMoreSuggestions, wordViews.size)) {
             wordViews[i].isPressed = false
         }
         return true

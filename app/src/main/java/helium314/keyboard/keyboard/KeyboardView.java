@@ -352,7 +352,8 @@ public class KeyboardView extends View {
     // Draw key background.
     protected void onDrawKeyBackground(@NonNull final Key key, @NonNull final Canvas canvas,
             @NonNull final Drawable background) {
-        final int keyWidth = key.getDrawWidth();
+        final boolean emojiPage = this instanceof helium314.keyboard.keyboard.emoji.EmojiPageKeyboardView && !isTextEmoticonPage();
+        final int keyWidth = emojiPage ? key.getWidth() : key.getDrawWidth();
         final int keyHeight = key.getHeight();
         final int bgWidth, bgHeight, bgX, bgY;
         if (key.needsToKeepBackgroundAspectRatio(mDefaultKeyLabelFlags)
@@ -378,7 +379,8 @@ public class KeyboardView extends View {
     // Draw key top visuals.
     protected void onDrawKeyTopVisuals(@NonNull final Key key, @NonNull final Canvas canvas,
             @NonNull final Paint paint, @NonNull final KeyDrawParams params) {
-        final int keyWidth = key.getDrawWidth();
+        final boolean emojiPage = this instanceof helium314.keyboard.keyboard.emoji.EmojiPageKeyboardView && !isTextEmoticonPage();
+        final int keyWidth = emojiPage ? key.getWidth() : key.getDrawWidth();
         final int keyHeight = key.getHeight();
         final float centerX = keyWidth * 0.5f;
         final float centerY = keyHeight * 0.5f;
@@ -393,6 +395,9 @@ public class KeyboardView extends View {
         if (label != null) {
             paint.setTypeface(KeyboardTypeface.resolve(label, key.selectTypeface(params)));
             paint.setTextSize(key.selectTextSize(params) * mFontSizeMultiplier);
+            if (emojiPage) {
+                paint.setTextSize(Math.min(keyWidth, key.getHeight()) * 0.80f * Math.min(mFontSizeMultiplier, 1.15f));
+            }
             if (isTextEmoticonPage()) {
                 paint.setTextSize(16 * getResources().getDisplayMetrics().scaledDensity);
                 float w = paint.measureText(label);
@@ -403,6 +408,7 @@ public class KeyboardView extends View {
 
             // Vertical label text alignment.
             labelBaseline = centerY + labelCharHeight / 2.0f;
+            if (emojiPage) labelBaseline = centerY - (paint.ascent() + paint.descent()) / 2.0f;
 
             // Horizontal label text alignment
             if (key.isAlignLabelOffCenter() && mShowsHints) {
