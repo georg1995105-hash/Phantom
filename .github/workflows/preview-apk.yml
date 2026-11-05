@@ -1,15 +1,15 @@
 name: Build SmartVoice test APK
 
 on:
-  pull_request:
-    branches: [redesign/v02-foundation]
+  push:
+    branches: [fix/redesign-toolbar-20261105]
     paths:
       - 'app/**'
       - '.github/workflows/preview-apk.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   preview:
@@ -47,12 +47,21 @@ jobs:
           sha256sum "$APK" | tee SHA256SUMS.txt
           echo "Preview branch SHA: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "Test package: ru.smartvoice.keyboard.preview (installs separately)" >> "$GITHUB_STEP_SUMMARY"
-      - name: Upload test APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: SmartVoice-Test-${{ github.run_number }}
-          path: |
-            app/build/outputs/apk/debugNoMinify/*.apk
-            SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 7
+      - name: Publish separate test APK to private GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/debugNoMinify -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test -s "$APK"
+          TAG="smartvoice-preview-${GITHUB_SHA:0:12}"
+          gh release create "$TAG" "$APK" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "SmartVoice Test ${GITHUB_SHA:0:8} - preview only" \
+            --notes "Independent test keyboard (ru.smartvoice.keyboard.preview). Not a stable release. Existing keyboard stays installed. Built from commit $GITHUB_SHA." \
+            --prerelease --latest=false
+          URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq '.url')"
+          echo "Download test APK: $URL" >> "$GITHUB_STEP_SUMMARY"
