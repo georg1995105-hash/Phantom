@@ -203,11 +203,6 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
         if (editorMimeTypes.any { content.description.hasMimeType(it) }) {
             if (!connection.commitContent(content, editorInfo))
                 helium314.keyboard.smart.clipboard.SmartClipboard.shareFallback(latinIME, content.contentUri, content.description)
-        } else if (editorMimeTypes.isEmpty()) {
-            // Some apps accept system paste without declaring MIME types. State the
-            // uncertainty and keep an explicit Share action available on the card.
-            android.widget.Toast.makeText(latinIME, helium314.keyboard.latin.R.string.sv_clip_paste_fallback, android.widget.Toast.LENGTH_LONG).show()
-            latinIME.clipboardHistoryManager.pasteWithoutChangingClips(content)
         } else {
             helium314.keyboard.smart.clipboard.SmartClipboard.shareFallback(latinIME, content.contentUri, content.description)
         }

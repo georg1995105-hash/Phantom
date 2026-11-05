@@ -117,10 +117,11 @@ object SmartClipboard {
     /** The field does not accept this content type: offer the system share sheet instead of pretending it was pasted. */
     fun shareFallback(context: Context, uri: Uri, description: ClipDescription) {
         try {
-            val type = if (description.mimeTypeCount > 0) description.getMimeType(0) else "image/*"
+            val type = (0 until description.mimeTypeCount).map { description.getMimeType(it) }.firstOrNull { it.startsWith("image/") } ?: "image/*"
             val send = Intent(Intent.ACTION_SEND).apply {
                 this.type = type
                 putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(context.contentResolver, "Image", uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             val chooser = Intent.createChooser(send, context.getString(R.string.sv_clip_share_title)).apply {
