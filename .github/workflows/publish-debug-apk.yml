@@ -60,7 +60,7 @@ jobs:
           gh release create "$TAG" "$APK_PATH" SHA256SUMS.txt \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "SmartVoiceKeyboard 0.2.0-alpha2 debug #${GITHUB_RUN_NUMBER}" \
+            --title "SmartVoiceKeyboard 0.2.0-alpha4 debug #${GITHUB_RUN_NUMBER}" \
             --notes "Personal debug APK built from commit ${GITHUB_SHA}. Unit tests run separately in the Android Debug CI workflow; check its result. Personal test APK, not a production release." \
             --prerelease \
             --latest=false
