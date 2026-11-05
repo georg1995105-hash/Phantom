@@ -13,8 +13,8 @@ android {
         applicationId = "ru.smartvoice.keyboard"
         minSdk = 21
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.2.0-alpha4"
+        versionCode = 6
+        versionName = "0.2.0-alpha5"
         ndk {
             abiFilters.clear()
             abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
