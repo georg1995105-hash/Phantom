@@ -51,4 +51,5 @@
     <string name="sv_emoji_recent">Recent</string>
     <string name="sv_emoji_emoticons">Emoticons</string>
     <string name="sv_top_slots_full">Top bar is full. Remove a shortcut first.</string>
+    <string name="sv_text_emoticons_title">Text emoticons</string>
 </resources>

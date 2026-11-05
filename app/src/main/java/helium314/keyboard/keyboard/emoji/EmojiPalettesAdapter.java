@@ -48,6 +48,7 @@ final class EmojiPalettesAdapter extends RecyclerView.Adapter<EmojiPalettesAdapt
         }
 
         final Keyboard keyboard = mEmojiCategory.getKeyboardFromAdapterPosition(mCategory, position);
+        holder.getKeyboardView().setTextEmoticons(mCategory == EmojiCategory.Category.EMOTICONS);
         holder.getKeyboardView().setKeyboard(keyboard);
     }
 

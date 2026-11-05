@@ -51,4 +51,5 @@
     <string name="sv_emoji_recent">Недавние</string>
     <string name="sv_emoji_emoticons">Каомодзи</string>
     <string name="sv_top_slots_full">Верхняя панель заполнена. Сначала уберите одну кнопку.</string>
+    <string name="sv_text_emoticons_title">Текстовые смайлики</string>
 </resources>

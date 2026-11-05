@@ -401,11 +401,19 @@ public final class EmojiPalettesView extends LinearLayout
         setupSidePadding();
         initDictionaryFacilitator();
         updateRecentStrip();
+        updateBottomSelection(mEmojiCategory.getCurrentCategory());
     }
 
     private void updateRecentStrip() {
         LinearLayout row = findViewById(R.id.sv_emoji_recent);
         row.removeAllViews();
+        if (mEmojiCategory.getCurrentCategory() == EmojiCategory.Category.EMOTICONS) {
+            android.widget.TextView title = helium314.keyboard.smart.ui.SvUi.INSTANCE.label(getContext(), 12f,
+                    helium314.keyboard.smart.ui.SvUi.INSTANCE.secondaryText(), false);
+            title.setText(R.string.sv_text_emoticons_title);
+            row.addView(title, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            return;
+        }
         var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
         android.widget.TextView label = ui.label(getContext(), 12f, ui.secondaryText(), false);
         label.setText(R.string.sv_emoji_recent);
@@ -417,6 +425,18 @@ public final class EmojiPalettesView extends LinearLayout
             item.setContentDescription(emoji);
             item.setOnClickListener(v -> mKeyboardActionListener.onTextInput(emoji));
             row.addView(item, new LinearLayout.LayoutParams(ui.dp(getContext(), 40), ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+    }
+
+    private void updateBottomSelection(EmojiCategory.Category category) {
+        var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
+        for (int id : new int[] { R.id.sv_emoji_mode, R.id.sv_emoji_space }) {
+            android.widget.TextView button = findViewById(id);
+            if (button == null) continue;
+            boolean selected = (id == R.id.sv_emoji_space) == (category == EmojiCategory.Category.EMOTICONS);
+            button.setTextColor(selected ? ui.onAccent() : ui.text());
+            float radius = ui.dp(getContext(), 12);
+            button.setBackground(ui.ripple(ui.surface(selected ? ui.accent() : ui.key(), radius), radius));
         }
     }
 
@@ -432,7 +452,7 @@ public final class EmojiPalettesView extends LinearLayout
     }
 
     private void addRecentKey(Key key) {
-        if (key.getLabel() == null || !helium314.keyboard.latin.common.StringUtilsKt.isEmoji(key.getLabel())) return;
+        if (mEmojiCategory.getCurrentCategory() == EmojiCategory.Category.EMOTICONS) return;
         if (Settings.getValues().mIncognitoModeEnabled) {
             // We do not want to log recent keys while being in incognito
             return;
@@ -522,6 +542,8 @@ public final class EmojiPalettesView extends LinearLayout
         EmojiCategory.Category oldCategory = mEmojiCategory.getCurrentCategory();
         if (initial || oldCategory != category) {
             mEmojiCategory.setCurrentCategory(category);
+            updateRecentStrip();
+            updateBottomSelection(category);
 
             if (mPager.getScrollState() != ViewPager2.SCROLL_STATE_DRAGGING) {
                 // Not swiping

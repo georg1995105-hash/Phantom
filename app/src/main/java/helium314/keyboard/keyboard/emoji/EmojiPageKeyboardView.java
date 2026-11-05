@@ -54,6 +54,10 @@ import java.util.WeakHashMap;
  */
 public final class EmojiPageKeyboardView extends KeyboardView implements
         PopupKeysPanel.Controller {
+    private boolean textEmoticons;
+    public void setTextEmoticons(boolean value) { textEmoticons = value; }
+    public boolean isTextEmoticons() { return textEmoticons; }
+
     private static final String TAG = "EmojiPageKeyboardView";
     private static final boolean LOG = false;
     private static final long KEY_PRESS_DELAY_TIME = 250;  // msec
