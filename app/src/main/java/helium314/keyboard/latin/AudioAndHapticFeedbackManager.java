@@ -9,6 +9,8 @@ package helium314.keyboard.latin;
 import android.content.Context;
 import android.media.AudioManager;
 import android.os.Vibrator;
+import android.os.VibrationEffect;
+import android.os.Build;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
 
@@ -68,7 +70,12 @@ public final class AudioAndHapticFeedbackManager {
         if (mVibrator == null || milliseconds <= 0) {
             return;
         }
-        mVibrator.vibrate(milliseconds);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Low amplitude matters: a short full-strength pulse still feels harsh.
+            mVibrator.vibrate(VibrationEffect.createOneShot(milliseconds, 12));
+        } else {
+            mVibrator.vibrate(milliseconds);
+        }
     }
 
     private boolean reevaluateIfSoundIsOn() {
@@ -110,7 +117,7 @@ public final class AudioAndHapticFeedbackManager {
         // default HapticFeedbackConstants are often stronger than short vibrations.
         // Use a consistent 2ms pulse for all enabled keyboard actions instead.
         final int saved = mSettingsValues.mKeypressVibrationDuration;
-        vibrate(saved == 0 ? 0 : Math.min(2, saved < 0 ? 2 : saved));
+        vibrate(saved == 0 ? 0 : 1);
     }
 
     public void onSettingsChanged(final SettingsValues settingsValues) {
