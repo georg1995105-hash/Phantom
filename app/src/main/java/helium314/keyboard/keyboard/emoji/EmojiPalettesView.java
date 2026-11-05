@@ -424,18 +424,11 @@ public final class EmojiPalettesView extends LinearLayout
     private void updateBottomSelection(EmojiCategory.Category category) {
         var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
         for (int id : new int[] { R.id.sv_emoji_mode }) {
-            android.widget.TextView button = findViewById(id);
+            android.widget.ImageView button = findViewById(id);
             if (button == null) continue;
             boolean selected = category == EmojiCategory.Category.SMILEYS;
             int color = selected ? ui.onAccent() : ui.text();
-            button.setTextColor(color);
-            if (id == R.id.sv_emoji_mode) {
-                button.setCompoundDrawablesRelativeWithIntrinsicBounds(ui.icon(getContext(), R.drawable.ic_sv_emoji, color), null, null, null);
-                if (android.os.Build.VERSION.SDK_INT >= 23)
-                    button.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(color));
-            }
-            for (android.graphics.drawable.Drawable icon : button.getCompoundDrawablesRelative())
-                if (icon != null) icon.mutate().setTint(color);
+            button.setImageDrawable(ui.icon(getContext(), R.drawable.ic_sv_emoji, color));
             float radius = ui.dp(getContext(), 12);
             button.setBackground(ui.ripple(ui.surface(selected ? ui.accent() : ui.key(), radius), radius));
         }
@@ -471,14 +464,14 @@ public final class EmojiPalettesView extends LinearLayout
         // Explicit keyboard-theme colors: the system Activity theme can be light while
         // the IME is dark, making textColorPrimary invisible on this panel.
         for (int id : new int[]{R.id.sv_emoji_back, R.id.sv_emoji_mode, R.id.sv_emoji_delete}) {
-            android.widget.TextView action = findViewById(id);
-            action.setTextColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.text());
+            View action = findViewById(id);
+            if (action instanceof android.widget.TextView text)
+                text.setTextColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.text());
             action.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.ripple(
                 helium314.keyboard.smart.ui.SvUi.INSTANCE.surface(
                     id == R.id.sv_emoji_mode ? helium314.keyboard.smart.ui.SvUi.INSTANCE.accent() : helium314.keyboard.smart.ui.SvUi.INSTANCE.key(), 18f), 18f));
             if (id == R.id.sv_emoji_mode) {
-                action.setText("");
-                action.setCompoundDrawablesWithIntrinsicBounds(helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_emoji, helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent()), null, null, null);
+                ((android.widget.ImageView)action).setImageDrawable(helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_emoji, helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent()));
             }
         }
         findViewById(R.id.sv_emoji_actions).setBackgroundColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.panelBackground());
