@@ -2,6 +2,8 @@
 package helium314.keyboard.keyboard
 
 import android.text.InputType
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.SparseArray
 import android.view.KeyEvent
@@ -51,6 +53,28 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     // language slide state
     private var initialSubtype: InputMethodSubtype? = null
     private var subtypeSwitchCount = 0
+
+    // One globe tap changes language; two quick taps open emoji.
+    // The first action must be deferred so a double tap does not briefly switch layouts.
+    private val globeHandler = Handler(Looper.getMainLooper())
+    private var pendingGlobe: Runnable? = null
+    private val globeDoubleTapWindowMs = 240L
+
+    private fun globeTap(x: Int, y: Int) {
+        val pending = pendingGlobe
+        if (pending != null) {
+            globeHandler.removeCallbacks(pending)
+            pendingGlobe = null
+            onCodeInput(KeyCode.EMOJI, x, y, false)
+        } else {
+            val switch = Runnable {
+                pendingGlobe = null
+                if (latinIME.isInputViewShown) latinIME.switchToNextSubtype()
+            }
+            pendingGlobe = switch
+            globeHandler.postDelayed(switch, globeDoubleTapWindowMs)
+        }
+    }
 
     override fun onPressKey(primaryCode: Int, repeatCount: Int, pointerCount: Int, hapticEvent: HapticEvent) {
         metaOnPressKey(primaryCode)
@@ -106,6 +130,17 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     }
 
     override fun onCodeInput(primaryCode: Int, x: Int, y: Int, isKeyRepeat: Boolean) {
+        if (primaryCode == KeyCode.LANGUAGE_SWITCH && !isKeyRepeat) {
+            globeTap(x, y)
+            return
+        }
+        // A different key was pressed: complete the pending language change first,
+        // rather than applying it after the user has started typing.
+        pendingGlobe?.let {
+            globeHandler.removeCallbacks(it)
+            pendingGlobe = null
+            if (latinIME.isInputViewShown) latinIME.switchToNextSubtype()
+        }
         when (primaryCode) {
             KeyCode.TOGGLE_AUTOCORRECT -> return settings.toggleAutoCorrect()
             KeyCode.TOGGLE_INCOGNITO_MODE -> {

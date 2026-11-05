@@ -135,6 +135,10 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         Item("languages", R.drawable.ic_sv_language, R.string.sv_fn_languages) { showPage(Page.LANGUAGES) },
         Item("emoji", R.drawable.ic_sv_emoji, R.string.sv_fn_emoji) { code(KeyCode.EMOJI) },
         Item("numpad", R.drawable.sym_keyboard_numpad_key_lxx, R.string.sv_fn_numpad) { code(KeyCode.NUMPAD) },
+        Item("paste", R.drawable.ic_sv_clipboard, R.string.sv_fn_paste) { code(KeyCode.CLIPBOARD_PASTE) },
+        Item("copy", R.drawable.ic_sv_text, R.string.sv_fn_copy) { code(KeyCode.CLIPBOARD_COPY) },
+        Item("select_all", R.drawable.ic_sv_select, R.string.sv_fn_select_all) { code(KeyCode.CLIPBOARD_SELECT_ALL) },
+        Item("undo", R.drawable.ic_sv_reset, R.string.sv_fn_undo) { code(KeyCode.UNDO) },
     )
 
     private fun orderedItems(): List<Item> {
@@ -242,7 +246,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(SvUi.dp(context, 2), SvUi.dp(context, 4), SvUi.dp(context, 2), SvUi.dp(context, 4))
-            background = SvUi.ripple(null, SvUi.dp(context, 16).toFloat())
+            background = SvUi.ripple(SvUi.rounded(ColorUtils.setAlphaComponent(SvUi.text(), 0x13), SvUi.dp(context, 16).toFloat()), SvUi.dp(context, 16).toFloat())
             contentDescription = context.getString(item.label)
             setOnClickListener {
                 SvUi.haptic(it)
@@ -275,7 +279,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         }
         v.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         v.setOnLongClickListener {
-            editing = true
+            if (!editing) { editing = true; showPage(Page.MAIN); return@setOnLongClickListener true }
             val data = ClipData.newPlainText("smartvoice-menu-item", item.id)
             val shadow = View.DragShadowBuilder(v)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
