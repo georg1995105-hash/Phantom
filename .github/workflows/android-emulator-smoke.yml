@@ -38,6 +38,26 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleDebugNoMinify
+      - name: Reclaim temporary runner disk space before emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h "$HOME"
+          # These hosted-runner toolchains are unrelated to this Android/JDK build.
+          # Cleanup is confined to this disposable GitHub Actions runner.
+          for dir in /usr/share/dotnet /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL; do
+            if [ -d "$dir" ]; then
+              echo "Reclaiming space from $dir"
+              sudo du -sh "$dir" || true
+              sudo rm -rf -- "$dir"
+            fi
+          done
+          df -h "$HOME"
+          free_mb="$(df -Pm "$HOME" | awk 'NR==2 {print $4}')"
+          if [ "$free_mb" -lt 11000 ]; then
+            echo "Insufficient disk space for AVD: ${free_mb} MB free" >&2
+            exit 1
+          fi
       - name: Install, open and enable IME on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
