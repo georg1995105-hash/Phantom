@@ -1,3 +1,5 @@
+> Исторический отчёт первого preview. Актуальные исправления, проверки и ограничения: [fixes/REPORT_RU.md](fixes/REPORT_RU.md).
+
 # Проверка preview · 5 ноября 2026
 
 Тестовая ветка `redesign/reference-preview-20261105` основана на актуальной `redesign/v02-foundation` (46cc6f8). PR #6 не сливался. Стабильная ветка и установленная стабильная клавиатура не заменяются: preview имеет applicationId `ru.smartvoice.keyboard.preview`, название **SmartVoice Test** и собственные provider authorities.

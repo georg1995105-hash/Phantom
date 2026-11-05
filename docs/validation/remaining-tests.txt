@@ -1,11 +1,4 @@
-helium314.keyboard.InputTest :: slidingInputFromCapsLock
-helium314.keyboard.InputTest :: keyInput
-helium314.keyboard.InputTest :: slidingInput
-helium314.keyboard.XLinkTest :: layoutsLinks
-helium314.keyboard.XLinkTest :: knownDictionaries
 helium314.keyboard.latin.InputLogicTest :: insertLetterIntoWordHangulFails
-helium314.keyboard.latin.SuggestTest :: next word and glide typing suggestions use automatic caps modes
-helium314.keyboard.latin.SuggestTest :: autocorrect will "correct" capitalization with manual caps modes
-helium314.keyboard.latin.SuggestTest :: suggestions use manual caps modes
-helium314.keyboard.latin.SuggestTest :: single letter suggestions are suppressed dependent on score of other suggestions
-helium314.keyboard.latin.SuggestTest :: prefer next word suggestions
+
+CI f04bb4b: 230 total, 229 passed, 1 failed. Existing Hangul cursor/composing suffix bug (upstream issue 214), not a Russian/English regression. No tests disabled.
+Local full run hit temporary Robolectric extraction disk exhaustion; targeted voice tests 23/23 passed.

@@ -91,7 +91,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p app/build/outputs/apk/debugNoMinify
-          gh release download preview-input-fixes-20261105 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir app/build/outputs/apk/debugNoMinify
+          gh release download preview-input-fixes-final-20261105 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir app/build/outputs/apk/debugNoMinify
 
       - name: Package approved preview evidence
         if: inputs.approved_preview
@@ -103,7 +103,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="preview-input-fixes-20261105"
+          TAG="preview-input-fixes-final-20261105"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --latest=false --title 'SmartVoice Test Fix — исправления ввода и истории · 2026-11-05'
           gh release upload "$TAG" preview-assets/*.apk preview-assets/*.zip preview-assets/*.png preview-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
