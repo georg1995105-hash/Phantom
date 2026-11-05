@@ -125,6 +125,10 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
             val menu = SvUi.iconButton(context, R.drawable.ic_sv_more_vert, context.getString(R.string.sv_clip_select), 32) {
                 entry?.let { callbacks.onClipMenu(it, card) }
             }
+            if (isImage) {
+                menu.setColorFilter(Color.WHITE)
+                menu.background = SvUi.ripple(SvUi.rounded(0xE610131C.toInt(), SvUi.dp(context, 16).toFloat()), SvUi.dp(context, 16).toFloat())
+            }
             card.addView(menu, FrameLayout.LayoutParams(SvUi.dp(context, 32), SvUi.dp(context, 32), Gravity.TOP or Gravity.END))
             (pin.layoutParams as FrameLayout.LayoutParams).marginEnd = SvUi.dp(context, 32)
             card.isHapticFeedbackEnabled = false
