@@ -18,7 +18,7 @@ adb shell pm path "$PACKAGE" | grep -q 'package:'
 adb shell am start -W -n "$PACKAGE/helium314.keyboard.settings.SettingsActivity"
 sleep 3
 adb shell pidof "$PACKAGE" | grep -Eq '[0-9]+'
-adb shell ime list -s | grep -F "$IME"
+adb shell ime list -a -s | grep -F "$IME"
 adb shell ime enable "$IME"
 adb shell ime set "$IME"
 adb shell settings get secure default_input_method | grep -F "$IME"
@@ -35,6 +35,9 @@ done
 test "$visible" = true
 adb shell am broadcast -a ru.smartvoice.DEBUG_UI -p "$PACKAGE" --es type 'Приве'
 sleep 2
+adb shell uiautomator dump /sdcard/smartvoice-smoke.xml
+UI_XML="$(adb exec-out cat /sdcard/smartvoice-smoke.xml)"
+[[ "$UI_XML" == *'text="Приве"'* ]]
 if adb logcat -d -b crash | grep -E 'FATAL EXCEPTION|Process: ru.smartvoice.keyboard.debug'; then
   echo 'Android crash detected' >&2
   exit 1
