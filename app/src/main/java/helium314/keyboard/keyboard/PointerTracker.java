@@ -1161,8 +1161,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
             return;
         }
         final int code = key.getCode();
-        if (mKeyboard != null && mKeyboard.mId.getElement().name().startsWith("ALPHABET")
-                && (code == KeyCode.SYMBOL_ALPHA || code == KeyCode.EMOJI || code == KeyCode.NUMPAD)) {
+        if (mKeyboard != null && (mKeyboard.mId.getElement().name().startsWith("ALPHABET")
+                    || mKeyboard.mId.getElement().name().startsWith("SYMBOLS"))
+                && (code == KeyCode.SYMBOL_ALPHA || code == KeyCode.EMOJI
+                    || code == KeyCode.NUMPAD || code == KeyCode.LANGUAGE_SWITCH)) {
             cancelKeyTracking();
             helium314.keyboard.smart.ui.SmartUi.openBottomRowEditor();
             return;
@@ -1273,8 +1275,10 @@ public final class PointerTracker implements PointerTrackerQueue.Element,
         if (key == null) return;
         final int code = key.getCode();
         final boolean smartBottomKey = mKeyboard != null
-                && mKeyboard.mId.getElement().name().startsWith("ALPHABET")
-                && (code == KeyCode.SYMBOL_ALPHA || code == KeyCode.EMOJI || code == KeyCode.NUMPAD);
+                && (mKeyboard.mId.getElement().name().startsWith("ALPHABET")
+                    || mKeyboard.mId.getElement().name().startsWith("SYMBOLS"))
+                && (code == KeyCode.SYMBOL_ALPHA || code == KeyCode.EMOJI
+                    || code == KeyCode.NUMPAD || code == KeyCode.LANGUAGE_SWITCH);
         if (!key.isLongPressEnabled() && !smartBottomKey) return;
         // Caveat: Please note that isLongPressEnabled() can be true even if the current key
         // doesn't have its popup keys. (e.g. spacebar, globe key) If we are in the dragging finger

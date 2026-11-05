@@ -137,7 +137,7 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
         if (Settings.getValues().mIsLocked && KeyCode.isIsBlockedWhenLocked(primaryCode))
             return
         val isAlphabetPeriod = primaryCode == '.'.code && !isKeyRepeat &&
-            keyboardSwitcher.keyboard?.mId?.element?.isAlphabet == true
+            keyboardSwitcher.keyboard?.mId?.element?.isAlphaOrSymbol == true
         if (isAlphabetPeriod) {
             val now = SystemClock.uptimeMillis()
             val before = connection.getTextBeforeCursor(3, 0)?.toString().orEmpty()

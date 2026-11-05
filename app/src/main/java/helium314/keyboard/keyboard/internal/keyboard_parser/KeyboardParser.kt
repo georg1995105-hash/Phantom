@@ -267,7 +267,7 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
      * Preserve mail/URL specialized @ and / keys, and preserve the symbol/numpad layouts.
      */
     private fun customizeSmartBottomRow(rows: MutableList<MutableList<KeyData>>) {
-        if (!params.mId.element.isAlphabet) return
+        if (!params.mId.element.isAlphaOrSymbol) return
         val bottom = rows.lastOrNull() ?: return
         if (bottom.none { it.label == KeyLabel.SPACE }) return
 
@@ -277,7 +277,11 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
         val period = bottom.indexOfFirst {
             it.label == KeyLabel.PERIOD || (it.groupId == KeyData.GROUP_PERIOD && it.label == ".")
         }
-        if (period >= 0) {
+        val specializedComma = bottom.any {
+            it.groupId == KeyData.GROUP_COMMA &&
+                it.label !in setOf(KeyLabel.COMMA, ",")
+        }
+        if (period >= 0 && !specializedComma) {
             bottom.removeAll {
                 it.label == KeyLabel.COMMA ||
                     (it.groupId == KeyData.GROUP_COMMA && it.label == ",")
@@ -291,13 +295,34 @@ class KeyboardParser(private val params: KeyboardParams, private val context: Co
         }
 
         val prefs = context.prefs()
-        if (prefs.getBoolean(SmartPrefs.BOTTOM_NUMPAD, false) &&
-                bottom.none { it.label == KeyLabel.NUMPAD }) {
-            val space = bottom.indexOfFirst { it.label == KeyLabel.SPACE }
-            bottom.add(space, TextKeyData(
-                label = KeyLabel.NUMPAD, code = KeyCode.NUMPAD,
-                type = KeyType.FUNCTION, width = 0.12f
-            ))
+        // In symbol mode, get rid of the legacy cursor and 123 shortcuts.
+        // Use the same user-selected actions as the alphabet layout.
+        if (!params.mId.element.isAlphabet) {
+            bottom.removeAll { it.label == KeyLabel.DPAD }
+            if (prefs.getBoolean(Settings.PREF_SHOW_EMOJI_KEY,
+                    helium314.keyboard.latin.settings.Defaults.PREF_SHOW_EMOJI_KEY)
+                && bottom.none { it.label == "emoji" }) {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = "emoji", code = KeyCode.EMOJI,
+                        type = KeyType.FUNCTION, width = 0.12f))
+            }
+            if (prefs.getBoolean(Settings.PREF_SHOW_LANGUAGE_SWITCH_KEY,
+                    helium314.keyboard.latin.settings.Defaults.PREF_SHOW_LANGUAGE_SWITCH_KEY)
+                && bottom.none { it.label == KeyLabel.LANGUAGE_SWITCH }) {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = KeyLabel.LANGUAGE_SWITCH,
+                        code = KeyCode.LANGUAGE_SWITCH,
+                        type = KeyType.FUNCTION, width = 0.12f))
+            }
+        }
+        if (prefs.getBoolean(SmartPrefs.BOTTOM_NUMPAD, false)) {
+            if (bottom.none { it.label == KeyLabel.NUMPAD }) {
+                bottom.add(bottom.indexOfFirst { it.label == KeyLabel.SPACE },
+                    TextKeyData(label = KeyLabel.NUMPAD, code = KeyCode.NUMPAD,
+                        type = KeyType.FUNCTION, width = 0.12f))
+            }
+        } else {
+            bottom.removeAll { it.label == KeyLabel.NUMPAD }
         }
         val movableLabels = setOf("emoji", KeyLabel.LANGUAGE_SWITCH, KeyLabel.NUMPAD)
         val movable = bottom.filter { it.label in movableLabels }
