@@ -117,6 +117,13 @@ object SpeechCorrector {
     fun correct(raw: String, before: CharSequence?, opts: Options = Options(), isFinal: Boolean = true): String {
         var t = raw.replace(Regex("[ \\t\\u00A0]+"), " ").trim()
         if (t.isEmpty()) return ""
+        // Do not split or capitalize inside URLs and email addresses.
+        val protected = LinkedHashMap<String, String>()
+        t = Regex("(?:https?://|www\\.)[^\\s]+|[\\w.+-]+@[\\w.-]+\\.[a-zA-Z]{2,}").replace(t) {
+            val key = "\uE000${protected.size}\uE001"
+            protected[key] = it.value
+            key
+        }
         if (opts.removeFillers) t = fillers.replace(t, "").replace(Regex(" {2,}"), " ").trim()
         val hadOwnCommas = t.contains(',')
         for ((regex, sign) in spokenPunctuation) t = regex.replace(t, Regex.escapeReplacement(" $sign "))
@@ -125,6 +132,8 @@ object SpeechCorrector {
         if (opts.smartPunctuation && !hadOwnCommas) t = addRussianCommas(t)
         t = capitalize(t, isSentenceStart(before))
         if (opts.smartPunctuation && isFinal) t = maybeAddQuestionMark(t)
+        protected.forEach { (key, value) -> t = t.replace(key, value) }
+        if (before.isNullOrBlank()) t = t.replace(Regex("^[,.;:]+ *"), "")
         if (t.isEmpty()) return ""
         return if (needsLeadingSpace(before, t)) " $t" else t
     }
@@ -142,7 +151,7 @@ object SpeechCorrector {
         t = t.replace(Regex(" {2,}"), " ")
         t = t.trim(' ')
         // punctuation cannot start a dictated segment, except the line breaks
-        t = t.replace(Regex("^[,.;:]+ *"), "")
+        // Leading punctuation may complete a previously dictated segment.
         return t
     }
 

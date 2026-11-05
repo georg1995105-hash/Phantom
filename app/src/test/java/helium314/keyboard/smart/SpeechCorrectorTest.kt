@@ -53,6 +53,16 @@ class SpeechCorrectorTest {
         assertEquals("Перевёл Ивану Петрову 1500 рублей 12.03", c("перевёл Ивану Петрову 1500 рублей 12.03"))
     }
 
+    @Test fun punctuationCanCompletePreviousSegment() {
+        assertEquals(",", c("запятая", "Привет"))
+        assertEquals(".", c("точка", "Готово"))
+    }
+
+    @Test fun urlsAndEmailAreNotRewritten() {
+        assertEquals("Открой https://example.com/Period?a=Yes", c("открой https://example.com/Period?a=Yes"))
+        assertEquals("Пиши user.Name@example.com", c("пиши user.Name@example.com"))
+    }
+
     @Test fun commands() {
         assertEquals(VoiceCommand.DeleteLastSentence, VoiceCommand.parse("Удали последнее предложение"))
         assertEquals(VoiceCommand.DeleteLastWord, VoiceCommand.parse("удали слово."))
