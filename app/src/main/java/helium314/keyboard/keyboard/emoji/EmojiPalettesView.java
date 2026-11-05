@@ -452,7 +452,7 @@ public final class EmojiPalettesView extends LinearLayout
     }
 
     private void addRecentKey(Key key) {
-        if (mEmojiCategory.getCurrentCategory() == EmojiCategory.Category.EMOTICONS) return;
+        if (key.getLabel() == null || !helium314.keyboard.latin.common.EmojiKt.getSingleEmojiRegex().matches(key.getLabel())) return;
         if (Settings.getValues().mIncognitoModeEnabled) {
             // We do not want to log recent keys while being in incognito
             return;
