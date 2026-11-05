@@ -1763,6 +1763,8 @@ public class LatinIME extends InputMethodService implements
         return mVoice;
     }
 
+    public int svSuggestionCount() { return mInputLogic.mSuggestedWords.size(); }
+
     public RichInputConnection svConnection() {
         return mInputLogic.mConnection;
     }

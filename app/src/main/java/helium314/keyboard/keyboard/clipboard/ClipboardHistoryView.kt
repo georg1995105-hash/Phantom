@@ -156,6 +156,8 @@ class ClipboardHistoryView @JvmOverloads constructor(
         }, LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         row.addView(android.widget.Switch(context).apply {
             contentDescription = context.getString(R.string.sv_clip_history_toggle)
+            thumbTintList = android.content.res.ColorStateList.valueOf(SvUi.accent())
+            trackTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.blendARGB(SvUi.key(), SvUi.accent(), 0.35f))
             isChecked = context.prefs().getBoolean(Settings.PREF_ENABLE_CLIPBOARD_HISTORY, Defaults.PREF_ENABLE_CLIPBOARD_HISTORY)
             setOnCheckedChangeListener { _, checked ->
                 context.prefs().edit().putBoolean(Settings.PREF_ENABLE_CLIPBOARD_HISTORY, checked).apply()
@@ -172,7 +174,7 @@ class ClipboardHistoryView @JvmOverloads constructor(
             ClipCategory.PINNED to R.string.sv_clip_pinned).forEach { (cat, label) ->
             val chip = SvUi.chip(context, context.getString(label), filled = cat == category).apply {
                 val icon = when (cat) {
-                    ClipCategory.ALL -> R.drawable.ic_sv_clipboard
+                    ClipCategory.ALL -> R.drawable.ic_sv_apps
                     ClipCategory.TEXT -> R.drawable.ic_sv_text
                     ClipCategory.IMAGES -> R.drawable.ic_sv_image
                     ClipCategory.LINKS -> R.drawable.ic_sv_link

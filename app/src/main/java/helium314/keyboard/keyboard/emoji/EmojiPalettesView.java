@@ -240,7 +240,19 @@ public final class EmojiPalettesView extends LinearLayout
         mColors.setBackground(iconView, ColorType.STRIP_BACKGROUND);
         mColors.setColor(iconView, ColorType.EMOJI_CATEGORY);
         iconView.setScaleType(ImageView.ScaleType.CENTER);
-        iconView.setImageResource(mEmojiCategory.getCategoryTabIcon(category));
+        iconView.setImageResource(switch (category) {
+            case RECENTS -> R.drawable.ic_sv_recent;
+            case SMILEYS -> R.drawable.ic_sv_emoji;
+            case PEOPLE -> R.drawable.ic_sv_people;
+            case NATURE -> R.drawable.ic_sv_nature;
+            case FOOD -> R.drawable.ic_sv_food;
+            case TRAVEL_PLACES -> R.drawable.ic_sv_travel;
+            case ACTIVITIES -> R.drawable.ic_sv_activity;
+            case OBJECTS -> R.drawable.ic_sv_object;
+            case SYMBOLS -> R.drawable.ic_sv_apps;
+            case FLAGS -> R.drawable.ic_sv_flag;
+            case EMOTICONS -> R.drawable.ic_sv_emoticon;
+        });
         iconView.setContentDescription(mEmojiCategory.getAccessibilityDescription(category));
         iconView.setTag(category);
         host.addView(iconView);
@@ -430,7 +442,10 @@ public final class EmojiPalettesView extends LinearLayout
             action.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.ripple(
                 helium314.keyboard.smart.ui.SvUi.INSTANCE.surface(
                     id == R.id.sv_emoji_mode ? helium314.keyboard.smart.ui.SvUi.INSTANCE.accent() : helium314.keyboard.smart.ui.SvUi.INSTANCE.key(), 18f), 18f));
-            if (id == R.id.sv_emoji_mode) action.setTextColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent());
+            if (id == R.id.sv_emoji_mode) {
+                action.setText("");
+                action.setCompoundDrawablesWithIntrinsicBounds(helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_emoji, helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent()), null, null, null);
+            }
         }
         findViewById(R.id.sv_emoji_actions).setBackgroundColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.panelBackground());
         findViewById(R.id.sv_emoji_back).setOnClickListener(view ->
@@ -512,8 +527,9 @@ public final class EmojiPalettesView extends LinearLayout
                 }
                 if (current instanceof ImageView) {
                     Settings.getValues().mColors.setColor((ImageView) current, ColorType.EMOJI_CATEGORY_SELECTED);
-                    current.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.rounded(
-                        androidx.core.graphics.ColorUtils.setAlphaComponent(helium314.keyboard.smart.ui.SvUi.INSTANCE.accent(), 48), 24f, null, 0));
+                    current.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.surface(
+                        helium314.keyboard.smart.ui.SvUi.INSTANCE.accent(), helium314.keyboard.smart.ui.SvUi.INSTANCE.dp(getContext(), 22)));
+                    ((ImageView) current).setColorFilter(helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent());
                     current.setSelected(true);
                 }
             }

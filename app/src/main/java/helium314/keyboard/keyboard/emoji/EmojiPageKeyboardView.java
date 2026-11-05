@@ -10,6 +10,8 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Paint;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.os.Handler;
@@ -117,6 +119,12 @@ public final class EmojiPageKeyboardView extends KeyboardView implements
         mDescriptionView = mPopupKeysKeyboardContainer.findViewById(R.id.description_view);
         mPopupKeysKeyboardView = mPopupKeysKeyboardContainer.findViewById(R.id.popup_keys_keyboard_view);
         setFitsSystemWindows(false);
+    }
+
+    @Override
+    protected void onDrawKeyBackground(@NonNull Key key, @NonNull Canvas canvas, @NonNull Drawable background) {
+        // Emoji are content, not alphabet keycaps. Keep a real pressed highlight.
+        if (key == mCurrentKey) super.onDrawKeyBackground(key, canvas, background);
     }
 
     @Override

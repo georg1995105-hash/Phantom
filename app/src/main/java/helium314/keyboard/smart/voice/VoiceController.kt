@@ -288,13 +288,13 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     // ---------- RecognitionListener ----------
 
     override fun onReadyForSpeech(params: Bundle?) {
-        if (state == State.OFF) return
+        if (!listening || state == State.OFF || state == State.PROCESSING || pauseRequested || finishRequested) return
         watchdog(120000)
         setState(State.LISTENING)
     }
 
     override fun onBeginningOfSpeech() {
-        if (state == State.OFF) return
+        if (!listening || state == State.OFF || state == State.PROCESSING || pauseRequested || finishRequested) return
         setState(State.LISTENING)
     }
 
@@ -305,7 +305,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     override fun onBufferReceived(buffer: ByteArray?) {}
 
     override fun onEndOfSpeech() {
-        if (!listening || state == State.OFF) return
+        if (!listening || state == State.OFF || state == State.PROCESSING) return
         watchdog(8000)
         setState(State.PROCESSING)
     }
@@ -324,7 +324,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     }
 
     override fun onPartialResults(partialResults: Bundle?) {
-        if (state == State.OFF) return
+        if (!listening || state == State.OFF) return
         val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
         if (text.isEmpty()) return
         if (segmentBefore == null) segmentBefore = connection.getTextBeforeCursor(SENTENCE_CONTEXT, 0) ?: ""

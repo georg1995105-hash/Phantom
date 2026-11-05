@@ -280,7 +280,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         orderedItems().filter { editing || it.id !in hidden }.let { if (editing) it else it.take(9) }.chunked(3).forEach { rowItems ->
             val row = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
             rowItems.forEach { item ->
-                row.addView(itemView(item, item.id in hidden), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                row.addView(itemView(item, item.id in hidden, scroll), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                     setMargins(SvUi.dp(context, 3), SvUi.dp(context, 4), SvUi.dp(context, 3), SvUi.dp(context, 4))
                 })
             }
@@ -295,7 +295,7 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
         return scroll
     }
 
-    private fun itemView(item: Item, hidden: Boolean): View {
+    private fun itemView(item: Item, hidden: Boolean, scroll: ScrollView): View {
         val v = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -332,6 +332,15 @@ class FunctionsPanelView @JvmOverloads constructor(context: Context, attrs: Attr
             when (event.action) {
                 DragEvent.ACTION_DRAG_STARTED -> editing && event.localState is String
                 DragEvent.ACTION_DRAG_ENTERED -> { view.alpha = 0.5f; true }
+                DragEvent.ACTION_DRAG_LOCATION -> {
+                    val childLocation = IntArray(2); view.getLocationOnScreen(childLocation)
+                    val scrollLocation = IntArray(2); scroll.getLocationOnScreen(scrollLocation)
+                    val y = childLocation[1] + event.y - scrollLocation[1]
+                    val edge = SvUi.dp(context, 48)
+                    if (y < edge) scroll.smoothScrollBy(0, -SvUi.dp(context, 12))
+                    else if (y > scroll.height - edge) scroll.smoothScrollBy(0, SvUi.dp(context, 12))
+                    true
+                }
                 DragEvent.ACTION_DRAG_EXITED, DragEvent.ACTION_DRAG_ENDED -> { view.alpha = if (hidden) 0.5f else 1f; true }
                 DragEvent.ACTION_DROP -> {
                     val source = event.localState as? String ?: return@setOnDragListener false

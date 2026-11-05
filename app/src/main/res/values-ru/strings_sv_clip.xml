@@ -33,4 +33,10 @@
     <string name="sv_clip_today">Сегодня</string>
     <string name="sv_clip_yesterday">Вчера</string>
     <string name="sv_clip_expand">Развернуть / свернуть</string>
+    <plurals name="sv_clip_character_count">
+        <item quantity="one">%d символ</item>
+        <item quantity="few">%d символа</item>
+        <item quantity="many">%d символов</item>
+        <item quantity="other">%d символа</item>
+    </plurals>
 </resources>

@@ -70,6 +70,8 @@ object DebugSnapshot {
 
     private fun snapshot(ime: InputMethodService, name: String) {
         if (!name.matches(Regex("[A-Za-z0-9_-]{1,60}"))) return
+        val latin = ime as? helium314.keyboard.latin.LatinIME
+        Log.i(TAG, "suggestions enabled=${helium314.keyboard.latin.settings.Settings.getValues().mSuggestionsEnabled}, count=${latin?.svSuggestionCount()}, inputType=${ime.currentInputEditorInfo?.inputType}")
         val decor = ime.window?.window?.decorView ?: return
         decor.post {
             try {
@@ -104,8 +106,11 @@ object DebugSnapshot {
             val dir = File(ime.filesDir, "clipboard").apply { mkdirs() }
             val file = File(dir, "debug_${System.currentTimeMillis()}.png")
             val source = intent.getStringExtra("imageSource")
-            val bmp = if (source != null && source.startsWith("/sdcard/Download/"))
-                android.graphics.BitmapFactory.decodeFile(source) ?: return
+            val ownFiles = ime.getExternalFilesDir(null)?.canonicalPath
+            val sourcePath = source?.let { File(it).canonicalPath }
+            val bmp = if (sourcePath != null && (sourcePath.startsWith("/storage/emulated/0/Download/") ||
+                    (ownFiles != null && sourcePath.startsWith("$ownFiles/"))))
+                android.graphics.BitmapFactory.decodeFile(source, android.graphics.BitmapFactory.Options().apply { inMutable = true }) ?: return
             else Bitmap.createBitmap(900, 1500, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
             val p = Paint(Paint.ANTI_ALIAS_FLAG)

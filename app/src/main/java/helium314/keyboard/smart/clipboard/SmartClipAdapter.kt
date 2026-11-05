@@ -79,6 +79,7 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
         private val card = itemView as FrameLayout
         private val image = ImageView(context)
         private val text = TextView(context)
+        private val footer = TextView(context)
         private val pin = ImageView(context)
         private val check = ImageView(context)
         private val radius = SvUi.dp(context, 14).toFloat()
@@ -102,6 +103,14 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
                 text.compoundDrawablePadding = SvUi.dp(context, 6)
                 card.addView(text, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             }
+            footer.apply {
+                textSize = 11f
+                maxLines = 1
+                setTextColor(if (isImage) Color.WHITE else SvUi.secondaryText())
+                setPadding(SvUi.dp(context, 12), SvUi.dp(context, 5), SvUi.dp(context, 10), SvUi.dp(context, 7))
+                if (isImage) setBackgroundColor(ColorUtils.setAlphaComponent(Color.BLACK, 0xA0))
+            }
+            card.addView(footer, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
             val badge = SvUi.dp(context, 22)
             val badgeBg = if (isImage) ColorUtils.setAlphaComponent(Color.BLACK, 0x66) else Color.TRANSPARENT
             pin.setImageDrawable(SvUi.icon(context, R.drawable.ic_sv_pin, if (isImage) Color.WHITE else SvUi.accent()))
@@ -143,6 +152,12 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
                         if (isImage) Color.WHITE else SvUi.secondaryText(), SvUi.dp(context, 2))
                 }
             }
+            val kind = SmartClipboard.kindOf(e)
+            footer.text = if (isImage) {
+                val bytes = java.io.File(helium314.keyboard.latin.database.ClipboardDao.clipFilesDir, e.filename!!).length()
+                context.getString(R.string.sv_clip_photos) + " · " + android.text.format.Formatter.formatShortFileSize(context, bytes)
+            } else if (kind == ClipKind.LINK) context.getString(R.string.sv_clip_links)
+            else context.getString(R.string.sv_clip_text) + " · " + context.resources.getQuantityString(R.plurals.sv_clip_character_count, e.text.orEmpty().length, e.text.orEmpty().length)
             if (isImage) {
                 val w = if (columnWidth > 0) columnWidth else SvUi.dp(context, 160)
                 val lp = image.layoutParams
@@ -184,7 +199,7 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
             }
             // keep the text clear of the pin / check badges
             val p = SvUi.dp(context, 12)
-            text.setPadding(if (selectionMode) SvUi.dp(context, 32) else p, SvUi.dp(context, 34), p, SvUi.dp(context, 10))
+            text.setPadding(if (selectionMode) SvUi.dp(context, 32) else p, SvUi.dp(context, 34), p, SvUi.dp(context, 32))
         }
     }
 

@@ -96,6 +96,16 @@ class VoiceControllerTest {
         assertEquals("Конец фразы", ShadowInputMethodService.text)
         assertEquals(VoiceController.State.PAUSED, voice.state)
     }
+    @Test fun lateReadyAndEndCannotExtendDoneDeadline() {
+        voice.onPartialResults(result("последние слова"))
+        voice.finishByUser()
+        voice.onReadyForSpeech(Bundle())
+        voice.onBeginningOfSpeech()
+        voice.onEndOfSpeech()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+        assertEquals("Последние слова", ShadowInputMethodService.text)
+        assertEquals(VoiceController.State.OFF, voice.state)
+    }
     @Test fun idleRecognizerTimesOut() {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(16))
         assertEquals(VoiceController.State.PAUSED, voice.state)
