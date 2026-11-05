@@ -2,6 +2,11 @@ name: Publish private debug APK
 
 on:
   workflow_dispatch:
+    inputs:
+      approved_preview:
+        description: Build separately installable approved-design preview with comparison screenshots
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -39,9 +44,31 @@ jobs:
         shell: bash
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebugNoMinify
+          PREVIEW_ARGS=()
+          if [[ '${{ inputs.approved_preview }}' == 'true' ]]; then
+            PREVIEW_ARGS+=('-PsmartvoicePreview=true')
+          fi
+          ./gradlew --no-daemon --stacktrace :app:assembleDebugNoMinify "${PREVIEW_ARGS[@]}"
+
+      - name: Package approved preview evidence
+        if: inputs.approved_preview
+        run: python3 tools/package-preview.py
+
+      - name: Publish approved preview to this private repository
+        if: inputs.approved_preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="preview-approved-design-20261105"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --latest=false --title 'SmartVoice Test — утверждённый дизайн · 2026-11-05'
+          gh release upload "$TAG" preview-assets/*.apk preview-assets/*.zip preview-assets/*.png preview-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --notes-file preview-assets/RELEASE_NOTES.md --draft=false --prerelease --latest=false
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record APK checksum
+        if: ${{ !inputs.approved_preview }}
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +76,7 @@ jobs:
           cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish debug APK to this private repository
+        if: ${{ !inputs.approved_preview }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
