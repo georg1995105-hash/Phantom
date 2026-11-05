@@ -3,6 +3,7 @@ package helium314.keyboard.keyboard.emoji
 
 import androidx.core.content.edit
 import helium314.keyboard.latin.common.StringUtils
+import helium314.keyboard.latin.common.isEmoji
 import helium314.keyboard.latin.settings.Defaults
 import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.utils.prefs
@@ -18,7 +19,7 @@ object RecentEmojis {
 
     @JvmStatic
     fun add(emoji: String) {
-        if (emoji.isEmpty()) return
+        if (emoji.isEmpty() || !emoji.isEmoji) return
         val recents = get()
         recents.removeAll { it == emoji }
         recents.add(0, emoji)
@@ -51,7 +52,7 @@ object RecentEmojis {
     fun get(): MutableList<String> {
         val pref = prefs.getString(Settings.PREF_RECENT_EMOJIS, Defaults.PREF_RECENT_EMOJIS)
         if (pref.isNullOrEmpty()) return mutableListOf()
-        return runCatching { Json.decodeFromString<MutableList<String>>(pref) }
+        return runCatching { Json.decodeFromString<List<String>>(pref).filter { it.isEmoji }.toMutableList() }
             .getOrNull() ?: mutableListOf()
     }
 
