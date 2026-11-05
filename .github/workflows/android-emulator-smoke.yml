@@ -2,7 +2,7 @@ name: Android emulator smoke test
 
 on:
   pull_request:
-    branches: [main, redesign/v02-foundation]
+    branches: [main, redesign/v02-foundation, redesign/reference-preview-20261105]
     paths:
       - 'app/**'
       - '.github/workflows/android-emulator-smoke.yml'

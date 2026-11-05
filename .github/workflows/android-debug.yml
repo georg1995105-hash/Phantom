@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, redesign/v02-foundation]
+    branches: [main, redesign/v02-foundation, redesign/reference-preview-20261105]
 
 permissions:
   contents: read
