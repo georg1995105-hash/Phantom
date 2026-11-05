@@ -22,7 +22,8 @@ with ZipFile(out / "SmartVoiceKeyboard-design-comparison.zip", "w", ZIP_DEFLATED
             if path.is_file():
                 z.write(path, archive + "/" + path.name)
     for name in ("STATUS_RU.md", "PHONE_TEST_RU.md", "remaining-tests.txt"):
-        z.write(root / "docs/validation" / name, name)
+        source = root / "docs/validation/fixes/REPORT_RU.md" if name == "STATUS_RU.md" else root / "docs/validation" / name
+        z.write(source, name)
     z.write(root / "docs/approved-design/TASK_FOR_CODEX.md", "TASK_FOR_CODEX.md")
     for path in (root / "docs/validation/fixes").glob("*"):
         if path.is_file(): z.write(path, "fixes/" + path.name)

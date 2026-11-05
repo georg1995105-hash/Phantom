@@ -277,7 +277,7 @@ public final class EmojiPalettesView extends LinearLayout
             mTabStrip.removeAllViews();
             final var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
             final int buttonWidth = ui.dp(getContext(), 44);
-            mTabStrip.addView(ui.iconButton(getContext(), R.drawable.ic_arrow_back, getContext().getString(R.string.sv_back), 44,
+            mTabStrip.addView(ui.iconButton(getContext(), R.drawable.ic_sv_back, getContext().getString(R.string.sv_back), 44,
                 v -> { mKeyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false); return kotlin.Unit.INSTANCE; }),
                 new LinearLayout.LayoutParams(buttonWidth, ViewGroup.LayoutParams.MATCH_PARENT));
             android.widget.TextView search = ui.chip(getContext(), getContext().getString(R.string.sv_emoji_search), false);
@@ -434,7 +434,10 @@ public final class EmojiPalettesView extends LinearLayout
             android.widget.TextView button = findViewById(id);
             if (button == null) continue;
             boolean selected = (id == R.id.sv_emoji_space) == (category == EmojiCategory.Category.EMOTICONS);
-            button.setTextColor(selected ? ui.onAccent() : ui.text());
+            int color = selected ? ui.onAccent() : ui.text();
+            button.setTextColor(color);
+            for (android.graphics.drawable.Drawable icon : button.getCompoundDrawablesRelative())
+                if (icon != null) icon.mutate().setTint(color);
             float radius = ui.dp(getContext(), 12);
             button.setBackground(ui.ripple(ui.surface(selected ? ui.accent() : ui.key(), radius), radius));
         }

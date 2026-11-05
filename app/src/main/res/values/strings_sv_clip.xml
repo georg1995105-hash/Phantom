@@ -39,4 +39,5 @@
     </plurals>
     <string name="sv_clip_paste_fallback">Trying system paste. If the image does not appear, choose Share from the clip menu.</string>
     <string name="sv_screenshot_setup">Новые снимки экрана</string>
+    <string name="sv_clip_save_failed">Cannot save the image. Check file access and the clipboard size limit, or select it in clipboard settings.</string>
 </resources>

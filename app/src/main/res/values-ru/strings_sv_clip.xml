@@ -41,4 +41,5 @@
     </plurals>
     <string name="sv_clip_paste_fallback">Пробуем системную вставку. Если фото не появилось, выберите «Поделиться» в меню карточки.</string>
     <string name="sv_screenshot_setup">Новые снимки экрана</string>
+    <string name="sv_clip_save_failed">Не удалось сохранить изображение. Проверьте доступ и лимит размера или выберите файл в настройках буфера.</string>
 </resources>

@@ -126,7 +126,7 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
                 entry?.let { callbacks.onClipMenu(it, card) }
             }
             if (isImage) {
-                menu.setColorFilter(Color.WHITE)
+                menu.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
                 menu.background = SvUi.ripple(SvUi.rounded(0xE610131C.toInt(), SvUi.dp(context, 16).toFloat()), SvUi.dp(context, 16).toFloat())
             }
             card.addView(menu, FrameLayout.LayoutParams(SvUi.dp(context, 32), SvUi.dp(context, 32), Gravity.TOP or Gravity.END))

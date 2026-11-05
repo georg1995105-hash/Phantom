@@ -79,6 +79,7 @@ object SvUi {
         ImageButton(context).apply {
             setPadding(0, 0, 0, 0)
             setImageDrawable(icon(context, res))
+            imageTintList = ColorStateList.valueOf(text())
             contentDescription = description
             scaleType = ImageView.ScaleType.CENTER
             background = ripple(null, dp(context, sizeDp) / 2f)
