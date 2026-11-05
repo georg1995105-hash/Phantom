@@ -76,6 +76,11 @@ object SmartUi {
     }
 
     @JvmStatic
+    fun openClipboardSearch() {
+        ime?.let { helium314.keyboard.smart.clipboard.ClipboardSearchActivity.open(it) }
+    }
+
+    @JvmStatic
     fun hideFunctions() {
         functionsPanel?.hide()
     }

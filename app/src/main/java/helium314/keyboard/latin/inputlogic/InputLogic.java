@@ -2251,11 +2251,9 @@ public final class InputLogic {
      */
     // TODO: Shouldn't this go in some *Utils class instead?
     private CharSequence getTextWithUnderline(final String text) {
-        // TODO: Locale should be determined based on context and the text given.
-        return mIsAutoCorrectionIndicatorOn
-                ? SuggestionSpanUtilsKt.getTextWithAutoCorrectionIndicatorUnderline(
-                        mLatinIME, text, getDictionaryFacilitatorLocale())
-                : text;
+        // The editor still receives composing text and suggestions. Only the additional
+        // auto-correction indicator is omitted; Android may draw its own composing underline.
+        return text;
     }
 
     /**

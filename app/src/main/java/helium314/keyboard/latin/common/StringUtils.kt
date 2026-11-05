@@ -254,16 +254,28 @@ private val CharSequence.isSingleRegionalIndicator: Boolean
 
 // from https://github.com/chattymin/Pebble/blob/main/pebble/src/main/java/com/chattymin/pebble/LocalBreakIterator.kt, Apache-2.0 license
 // there is more potentially useful code like String.graphemeLength (should be graphemeCount though)
-private val LocalBreakIterator = ThreadLocal<BreakIterator>().apply {
-    // this is always Locale.ROOT, but (Android Studio) testing on all available key labels showed no difference by locale
-    // maybe this works better with android.icu.text.BreakIterator, but that one requires API24
-    set(BreakIterator.getCharacterInstance(Locale.ROOT))
-}
+private val LocalBreakIterator = ThreadLocal<BreakIterator>()
 
-private val localBreakIterator: BreakIterator = LocalBreakIterator.get() ?: initBreakIterator()
+private val localBreakIterator: BreakIterator
+    get() = LocalBreakIterator.get() ?: newGraphemeIterator().also { LocalBreakIterator.set(it) }
 
-private fun initBreakIterator() = BreakIterator.getCharacterInstance(Locale.ROOT).also {
-    LocalBreakIterator.set(it)
+private fun newGraphemeIterator(): BreakIterator {
+    if (android.os.Build.VERSION.SDK_INT < 24) return BreakIterator.getCharacterInstance(Locale.ROOT)
+    // Android ICU understands ZWJ sequences and skin tones; the host JDK iterator
+    // used by local tests and older Android versions can split a visible emoji.
+    val icu = android.icu.text.BreakIterator.getCharacterInstance(Locale.ROOT)
+    return object : BreakIterator() {
+        override fun first() = icu.first()
+        override fun last() = icu.last()
+        override fun next(n: Int) = icu.next(n)
+        override fun next() = icu.next()
+        override fun previous() = icu.previous()
+        override fun following(offset: Int) = icu.following(offset)
+        override fun preceding(offset: Int) = icu.preceding(offset)
+        override fun current() = icu.current()
+        override fun getText(): java.text.CharacterIterator = icu.text
+        override fun setText(text: java.text.CharacterIterator) { icu.setText(text) }
+    }
 }
 
 val String.isSingleGrapheme: Boolean get() {
@@ -290,7 +302,7 @@ val String.lastGrapheme: String get() {
     val iterator = localBreakIterator
     iterator.setText(this)
     val res = substring(iterator.preceding(length))
-    val tone = res.indexOfFirst { it == '\uD83C' }
+    val tone = res.indices.firstOrNull { res.codePointAt(it) in 0x1F3FB..0x1F3FF } ?: -1
     return if (tone == -1 || singleEmojiRegex.matches(res)) res
     else res.substring(tone) // " 🏼" is detected as single grapheme, but we don't want this
 }

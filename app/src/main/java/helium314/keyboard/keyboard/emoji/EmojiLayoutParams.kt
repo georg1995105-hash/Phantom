@@ -36,10 +36,11 @@ internal class EmojiLayoutParams(res: Resources) {
 
         val pageIdHeight = res.getDimension(R.dimen.config_emoji_category_page_id_height)
         emojiCategoryPageIdViewHeight = pageIdHeight.toInt()
-        val offset = 1.25f * res.displayMetrics.density * sv.mKeyboardHeightScale // like ClipboardLayoutParams
-        val emojiListHeight = defaultKeyboardHeight - bottomRowKeyboardHeight - bottomPadding + (offset.toInt())
+        // The XML action row is exactly 48dp. Reserve that actual height rather than
+        // the unrelated alphabet bottom row, which left a gap or clipped controls.
         emojiListBottomMargin = 0
-        emojiKeyboardHeight = emojiListHeight - emojiCategoryPageIdViewHeight - emojiListBottomMargin
+        emojiKeyboardHeight = (defaultKeyboardHeight - (84 * res.displayMetrics.density).toInt()
+            - emojiCategoryPageIdViewHeight).coerceAtLeast(1)
     }
 
     fun setEmojiListProperties(vp: ViewPager2) {

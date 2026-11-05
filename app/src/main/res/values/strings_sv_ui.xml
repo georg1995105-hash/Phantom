@@ -37,4 +37,18 @@
     <string name="sv_resize_reset">Reset</string>
     <string name="sv_resize_done">Done</string>
     <string name="sv_resize_move">Move keyboard</string>
+    <string name="sv_fn_paste">Paste</string>
+    <string name="sv_fn_copy">Copy</string>
+    <string name="sv_fn_select_all">Select all</string>
+    <string name="sv_fn_undo">Undo</string>
+    <string name="sv_fn_autocorrect">Autocorrect</string>
+    <string name="sv_functions_help">Hold and drag to reorder or move to a zone. Tap to hide or restore.</string>
+    <string name="sv_drop_top">Top bar · add / remove</string>
+    <string name="sv_drop_bottom">Bottom row · emoji / language / numbers</string>
+    <string name="sv_drop_hide">Hide / restore</string>
+    <string name="sv_customize_functions">Customize functions</string>
+    <string name="sv_emoji_search">Search</string>
+    <string name="sv_emoji_recent">Recent</string>
+    <string name="sv_emoji_emoticons">Emoticons</string>
+    <string name="sv_top_slots_full">Top bar is full. Remove a shortcut first.</string>
 </resources>

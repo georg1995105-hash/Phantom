@@ -24,4 +24,13 @@
     <string name="sv_clip_empty_links">No copied links yet</string>
     <string name="sv_clip_share_title">Share image</string>
     <string name="sv_clip_image_not_supported">This field does not accept images. Share it instead.</string>
+    <string name="sv_clip_confirm_delete">Delete %1$d items?</string>
+    <string name="sv_clip_clear_recent">Clear recent clips (keep pinned)</string>
+    <string name="sv_clip_empty_pinned">No pinned clips. Hold a clip to pin it.</string>
+    <string name="sv_clip_missing">File unavailable. Copy it again.</string>
+    <string name="sv_clip_search">Search clipboard</string>
+    <string name="sv_clip_history_toggle">Save clipboard history</string>
+    <string name="sv_clip_today">Today</string>
+    <string name="sv_clip_yesterday">Yesterday</string>
+    <string name="sv_clip_expand">Expand / collapse</string>
 </resources>

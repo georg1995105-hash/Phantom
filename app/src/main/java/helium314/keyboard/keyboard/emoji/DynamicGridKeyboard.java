@@ -109,7 +109,8 @@ final class DynamicGridKeyboard extends Keyboard {
     // determine a width scale so emojis evenly fill the entire width
     private float determineWidthScale(final float horizontalStep) {
         final float columnsNumRaw = mBaseWidth / horizontalStep;
-        final float columnsNum = Math.round(columnsNumRaw);
+        final float columnsNum = Math.max(4, Math.round(8f * mOccupiedWidth /
+                (360f * android.content.res.Resources.getSystem().getDisplayMetrics().density)));
         return columnsNumRaw / columnsNum;
     }
 

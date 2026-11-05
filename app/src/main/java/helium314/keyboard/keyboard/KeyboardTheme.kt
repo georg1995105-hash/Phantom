@@ -168,13 +168,13 @@ private constructor(val themeId: Int, @JvmField val mStyleId: Int) {
                 )
                 THEME_SV_DARK -> DefaultColors(
                     themeStyle, hasBorders,
-                    "#A8C7FA".toColorInt(),
-                    "#202124".toColorInt(),
-                    "#3C4043".toColorInt(),
-                    "#2D2F31".toColorInt(),
-                    "#3C4043".toColorInt(),
-                    "#E8EAED".toColorInt(),
-                    "#9AA0A6".toColorInt(),
+                    "#96B8FF".toColorInt(),
+                    "#10131C".toColorInt(),
+                    "#292E39".toColorInt(),
+                    "#303C54".toColorInt(),
+                    "#292E39".toColorInt(),
+                    "#F2F3FA".toColorInt(),
+                    "#B8C0D3".toColorInt(),
                     keyboardBackground = backgroundImage
                 )
                 THEME_SV_GRAPHITE -> DefaultColors(

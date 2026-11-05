@@ -37,4 +37,18 @@
     <string name="sv_resize_reset">Сброс</string>
     <string name="sv_resize_done">Готово</string>
     <string name="sv_resize_move">Переместить клавиатуру</string>
+    <string name="sv_fn_paste">Вставить</string>
+    <string name="sv_fn_copy">Копировать</string>
+    <string name="sv_fn_select_all">Выделить всё</string>
+    <string name="sv_fn_undo">Отменить</string>
+    <string name="sv_fn_autocorrect">Автокоррекция</string>
+    <string name="sv_functions_help">Удерживайте и переносите карточки или перемещайте в зоны. Тап — скрыть или вернуть.</string>
+    <string name="sv_drop_top">Верхняя панель · добавить / убрать</string>
+    <string name="sv_drop_bottom">Нижний ряд · эмодзи / язык / цифры</string>
+    <string name="sv_drop_hide">Скрыть / вернуть</string>
+    <string name="sv_customize_functions">Настроить набор функций</string>
+    <string name="sv_emoji_search">Поиск</string>
+    <string name="sv_emoji_recent">Недавние</string>
+    <string name="sv_emoji_emoticons">Каомодзи</string>
+    <string name="sv_top_slots_full">Верхняя панель заполнена. Сначала уберите одну кнопку.</string>
 </resources>

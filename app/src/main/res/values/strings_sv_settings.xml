@@ -57,8 +57,8 @@
     <string name="sv_set_voice_commands">Edit commands</string>
     <string name="sv_set_voice_commands_summary">“comma”, “new line”, “delete last sentence”, “replace X with Y”</string>
     <string name="sv_set_voice_continuous">Keep listening after a pause</string>
-    <string name="sv_set_voice_offline">Prefer offline recognition</string>
-    <string name="sv_set_voice_offline_summary">Uses the on-device model when the service provides one</string>
+    <string name="sv_set_voice_offline">Offline only</string>
+    <string name="sv_set_voice_offline_summary">Requires Android 12+ and an installed on-device language model. No network fallback.</string>
     <string name="sv_set_voice_send">“Send” command</string>
     <string name="sv_set_voice_send_summary">Only in fields that offer a Send action. Otherwise the text stays in the field</string>
 

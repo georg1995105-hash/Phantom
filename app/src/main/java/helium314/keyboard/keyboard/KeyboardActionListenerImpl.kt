@@ -47,6 +47,7 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     private val settings = Settings.getInstance()
     private val audioAndHapticFeedbackManager = AudioAndHapticFeedbackManager.getInstance()
     private var lastPeriodTap = 0L
+    private var lastGlobeTap = 0L
 
     // language slide state
     private var initialSubtype: InputMethodSubtype? = null
@@ -60,6 +61,7 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     }
 
     override fun onLongPressKey(primaryCode: Int) {
+        lastGlobeTap = 0L
         metaOnLongPressKey(primaryCode)
         performHapticFeedback(HapticEvent.KEY_LONG_PRESS)
     }
@@ -106,6 +108,18 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     }
 
     override fun onCodeInput(primaryCode: Int, x: Int, y: Int, isKeyRepeat: Boolean) {
+        if (primaryCode == KeyCode.LANGUAGE_SWITCH && !isKeyRepeat) {
+            val now = SystemClock.uptimeMillis()
+            if (lastGlobeTap != 0L && now - lastGlobeTap in 1..240) {
+                lastGlobeTap = 0L
+                latinIME.onCodeInput(KeyCode.EMOJI, x, y, false)
+            } else {
+                latinIME.switchToNextSubtype()
+                lastGlobeTap = now
+            }
+            return
+        }
+        lastGlobeTap = 0L
         when (primaryCode) {
             KeyCode.TOGGLE_AUTOCORRECT -> return settings.toggleAutoCorrect()
             KeyCode.TOGGLE_INCOGNITO_MODE -> {
@@ -308,6 +322,7 @@ class KeyboardActionListenerImpl(private val latinIME: LatinIME, private val inp
     }
 
     override fun resetMetaState() {
+        lastGlobeTap = 0L
         metaState = 0
     }
 

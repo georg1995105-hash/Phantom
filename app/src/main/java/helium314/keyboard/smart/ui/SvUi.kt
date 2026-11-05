@@ -57,6 +57,15 @@ object SvUi {
         if (strokeColor != null) setStroke(strokeWidth, strokeColor)
     }
 
+    /** Subtle graphite depth and hairline edge shared by all approved panels. */
+    fun surface(color: Int = key(), radius: Float = 18f): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(ColorUtils.blendARGB(color, text(), 0.055f), ColorUtils.blendARGB(color, Color.BLACK, 0.12f))
+    ).apply {
+        cornerRadius = radius
+        setStroke(dp(Settings.getCurrentContext(), 0.6f).coerceAtLeast(1), ColorUtils.blendARGB(color, text(), 0.18f))
+    }
+
     fun ripple(content: Drawable?, radius: Float): RippleDrawable {
         val mask = rounded(Color.WHITE, radius)
         return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(text(), 0x33)), content, mask)
@@ -87,7 +96,7 @@ object SvUi {
     fun chip(context: Context, text: CharSequence, filled: Boolean = false) = label(context, 14f, if (filled) onAccent() else text()).apply {
         this.text = text
         val r = dp(context, 18).toFloat()
-        background = ripple(if (filled) rounded(accent(), r) else rounded(key(), r), r)
+        background = ripple(surface(if (filled) accent() else key(), r), r)
         setPadding(dp(context, 14), dp(context, 8), dp(context, 14), dp(context, 8))
     }
 

@@ -1020,6 +1020,7 @@ public class LatinIME extends InputMethodService implements
                 currentSettingsValues.mGestureTrailEnabled,
                 currentSettingsValues.mGestureFloatingPreviewTextEnabled);
 
+        mHandler.postDelayed(() -> helium314.keyboard.smart.clipboard.ClipboardSearchActivity.pasteOnReturn(this), 150);
         if (TRACE) Debug.startMethodTracing("/data/trace/latinime");
     }
 
@@ -1443,6 +1444,7 @@ public class LatinIME extends InputMethodService implements
             mVoice.toggle();
             return;
         }
+        if (mVoice.isActive()) mVoice.close();
         final InputTransaction completeInputTransaction =
                 mInputLogic.onCodeInput(mSettings.getCurrent(), event,
                         mKeyboardSwitcher.getKeyboardCapsMode(),

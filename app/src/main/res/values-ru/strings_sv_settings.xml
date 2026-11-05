@@ -57,8 +57,8 @@
     <string name="sv_set_voice_commands">Команды правки</string>
     <string name="sv_set_voice_commands_summary">«запятая», «новая строка», «удали последнее предложение», «замени X на Y»</string>
     <string name="sv_set_voice_continuous">Продолжать слушать после паузы</string>
-    <string name="sv_set_voice_offline">Предпочитать офлайн-распознавание</string>
-    <string name="sv_set_voice_offline_summary">Использует модель на устройстве, если служба её предоставляет</string>
+    <string name="sv_set_voice_offline">Только офлайн</string>
+    <string name="sv_set_voice_offline_summary">Нужны Android 12+ и установленная языковая модель. Без перехода на сетевой движок.</string>
     <string name="sv_set_voice_send">Команда «Отправь»</string>
     <string name="sv_set_voice_send_summary">Только в полях с действием «Отправить». В остальных текст остаётся в поле</string>
 

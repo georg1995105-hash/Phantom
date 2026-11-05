@@ -26,15 +26,17 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
     interface Callbacks {
         fun onClipClick(entry: ClipboardHistoryEntry)
         fun onClipLongClick(entry: ClipboardHistoryEntry)
+        fun onClipMenu(entry: ClipboardHistoryEntry, anchor: View) = onClipLongClick(entry)
     }
 
     sealed class Row {
-        data class Header(val title: Int) : Row()
+        data class Header(val title: Int, val label: String? = null) : Row()
         data class Clip(val entry: ClipboardHistoryEntry) : Row()
     }
 
     var rows: List<Row> = emptyList()
     val selected = LinkedHashSet<Long>()
+    val expanded = HashSet<Long>()
     var selectionMode = false
     var columnWidth = 0
     var textSizePx = 0f
@@ -47,7 +49,7 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
     }
 
     override fun getItemId(position: Int) = when (val r = rows[position]) {
-        is Row.Header -> -1L - r.title
+        is Row.Header -> Long.MIN_VALUE + (r.label?.hashCode()?.toLong() ?: r.title.toLong())
         is Row.Clip -> r.entry.id
     }
 
@@ -66,7 +68,7 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         when (val r = rows[position]) {
-            is Row.Header -> (holder as HeaderHolder).text.setText(r.title)
+            is Row.Header -> (holder as HeaderHolder).text.apply { if (r.label != null) text = r.label else setText(r.title) }
             is Row.Clip -> (holder as ClipHolder).bind(r.entry)
         }
     }
@@ -111,6 +113,11 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
             card.addView(check, FrameLayout.LayoutParams(badge, badge, Gravity.TOP or Gravity.START).apply { setMargins(m, m, m, m) })
             card.setOnClickListener { entry?.let { callbacks.onClipClick(it) } }
             card.setOnLongClickListener { entry?.let { callbacks.onClipLongClick(it) }; true }
+            val menu = SvUi.iconButton(context, R.drawable.ic_sv_more_vert, context.getString(R.string.sv_clip_select), 32) {
+                entry?.let { callbacks.onClipMenu(it, card) }
+            }
+            card.addView(menu, FrameLayout.LayoutParams(SvUi.dp(context, 32), SvUi.dp(context, 32), Gravity.TOP or Gravity.END))
+            (pin.layoutParams as FrameLayout.LayoutParams).marginEnd = SvUi.dp(context, 32)
             card.isHapticFeedbackEnabled = false
             card.isSoundEffectsEnabled = false
         }
@@ -121,8 +128,8 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
             val isSelected = e.id in selected
             val cardColor = SvUi.key().let { if (Color.alpha(it) < 0x40) ColorUtils.setAlphaComponent(SvUi.text(), 0x14) else it }
             val stroke = if (isSelected) SvUi.accent() else null
-            card.background = SvUi.ripple(SvUi.rounded(cardColor, radius, stroke, SvUi.dp(context, 3)), radius)
-            card.foreground = if (isSelected && isImage) SvUi.rounded(ColorUtils.setAlphaComponent(SvUi.accent(), 0x40), radius, SvUi.accent(), SvUi.dp(context, 3)) else null
+            card.background = SvUi.ripple(SvUi.surface(cardColor, radius).apply { if (stroke != null) setStroke(SvUi.dp(context, 2), stroke) }, radius)
+            if (android.os.Build.VERSION.SDK_INT >= 23) card.foreground = if (isSelected && isImage) SvUi.rounded(ColorUtils.setAlphaComponent(SvUi.accent(), 0x40), radius, SvUi.accent(), SvUi.dp(context, 3)) else null
             pin.visibility = if (e.isPinned) View.VISIBLE else View.GONE
             check.visibility = if (selectionMode) View.VISIBLE else View.GONE
             if (selectionMode) {
@@ -142,7 +149,12 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
                 val h = (w * 0.62f).toInt()
                 if (lp.height != h) { lp.height = h; image.layoutParams = lp }
                 image.contentDescription = e.text ?: context.getString(R.string.sv_clip_image)
-                SmartClipboard.loadThumbnail(image, e.filename!!, w)
+                SmartClipboard.loadThumbnail(image, e.filename!!, w) { loaded ->
+                    if (!loaded) {
+                        image.setImageDrawable(SvUi.icon(context, R.drawable.ic_sv_close))
+                        image.contentDescription = context.getString(R.string.sv_clip_missing)
+                    }
+                }
                 return
             }
             if (textSizePx > 0) text.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx)
@@ -150,7 +162,9 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
                 ClipKind.LINK -> {
                     text.maxLines = 3
                     text.setTextColor(SvUi.accent())
-                    text.text = e.text?.trim()
+                    val url = e.text?.trim().orEmpty()
+                    val host = runCatching { android.net.Uri.parse(if ("://" in url) url else "https://$url").host }.getOrNull()
+                    text.text = if (host.isNullOrBlank()) url else "$host\n$url"
                     text.setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, R.drawable.ic_sv_link, SvUi.accent())?.apply {
                         val s = SvUi.dp(context, 16); setBounds(0, 0, s, s)
                     }, null, null, null)
@@ -162,15 +176,15 @@ class SmartClipAdapter(private val callbacks: Callbacks) : RecyclerView.Adapter<
                     text.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
                 }
                 else -> {
-                    text.maxLines = 6
+                    text.maxLines = if (e.id in expanded) Int.MAX_VALUE else 6
                     text.setTextColor(SvUi.text())
-                    text.text = e.text?.take(600)
+                    text.text = if (e.id in expanded) e.text else e.text?.take(600)
                     text.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
                 }
             }
             // keep the text clear of the pin / check badges
             val p = SvUi.dp(context, 12)
-            text.setPadding(if (selectionMode) SvUi.dp(context, 32) else p, SvUi.dp(context, 10), if (e.isPinned) SvUi.dp(context, 30) else p, SvUi.dp(context, 10))
+            text.setPadding(if (selectionMode) SvUi.dp(context, 32) else p, SvUi.dp(context, 34), p, SvUi.dp(context, 10))
         }
     }
 

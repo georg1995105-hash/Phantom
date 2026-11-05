@@ -32,6 +32,7 @@ import java.io.File
  */
 object DebugSnapshot {
     private const val ACTION = "ru.smartvoice.DEBUG_SNAPSHOT"
+    private const val ACTION_UI = "ru.smartvoice.DEBUG_UI"
     private const val ACTION_CLIP = "ru.smartvoice.DEBUG_CLIP"
     private const val TAG = "DebugSnapshot"
     private var receiver: BroadcastReceiver? = null
@@ -40,11 +41,20 @@ object DebugSnapshot {
         if (!BuildConfig.DEBUG || receiver != null) return
         val r = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                if (intent.action == ACTION_CLIP) setClip(ime, intent) else snapshot(ime, intent.getStringExtra("name") ?: "snap")
+                if (intent.action == ACTION_UI) {
+                    val latin = ime as? helium314.keyboard.latin.LatinIME ?: return
+                    intent.getStringExtra("type")?.codePoints()?.forEach { latin.onCodeInput(it, 0, 0, false) }
+                    when (intent.getStringExtra("page")) {
+                        "functions" -> helium314.keyboard.smart.ui.SmartUi.toggleFunctions()
+                        "emoji" -> latin.onCodeInput(helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.EMOJI, 0, 0, false)
+                        "clipboard" -> latin.onCodeInput(helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.CLIPBOARD, 0, 0, false)
+                        "alpha" -> { helium314.keyboard.smart.ui.SmartUi.hideFunctions(); latin.onCodeInput(helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.ALPHA, 0, 0, false) }
+                    }
+                } else if (intent.action == ACTION_CLIP) setClip(ime, intent) else snapshot(ime, intent.getStringExtra("name") ?: "snap")
             }
         }
-        val filter = IntentFilter(ACTION).apply { addAction(ACTION_CLIP) }
-        ContextCompat.registerReceiver(ime, r, filter, ContextCompat.RECEIVER_EXPORTED)
+        val filter = IntentFilter(ACTION).apply { addAction(ACTION_CLIP); addAction(ACTION_UI) }
+        ContextCompat.registerReceiver(ime, r, filter, android.Manifest.permission.DUMP, null, ContextCompat.RECEIVER_EXPORTED)
         receiver = r
     }
 
@@ -59,14 +69,21 @@ object DebugSnapshot {
     }
 
     private fun snapshot(ime: InputMethodService, name: String) {
+        if (!name.matches(Regex("[A-Za-z0-9_-]{1,60}"))) return
         val decor = ime.window?.window?.decorView ?: return
         decor.post {
             try {
                 if (decor.width <= 0 || decor.height <= 0) { Log.w(TAG, "window not laid out"); return@post }
                 // keyboard views keep an offscreen buffer for software drawing that is only partially updated
                 invalidateKeys(decor)
-                val bmp = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-                decor.draw(Canvas(bmp))
+                fun inputView(view: View): View? {
+                    if (view is helium314.keyboard.latin.InputView) return view
+                    if (view is ViewGroup) for (i in 0 until view.childCount) inputView(view.getChildAt(i))?.let { return it }
+                    return null
+                }
+                val target = inputView(decor) ?: decor
+                val bmp = Bitmap.createBitmap(target.width, target.height, Bitmap.Config.ARGB_8888)
+                target.draw(Canvas(bmp))
                 val dir = ime.getExternalFilesDir(null) ?: ime.filesDir
                 File(dir, "$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 Log.i(TAG, "saved $name")
@@ -77,25 +94,28 @@ object DebugSnapshot {
     }
 
     private fun setClip(ime: InputMethodService, intent: Intent) {
-        val cm = ime.getSystemService(ClipboardManager::class.java) ?: return
+        val cm = ime.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
         val clip = if (intent.getBooleanExtra("image", false)) {
             val dir = File(ime.filesDir, "clipboard").apply { mkdirs() }
             val file = File(dir, "debug_${System.currentTimeMillis()}.png")
-            val bmp = Bitmap.createBitmap(900, 1500, Bitmap.Config.ARGB_8888)
+            val source = intent.getStringExtra("imageSource")
+            val bmp = if (source != null && source.startsWith("/sdcard/Download/"))
+                android.graphics.BitmapFactory.decodeFile(source) ?: return
+            else Bitmap.createBitmap(900, 1500, Bitmap.Config.ARGB_8888)
             val c = Canvas(bmp)
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
             p.shader = LinearGradient(0f, 0f, 900f, 1500f, Color.rgb(0x2B, 0x6C, 0xE0), Color.rgb(0xF0, 0x8A, 0x3C), Shader.TileMode.CLAMP)
-            c.drawRect(0f, 0f, 900f, 1500f, p)
+            if (source == null) c.drawRect(0f, 0f, 900f, 1500f, p)
             p.shader = null
             p.color = Color.WHITE
-            c.drawCircle(450f, 600f, 220f, p)
+            if (source == null) c.drawCircle(450f, 600f, 220f, p)
             p.textSize = 90f
-            c.drawText(intent.getStringExtra("label") ?: "Screenshot", 160f, 1100f, p)
+            if (source == null) c.drawText(intent.getStringExtra("label") ?: "Test fixture", 160f, 1100f, p)
             file.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            val uri = FileProvider.getUriForFile(ime, ime.getString(R.string.clipboard_provider_authority), file)
+            val uri = FileProvider.getUriForFile(ime, if (ime.packageName.endsWith(".preview")) ime.packageName + ".clipprovider" else ime.getString(R.string.clipboard_provider_authority), file)
             ClipData.newUri(ime.contentResolver, "Screenshot", uri)
         } else ClipData.newPlainText("debug", intent.getStringExtra("text") ?: "")
-        if (intent.getBooleanExtra("sensitive", false))
+        if (android.os.Build.VERSION.SDK_INT >= 24 && intent.getBooleanExtra("sensitive", false))
             clip.description.extras = PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
         cm.setPrimaryClip(clip)
         Log.i(TAG, "clip set")

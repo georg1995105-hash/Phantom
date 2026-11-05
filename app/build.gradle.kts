@@ -11,6 +11,9 @@ android {
 
     defaultConfig {
         applicationId = "ru.smartvoice.keyboard"
+        manifestPlaceholders["keyboardLabel"] = "@string/english_ime_name"
+        manifestPlaceholders["clipProviderAuthority"] = "@string/clipboard_provider_authority"
+        manifestPlaceholders["gestureProviderAuthority"] = "@string/gesture_data_provider_authority"
         minSdk = 21
         targetSdk = 37
         versionCode = 6
@@ -51,7 +54,13 @@ android {
             isMinifyEnabled = false
             isJniDebuggable = false
             signingConfig = signingConfigs.getByName("debug")
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".preview" else ".debug"
+            if (providers.gradleProperty("smartvoicePreview").orNull == "true") {
+                versionNameSuffix = "-reference-test"
+                manifestPlaceholders["keyboardLabel"] = "SmartVoice Test"
+                manifestPlaceholders["clipProviderAuthority"] = "ru.smartvoice.keyboard.preview.clipprovider"
+                manifestPlaceholders["gestureProviderAuthority"] = "ru.smartvoice.keyboard.preview.gestureprovider"
+            }
             isDefault = true
         }
 
@@ -73,6 +82,7 @@ android {
     }
 
     buildFeatures {
+        resValues = true
         viewBinding = true
         buildConfig = true
         compose = true
