@@ -82,6 +82,11 @@ class ClipboardSearchActivity : Activity(), SmartClipAdapter.Callbacks {
         fun open(ime: LatinIME) {
             pending = null
             val editor = ime.currentInputEditorInfo ?: return
+            // Search needs letter keys. Otherwise the clipboard palette survives the
+            // new input connection and leaves the query field without a typing surface.
+            ime.onCodeInput(helium314.keyboard.keyboard.internal.keyboard_parser.floris.KeyCode.ALPHA,
+                helium314.keyboard.latin.common.Constants.NOT_A_COORDINATE,
+                helium314.keyboard.latin.common.Constants.NOT_A_COORDINATE, false)
             ime.startActivity(Intent(ime, ClipboardSearchActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra("targetPackage", editor.packageName).putExtra("targetField", editor.fieldId))
