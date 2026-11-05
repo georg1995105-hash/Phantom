@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+on_failure() {
+  local code=$?
+  echo "Smoke command failed at line ${BASH_LINENO[0]} (exit ${code})" >&2
+  adb logcat -d -b crash || true
+  adb logcat -d -t 160 || true
+  exit "$code"
+}
+trap on_failure ERR
 
 PACKAGE='ru.smartvoice.keyboard.debug'
 IME="$PACKAGE/helium314.keyboard.latin.LatinIME"
