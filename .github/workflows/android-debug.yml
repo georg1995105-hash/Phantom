@@ -7,7 +7,7 @@ on:
     branches: [main, redesign/v02-foundation, redesign/reference-preview-20261105]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -68,12 +68,27 @@ jobs:
           sha256sum app/build/outputs/apk/debugNoMinify/*.apk | tee PREVIEW_SHA256SUMS.txt
           cat PREVIEW_SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Save preview APK privately as workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: SmartVoice-Test-Fix-${{ github.sha }}
-          path: |
-            app/build/outputs/apk/debugNoMinify/*.apk
-            PREVIEW_SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 14
+      - name: Save APK as a private test release (Actions storage quota workaround)
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 7 && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VISIBILITY="$(gh repo view "$GITHUB_REPOSITORY" --json visibility --jq '.visibility' | tr '[:upper:]' '[:lower:]')"
+          if [[ "$VISIBILITY" != "private" ]]; then
+            echo "::error::Refusing to publish a test APK in a non-private repository"
+            exit 1
+          fi
+          APK="$(find app/build/outputs/apk/debugNoMinify -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK" && test -s "$APK"
+          sha256sum --check PREVIEW_SHA256SUMS.txt
+          TAG="smartvoice-test-pr7-${GITHUB_SHA:0:12}"
+          gh release create "$TAG" "$APK" PREVIEW_SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "SmartVoice Test Fix · PR #7 · ${GITHUB_SHA:0:12}" \
+            --notes "Private test APK built and unit-tested from this PR merge commit. Not a stable release. Phone testing is still required." \
+            --prerelease --latest=false
+          URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"
+          echo "Private test APK: $URL" >> "$GITHUB_STEP_SUMMARY"
