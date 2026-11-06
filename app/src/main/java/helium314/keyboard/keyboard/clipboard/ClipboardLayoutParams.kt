@@ -36,7 +36,7 @@ class ClipboardLayoutParams(ctx: Context) {
         val rowCount = KeyboardParams.DEFAULT_KEYBOARD_ROWS + if (sv.mShowsNumberRow) 1 else 0
         bottomRowKeyboardHeight = (defaultKeyboardHeight - bottomPadding - topPadding) / rowCount - keyVerticalGap / 2
         // the clipboard has no bottom key row (back arrow is in the header), so the list uses the full height
-        listHeight = defaultKeyboardHeight
+        listHeight = (defaultKeyboardHeight - (84 * res.displayMetrics.density).toInt()).coerceAtLeast(1)
     }
 
     fun setListProperties(recycler: RecyclerView) {

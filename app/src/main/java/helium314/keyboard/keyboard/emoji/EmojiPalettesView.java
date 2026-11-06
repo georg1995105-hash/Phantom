@@ -98,7 +98,7 @@ public final class EmojiPalettesView extends LinearLayout
 
         @Override
         public void onAttachedToRecyclerView(@NonNull RecyclerView recyclerView) {
-            recyclerView.setItemViewCacheSize(mEmojiCategory.getShownCategories().size());
+            recyclerView.setItemViewCacheSize(2);
         }
 
         @NonNull
@@ -175,7 +175,7 @@ public final class EmojiPalettesView extends LinearLayout
             final int offset = recyclerView.computeVerticalScrollOffset();
             final int extent = recyclerView.computeVerticalScrollExtent();
             final int range = recyclerView.computeVerticalScrollRange();
-            final float percentage = offset / (float) (range - extent);
+            final float percentage = range > extent ? offset / (float) (range - extent) : 0f;
 
             final int currentCategorySize = mEmojiCategory.getCurrentCategoryPageCount();
             final int a = (int) (percentage * currentCategorySize);
@@ -229,7 +229,7 @@ public final class EmojiPalettesView extends LinearLayout
         // The main keyboard expands to the entire this {@link KeyboardView}.
         final int width = ResourceUtils.getKeyboardWidth(getContext(), Settings.getValues())
                 + getPaddingLeft() + getPaddingRight();
-        final int height = ResourceUtils.getSecondaryKeyboardHeight(res, Settings.getValues())
+        final int height = mEmojiLayoutParams.getPanelHeight()
                 + getPaddingTop() + getPaddingBottom();
         mEmojiCategoryPageIndicatorView.mWidth = width;
         setMeasuredDimension(width, height);
@@ -240,11 +240,23 @@ public final class EmojiPalettesView extends LinearLayout
         mColors.setBackground(iconView, ColorType.STRIP_BACKGROUND);
         mColors.setColor(iconView, ColorType.EMOJI_CATEGORY);
         iconView.setScaleType(ImageView.ScaleType.CENTER);
-        iconView.setImageResource(mEmojiCategory.getCategoryTabIcon(category));
+        iconView.setImageResource(switch (category) {
+            case RECENTS -> R.drawable.ic_sv_recent;
+            case SMILEYS -> R.drawable.ic_sv_emoji;
+            case PEOPLE -> R.drawable.ic_sv_people;
+            case NATURE -> R.drawable.ic_sv_nature;
+            case FOOD -> R.drawable.ic_sv_food;
+            case TRAVEL_PLACES -> R.drawable.ic_sv_travel;
+            case ACTIVITIES -> R.drawable.ic_sv_activity;
+            case OBJECTS -> R.drawable.ic_sv_object;
+            case SYMBOLS -> R.drawable.ic_sv_apps;
+            case FLAGS -> R.drawable.ic_sv_flag;
+            case EMOTICONS -> R.drawable.ic_sv_emoticon;
+        });
         iconView.setContentDescription(mEmojiCategory.getAccessibilityDescription(category));
         iconView.setTag(category);
         host.addView(iconView);
-        iconView.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+        iconView.setLayoutParams(new LinearLayout.LayoutParams((int) (32 * getResources().getDisplayMetrics().density), ViewGroup.LayoutParams.MATCH_PARENT));
         iconView.setOnClickListener(this);
         if (category == EmojiCategory.Category.RECENTS) {
             iconView.setOnLongClickListener(v -> {
@@ -262,11 +274,33 @@ public final class EmojiPalettesView extends LinearLayout
         mEmojiCategory.initialize();
         mTabStrip = (LinearLayout) KeyboardSwitcher.getInstance().getEmojiTabStrip();
         if (Settings.getValues().isSecondaryStripVisible()) {
+            mTabStrip.removeAllViews();
+            final var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
+            final int buttonWidth = ui.dp(getContext(), 36);
+            mTabStrip.addView(ui.iconButton(getContext(), R.drawable.ic_sv_back, getContext().getString(R.string.sv_back), 44,
+                v -> { mKeyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false); return kotlin.Unit.INSTANCE; }),
+                new LinearLayout.LayoutParams(buttonWidth, ViewGroup.LayoutParams.MATCH_PARENT));
+            android.widget.TextView search = ui.chip(getContext(), getContext().getString(R.string.sv_emoji_search), false);
+            var searchIcon = ui.icon(getContext(), R.drawable.sym_keyboard_search_lxx, ui.text());
+            searchIcon.setBounds(0, 0, ui.dp(getContext(), 18), ui.dp(getContext(), 18));
+            search.setCompoundDrawablesRelative(searchIcon, null, null, null);
+            search.setCompoundDrawablePadding(ui.dp(getContext(), 4));
+            search.setTextSize(11);
+            search.setSingleLine(true);
+            search.setPadding(ui.dp(getContext(), 8), 0, ui.dp(getContext(), 6), 0);
+            search.setOnClickListener(v -> openSearch());
+            mTabStrip.addView(search, new LinearLayout.LayoutParams(ui.dp(getContext(), 116), ui.dp(getContext(), 38)));
+            LinearLayout categories = new LinearLayout(getContext());
+            android.widget.HorizontalScrollView categoryScroll = new android.widget.HorizontalScrollView(getContext());
+            categoryScroll.setHorizontalScrollBarEnabled(false);
+            categoryScroll.addView(categories);
+            mTabStrip.addView(categoryScroll, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
             for (EmojiCategory.CategoryProperties properties : mEmojiCategory.getShownCategories()) {
-                addTab(mTabStrip, properties.getCategory());
+                if (properties.getCategory() != EmojiCategory.Category.RECENTS) addTab(categories, properties.getCategory());
             }
         }
 
+        findViewById(R.id.sv_emoji_studio_banner).setVisibility(mEmojiLayoutParams.getShowStudioBanner() ? VISIBLE : GONE);
         mPager = findViewById(R.id.emoji_pager);
         mPager.setAdapter(new PagerAdapter(mPager));
         mEmojiLayoutParams.setEmojiListProperties(mPager);
@@ -314,8 +348,6 @@ public final class EmojiPalettesView extends LinearLayout
         addRecentKey(key);
         final int code = key.getCode();
         if (code == KeyCode.MULTIPLE_CODE_POINTS) {
-            // todo: when we enter some emoticons, e.g. :-D, inline emoji search is triggered and emoji view is closed
-            //  (one more instance of "emoji search should recognize emoticons", but in this case could be fixed in other ways)
             mKeyboardActionListener.onTextInput(key.getOutputText());
         } else if (code != KeyCode.UNSPECIFIED) {
             mKeyboardActionListener.onCodeInput(code, NOT_A_COORDINATE, NOT_A_COORDINATE, false);
@@ -370,9 +402,53 @@ public final class EmojiPalettesView extends LinearLayout
         mEmojiCategory.reloadRecents(); // in case recents changed from outside emoji keyboards
         setupSidePadding();
         initDictionaryFacilitator();
+        updateRecentStrip();
+        updateBottomSelection(mEmojiCategory.getCurrentCategory());
+    }
+
+    private void updateRecentStrip() {
+        LinearLayout row = findViewById(R.id.sv_emoji_recent);
+        row.removeAllViews();
+        var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
+        android.widget.TextView label = ui.label(getContext(), 12f, ui.secondaryText(), false);
+        label.setText(R.string.sv_emoji_recent);
+        label.setOnClickListener(v -> setCurrentCategory(EmojiCategory.Category.RECENTS, false));
+        row.addView(label, new LinearLayout.LayoutParams(ui.dp(getContext(), 80), ViewGroup.LayoutParams.MATCH_PARENT));
+        var recent = RecentEmojis.get();
+        for (String emoji : recent.subList(0, Math.min(8, recent.size()))) {
+            android.widget.TextView item = ui.label(getContext(), 23f, ui.text(), false);
+            item.setText(emoji);
+            item.setContentDescription(emoji);
+            item.setOnClickListener(v -> {
+                mKeyboardActionListener.onTextInput(emoji);
+                if (!Settings.getValues().mIncognitoModeEnabled) { RecentEmojis.add(emoji); updateRecentStrip(); }
+            });
+            row.addView(item, new LinearLayout.LayoutParams(ui.dp(getContext(), 40), ViewGroup.LayoutParams.MATCH_PARENT));
+        }
+        row.addView(ui.iconButton(getContext(), R.drawable.ic_sv_next, getContext().getString(R.string.sv_emoji_recent), 32,
+            v -> { setCurrentCategory(EmojiCategory.Category.RECENTS, false); return kotlin.Unit.INSTANCE; }),
+            new LinearLayout.LayoutParams(ui.dp(getContext(), 32), ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private void updateBottomSelection(EmojiCategory.Category category) {
+        var ui = helium314.keyboard.smart.ui.SvUi.INSTANCE;
+        for (int id : new int[] { R.id.sv_emoji_mode }) {
+            android.widget.ImageView button = findViewById(id);
+            if (button == null) continue;
+            boolean selected = category == EmojiCategory.Category.SMILEYS;
+            int color = selected ? ui.onAccent() : ui.text();
+            button.setImageDrawable(ui.icon(getContext(), R.drawable.ic_sv_emoji, color));
+            float radius = ui.dp(getContext(), 12);
+            button.setBackground(ui.ripple(ui.surface(selected ? ui.accent() : ui.key(), radius), radius));
+        }
+    }
+
+    public void openSearch() {
+        helium314.keyboard.smart.ui.SmartUi.openEmojiSearch(mEmojiCategory.getSearchKeys(), this);
     }
 
     private void addRecentKey(Key key) {
+        if (key.getLabel() == null || !helium314.keyboard.latin.common.EmojiKt.getSingleEmojiRegex().matches(key.getLabel())) return;
         if (Settings.getValues().mIncognitoModeEnabled) {
             // We do not want to log recent keys while being in incognito
             return;
@@ -383,14 +459,31 @@ public final class EmojiPalettesView extends LinearLayout
         }
         getRecentsKeyboard().addKeyFirst(key);
         mPager.getAdapter().notifyItemChanged(mEmojiCategory.getRecentTabId());
+        updateRecentStrip();
     }
 
     private void setupBottomRowKeyboard(EditorInfo editorInfo, KeyboardActionListener keyboardActionListener) {
-        // Use simple reachable actions and no blank giant spacebar on the emoji page.
+        // Explicit keyboard-theme colors: the system Activity theme can be light while
+        // the IME is dark, making textColorPrimary invisible on this panel.
+        for (int id : new int[]{R.id.sv_emoji_back, R.id.sv_emoji_mode, R.id.sv_emoji_gif, R.id.sv_emoji_stickers, R.id.sv_emoji_delete}) {
+            View action = findViewById(id);
+            if (action instanceof android.widget.TextView text)
+                text.setTextColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.text());
+            action.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.ripple(
+                helium314.keyboard.smart.ui.SvUi.INSTANCE.surface(
+                    id == R.id.sv_emoji_mode ? helium314.keyboard.smart.ui.SvUi.INSTANCE.accent() : helium314.keyboard.smart.ui.SvUi.INSTANCE.key(), 18f), 18f));
+            if (id == R.id.sv_emoji_mode) {
+                ((android.widget.ImageView)action).setImageDrawable(helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_emoji, helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent()));
+            }
+        }
+        ((ImageView)findViewById(R.id.sv_emoji_stickers)).setImageDrawable(
+            helium314.keyboard.smart.ui.SvUi.INSTANCE.icon(getContext(), R.drawable.ic_sv_sticker, helium314.keyboard.smart.ui.SvUi.INSTANCE.text()));
+        findViewById(R.id.sv_emoji_gif).setOnClickListener(view -> helium314.keyboard.smart.ui.SmartUi.openGifLibrary());
+        findViewById(R.id.sv_emoji_stickers).setOnClickListener(view -> helium314.keyboard.smart.ui.SmartUi.openStickerStudio(true));
+        findViewById(R.id.sv_emoji_actions).setBackgroundColor(helium314.keyboard.smart.ui.SvUi.INSTANCE.panelBackground());
         findViewById(R.id.sv_emoji_back).setOnClickListener(view ->
             keyboardActionListener.onCodeInput(KeyCode.ALPHA, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
-        findViewById(R.id.sv_emoji_space).setOnClickListener(view ->
-            keyboardActionListener.onCodeInput((int) ' ', NOT_A_COORDINATE, NOT_A_COORDINATE, false));
+        findViewById(R.id.sv_emoji_mode).setOnClickListener(view -> setCurrentCategory(EmojiCategory.Category.SMILEYS, false));
         findViewById(R.id.sv_emoji_delete).setOnClickListener(view ->
             keyboardActionListener.onCodeInput(KeyCode.DELETE, NOT_A_COORDINATE, NOT_A_COORDINATE, false));
     }
@@ -446,6 +539,8 @@ public final class EmojiPalettesView extends LinearLayout
         EmojiCategory.Category oldCategory = mEmojiCategory.getCurrentCategory();
         if (initial || oldCategory != category) {
             mEmojiCategory.setCurrentCategory(category);
+            updateRecentStrip();
+            updateBottomSelection(category);
 
             if (mPager.getScrollState() != ViewPager2.SCROLL_STATE_DRAGGING) {
                 // Not swiping
@@ -457,10 +552,18 @@ public final class EmojiPalettesView extends LinearLayout
                 View old = mTabStrip.findViewWithTag(oldCategory);
                 View current = mTabStrip.findViewWithTag(category);
 
-                if (old instanceof ImageView)
+                if (old instanceof ImageView) {
                     Settings.getValues().mColors.setColor((ImageView) old, ColorType.EMOJI_CATEGORY);
-                if (current instanceof ImageView)
+                    old.setBackgroundColor(mColors.get(ColorType.STRIP_BACKGROUND));
+                    old.setSelected(false);
+                }
+                if (current instanceof ImageView) {
                     Settings.getValues().mColors.setColor((ImageView) current, ColorType.EMOJI_CATEGORY_SELECTED);
+                    current.setBackground(helium314.keyboard.smart.ui.SvUi.INSTANCE.surface(
+                        helium314.keyboard.smart.ui.SvUi.INSTANCE.accent(), helium314.keyboard.smart.ui.SvUi.INSTANCE.dp(getContext(), 22)));
+                    ((ImageView) current).setColorFilter(helium314.keyboard.smart.ui.SvUi.INSTANCE.onAccent());
+                    current.setSelected(true);
+                }
             }
         }
     }

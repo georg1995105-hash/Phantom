@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Local emulator harness, accessible to adb shell only. No launcher entry. -->
+        <activity android:name="helium314.keyboard.smart.debug.InputTestActivity"
+            android:exported="true" android:permission="android.permission.DUMP"
+            android:windowSoftInputMode="stateAlwaysVisible|adjustResize" />
+    </application>
+</manifest>

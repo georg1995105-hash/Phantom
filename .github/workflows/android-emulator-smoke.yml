@@ -2,10 +2,11 @@ name: Android emulator smoke test
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, redesign/v02-foundation, redesign/reference-preview-20261105]
     paths:
       - 'app/**'
       - '.github/workflows/android-emulator-smoke.yml'
+      - 'tools/android-emulator-smoke.sh'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +14,7 @@ permissions:
 
 jobs:
   android-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx3g
@@ -38,31 +39,29 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon :app:assembleDebugNoMinify
+      - name: Reserve disk for the test AVD
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only on this disposable hosted runner; not a developer machine.
+          for dir in /usr/share/dotnet /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL; do
+            if [ -d "$dir" ]; then sudo rm -rf -- "$dir"; fi
+          done
+          df -h "$HOME"
+          free_mb="$(df -Pm "$HOME" | awk 'NR==2 {print $4}')"
+          test "$free_mb" -ge 11000 || { echo "Insufficient disk for AVD: ${free_mb} MB" >&2; exit 1; }
+      - name: Allow emulator hardware acceleration on the disposable runner
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod a+rw /dev/kvm; fi
       - name: Install, open and enable IME on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
+          disk-size: 2048M
+          ram-size: 2048M
+          emulator-boot-timeout: 900
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -euo pipefail
-            PACKAGE='ru.smartvoice.keyboard.debug'
-            IME="$PACKAGE/helium314.keyboard.latin.LatinIME"
-            APK="$(find app/build/outputs/apk/debugNoMinify -maxdepth 1 -name '*.apk' -print -quit)"
-            test -f "$APK"
-            adb install -r "$APK"
-            adb shell pm path "$PACKAGE" | grep -q 'package:'
-            adb shell am start -W -n "$PACKAGE/helium314.keyboard.settings.SettingsActivity"
-            sleep 5
-            adb shell pidof "$PACKAGE" | grep -Eq '[0-9]+'
-            adb shell ime list -s | grep -F "$IME"
-            adb shell ime enable "$IME"
-            adb shell ime set "$IME"
-            adb shell settings get secure default_input_method | grep -F "$IME"
-            if adb logcat -d -b crash | grep -E 'FATAL EXCEPTION|Process: ru.smartvoice.keyboard.debug'; then
-              echo 'Android crash detected' >&2
-              exit 1
-            fi
-            echo 'Verified: APK installed; settings launched; IME registered and selected; no crash in buffer.'
+          script: bash tools/android-emulator-smoke.sh

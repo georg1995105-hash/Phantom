@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 
 /** Preference keys and defaults for SmartVoice specific features. */
 object SmartPrefs {
+    const val VOICE_ENGINE_MODE = "sv_voice_engine_mode" // auto, system; offline switch remains authoritative
     const val VOICE_LANGUAGE = "sv_voice_language" // "auto", "ru-RU", "en-US"
     const val VOICE_SMART_PUNCTUATION = "sv_voice_smart_punctuation"
     const val VOICE_REMOVE_FILLERS = "sv_voice_remove_fillers"
@@ -12,6 +13,8 @@ object SmartPrefs {
     const val VOICE_SEND_COMMAND = "sv_voice_send_command"
     const val VOICE_PREFER_OFFLINE = "sv_voice_prefer_offline"
     const val VOICE_CONTINUOUS = "sv_voice_continuous"
+    const val VOICE_VOCABULARY_ENABLED = "sv_voice_vocabulary_enabled"
+    const val VOICE_VOCABULARY = "sv_voice_vocabulary"
 
     const val CLIP_CHIP = "sv_clip_chip"
     const val CLIP_CHIP_MINUTES = "sv_clip_chip_minutes"
@@ -19,6 +22,7 @@ object SmartPrefs {
     const val FUNCTIONS_ORDER = "sv_functions_order"
     const val FUNCTIONS_HIDDEN = "sv_functions_hidden"
     const val BOTTOM_NUMPAD = "sv_bottom_numpad"
+    const val BOTTOM_NUMPAD_MODE = "sv_bottom_numpad_mode"
     const val BOTTOM_ORDER = "sv_bottom_order"
     const val DEFAULT_BOTTOM_ORDER = "emoji|language_switch|numpad"
 

@@ -77,7 +77,9 @@ public final class SystemBroadcastReceiver extends BroadcastReceiver {
                 !imm.getInputMethodList().isEmpty();
         final boolean isCurrentImeOfCurrentUser = isInputMethodManagerValidForUserOfThisProcess
                 && UncachedInputMethodManagerUtils.isThisImeCurrent(context, imm);
-        if (!isCurrentImeOfCurrentUser) {
+        // Never kill a process that hosts the bound input method: it would drop an active dictation, the
+        // screenshot observer and the composing state (e.g. on LOCALE_CHANGED or while IMEs are being switched).
+        if (!isCurrentImeOfCurrentUser && !LatinIME.sServiceRunning) {
             final int myPid = Process.myPid();
             Log.i(TAG, "Killing my process: pid=" + myPid);
             Process.killProcess(myPid);

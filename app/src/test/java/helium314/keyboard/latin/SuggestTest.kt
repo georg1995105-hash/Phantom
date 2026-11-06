@@ -23,6 +23,7 @@ import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.settings.SettingsValuesForSuggestion
 import helium314.keyboard.latin.utils.SuggestionResults
 import helium314.keyboard.latin.utils.prefs
+import helium314.keyboard.smart.gesture.SmartGesture
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -42,6 +43,7 @@ import kotlin.test.assertEquals
     ShadowInputMethodManager2::class,
     ShadowBinaryDictionaryUtils::class,
     ShadowFacilitator::class,
+    ShadowSmartGestureSuggestions::class,
 ])
 class SuggestTest {
     private val latinIME = Robolectric.setupService(LatinIME::class.java)
@@ -707,6 +709,17 @@ class ShadowFacilitator {
         composedData.mTypedWord.isEmpty() -> nextWordSuggestions
         else -> tapTypingSuggestions
     }
+}
+
+// Suggest tests inject recognition results, independently of which gesture backend is installed.
+// The built-in backend otherwise returns no results for this fixture's empty pointer trace.
+@Implements(SmartGesture::class)
+class ShadowSmartGestureSuggestions {
+    @Implementation
+    fun getSuggestionResults(
+        composedData: ComposedData, ngramContext: NgramContext, keyboard: Keyboard,
+        locale: Locale, nextWordPredictions: Collection<SuggestedWordInfo>
+    ): SuggestionResults = glideTypingSuggestions
 }
 
 private class TestDict(locale: Locale) : Dictionary(TYPE_MAIN, locale) {

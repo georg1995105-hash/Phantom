@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Package a built preview and the committed native Android evidence for private release."""
+import hashlib
+from pathlib import Path
+import shutil
+from zipfile import ZipFile, ZIP_DEFLATED
+
+root = Path(__file__).resolve().parents[1]
+out = root / "preview-assets"
+out.mkdir(exist_ok=True)
+# Never mix a previous release APK/screenshots into the next private test package.
+for stale in out.iterdir():
+    if stale.is_file(): stale.unlink()
+apk = next((root / "app/build/outputs/apk/debugNoMinify").glob("*.apk"))
+target = out / "SmartVoiceKeyboard-emoji-numpad-preview-2026-11-05.apk"
+shutil.copy2(apk, target)
+with ZipFile(out / "SmartVoiceKeyboard-design-comparison.zip", "w", ZIP_DEFLATED) as z:
+    html = (root / "docs/validation/emoji-numpad/COMPARE.html").read_text().replace(
+        "../../approved-design/approved_mockups/", "approved_mockups/")
+    z.writestr("COMPARE.html", html)
+    for folder, archive in (("docs/approved-design/approved_mockups", "approved_mockups"),
+                            ("docs/validation/emoji-numpad/screenshots", "screenshots"),
+                            ("tools/voice-evaluation", "voice-evaluation")):
+        for path in sorted((root / folder).iterdir()):
+            if path.is_file():
+                z.write(path, archive + "/" + path.name)
+    for name in ("STATUS_RU.md", "PHONE_TEST_RU.md", "remaining-tests.txt"):
+        source = root / "docs/validation/emoji-numpad/REPORT_RU.md" if name == "STATUS_RU.md" else root / "docs/validation/emoji-numpad/PHONE_TEST_RU.md" if name == "PHONE_TEST_RU.md" else root / "docs/validation" / name
+        z.write(source, name)
+    z.write(root / "docs/approved-design/TASK_FOR_CODEX.md", "TASK_FOR_CODEX.md")
+    z.write(root / "docs/validation/emoji-numpad/native-checks.json", "native-checks.json")
+    for path in (root / "docs/validation/fixes").glob("*"):
+        if path.is_file() and path.name != "REPORT_RU.md": z.write(path, "fixes/" + path.name)
+for path in (root / "docs/validation/emoji-numpad/screenshots").glob("*.png"):
+    shutil.copy2(path, out / path.name)
+assets = sorted(p for p in out.iterdir() if p.suffix in (".apk", ".zip", ".png"))
+(out / "SHA256SUMS.txt").write_text("".join(
+    hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name + "\n" for p in assets))
+digest = hashlib.sha256(target.read_bytes()).hexdigest()
+(out / "RELEASE_NOTES.md").write_text(
+    (root / "docs/validation/emoji-numpad/REPORT_RU.md").read_text() +
+    f"\n\nAPK SHA-256: `{digest}`. Пакет: `ru.smartvoice.keyboard.previewfix`. Версия: `0.2.0-alpha5-emoji-numpad-test`.\n" +
+    "Архив сравнения: распакуйте ZIP и откройте COMPARE.html. Сборка SmartVoice Test Fix устанавливается рядом с прежней SmartVoice Test и стабильной клавиатурой, не заменяя их данные.\n")
+print("Packaged", len(assets), "assets; APK SHA-256:", digest)

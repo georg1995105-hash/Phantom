@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_numpad_placement">Кнопка цифровой панели</string>
+    <string name="sv_numpad_off">Не показывать</string>
+    <string name="sv_numpad_extra">Дополнительная кнопка в нижнем ряду</string>
+    <string name="sv_numpad_replace">Вместо ?123 — цифровая панель</string>
     <string name="sv_bottom_edit_label">Низ</string>
     <string name="sv_bottom_toggle_desc">Нажмите, чтобы показать или скрыть %1$s. Перетащите, чтобы изменить порядок.</string>
     <string name="sv_emoji_back">АБВ</string>
@@ -37,4 +41,50 @@
     <string name="sv_resize_reset">Сброс</string>
     <string name="sv_resize_done">Готово</string>
     <string name="sv_resize_move">Переместить клавиатуру</string>
+    <string name="sv_fn_paste">Вставить</string>
+    <string name="sv_fn_copy">Копировать</string>
+    <string name="sv_fn_select_all">Выделить всё</string>
+    <string name="sv_fn_undo">Отменить</string>
+    <string name="sv_fn_autocorrect">Автокоррекция</string>
+    <string name="sv_functions_help">Удерживайте и переносите карточки или перемещайте в зоны. Тап — скрыть или вернуть.</string>
+    <string name="sv_drop_top">Верхняя панель · добавить / убрать</string>
+    <string name="sv_drop_bottom">Нижний ряд · эмодзи / язык / 123</string>
+    <string name="sv_drop_hide">Скрыть / вернуть</string>
+    <string name="sv_customize_functions">Настроить набор функций</string>
+    <string name="sv_emoji_search">Поиск эмодзи</string>
+    <string name="sv_emoji_recent">Недавние</string>
+    <string name="sv_emoji_emoticons">Каомодзи</string>
+    <string name="sv_top_slots_full">Верхняя панель заполнена. Сначала уберите одну кнопку.</string>
+    <string name="sv_text_emoticons_title">Текстовые смайлики</string>
+    <string name="sv_sticker_studio">Эмодзи-студия</string>
+    <string name="sv_sticker_banner">Создавайте стикеры из эмодзи\nЛокально в SmartVoiceKeyboard</string>
+    <string name="sv_sticker_library">Стикеры</string>
+    <string name="sv_gif_library">Мои GIF</string>
+    <string name="sv_sticker_base">Основа</string>
+    <string name="sv_sticker_badge">Дополнение</string>
+    <string name="sv_sticker_no_badge">Без дополнения</string>
+    <string name="sv_sticker_local_hint">PNG · 512 × 512 · без сервера</string>
+    <string name="sv_sticker_save">Сохранить</string>
+    <string name="sv_sticker_save_insert">Сохранить и вставить</string>
+    <string name="sv_sticker_saved">Стикер сохранён</string>
+    <string name="sv_sticker_create">+ Создать стикер</string>
+    <string name="sv_sticker_empty">Здесь будут ваши стикеры. Создайте первый.</string>
+    <string name="sv_gif_empty">Добавьте файл кнопкой + GIF. Файлы хранятся на устройстве, поиска в интернете нет. До 16 МБ на GIF.</string>
+    <string name="sv_sticker_delete_hint">Удерживайте стикер, затем нажмите × для удаления</string>
+    <string name="sv_sticker_confirm_delete">Нажмите ещё раз для удаления</string>
+    <string name="sv_sticker_insert">Вставить стикер</string>
+    <string name="sv_gif_insert">Вставить GIF</string>
+    <string name="sv_gif_saved">GIF сохранён. Выберите его в разделе «Мои GIF».</string>
+    <string name="sv_media_error">Не удалось сохранить. Проверьте доступ к файлу, свободное место и лимит библиотеки (120 элементов).</string>
+    <string name="sv_theme_calm">Как Gboard</string>
+    <string name="theme_name_sv_calm">Спокойная · как Gboard</string>
+    <string name="theme_name_sv_light">SmartVoice · светлая</string>
+    <string name="theme_name_sv_dark">SmartVoice · тёмная</string>
+    <string name="theme_name_sv_graphite">SmartVoice · графит</string>
+    <string name="sv_voice_engine_mode">Способ распознавания</string>
+    <string name="sv_voice_engine_mode_help">Сравните варианты на своей речи. Системный сервис может использовать интернет и обработку у своего провайдера. «Только офлайн» всегда запрещает этот переход. Более высокая точность зависит от установленного движка.</string>
+    <string name="sv_voice_engine_auto">Авто · сначала локальный</string>
+    <string name="sv_voice_engine_system">Системный сервис · может использовать сеть</string>
+    <string name="sv_voice_download_model">Проверить языковой пакет</string>
+    <string name="sv_voice_download_model_help">Проверка и загрузка модели выбранного языка через локальный сервис Android 13+. Системный сервис управляет загрузкой.</string>
 </resources>

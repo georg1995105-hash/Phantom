@@ -97,7 +97,14 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
 
         val colors = Settings.getValues().mColors
         colors.setBackground(this, ColorType.STRIP_BACKGROUND)
-        repeat(SuggestedWords.MAX_SUGGESTIONS) {
+        // The strip displays three words (or five punctuation shortcuts). The
+        // remaining candidates are drawn by MoreSuggestionsView, not these Views.
+        // Creating 18 word/debug/divider triples delayed cold IME inflation.
+        val attributes = context.obtainStyledAttributes(attrs, R.styleable.SuggestionStripView,
+            defStyle, R.style.SuggestionStripView)
+        val stripSlots = maxOf(5, attributes.getInt(R.styleable.SuggestionStripView_suggestionsCountInStrip, 3))
+        attributes.recycle()
+        repeat(stripSlots) {
             val word = TextView(context, null, R.attr.suggestionWordStyle)
             word.contentDescription = resources.getString(R.string.spoken_empty_suggestion)
             word.setOnClickListener(this)
@@ -141,7 +148,7 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         val toolbarHeight = min(toolbarExpandKey.layoutParams.height, resources.getDimension(R.dimen.config_suggestions_strip_height).toInt())
         toolbarExpandKey.layoutParams.height = toolbarHeight
         // Small settings control on the right, instead of the large four-dot button on the left.
-        toolbarExpandKey.layoutParams.width = 34.dpToPx(resources)
+        toolbarExpandKey.layoutParams.width = toolbarHeight
         colors.setBackground(toolbarExpandKey, ColorType.STRIP_BACKGROUND) // necessary because background is re-used for defaultToolbarBackground
         colors.setColor(toolbarExpandKey, ColorType.TOOL_BAR_EXPAND_KEY)
         colors.setColor(toolbarExpandKey.background, ColorType.TOOL_BAR_EXPAND_KEY_BACKGROUND)
@@ -153,6 +160,9 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         enabledToolKeyBackground.gradientRadius = resources.getDimensionPixelSize(R.dimen.config_suggestions_strip_height) / 2.1f
 
         toolbarExpandKey.contentDescription = context.getString(R.string.sv_functions_button)
+        toolbarExpandKey.background = helium314.keyboard.smart.ui.SvUi.ripple(
+            helium314.keyboard.smart.ui.SvUi.surface(helium314.keyboard.smart.ui.SvUi.key(), 16.dpToPx(resources).toFloat()),
+            16.dpToPx(resources).toFloat())
 
         // toolbar keys setup (no need to hide them any more when locked, because then suggestion strip is gone anyway
         for (key in getEnabledToolbarKeys(context.prefs())) {
@@ -161,22 +171,7 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
             setupKey(button, colors)
             toolbar.addView(button)
         }
-        var addedCorrectButton = false
-        for (pinnedKey in getPinnedToolbarKeys(context.prefs())) {
-            // Place the explicitly labelled spelling action directly before the mic.
-            if (pinnedKey == ToolbarKey.VOICE) {
-                pinnedKeys.addView(createSmartFixButton())
-                addedCorrectButton = true
-            }
-            val button = createToolbarKey(context, pinnedKey)
-            button.layoutParams = toolbarKeyLayoutParams
-            setupKey(button, colors)
-            pinnedKeys.addView(button)
-            val pinnedKeyInToolbar = toolbar.findViewWithTag<View>(pinnedKey)
-            if (pinnedKeyInToolbar != null && Settings.getValues().mQuickPinToolbarKeys)
-                pinnedKeyInToolbar.background = enabledToolKeyBackground
-        }
-        if (!addedCorrectButton) pinnedKeys.addView(createSmartFixButton())
+        rebuildPinnedKeys()
         toolbarContainer.doOnNextLayout {
             // set min with of the toolbar so the weight of the toolbar keys actually does something
             // todo: results in requestLayout() improperly called by android.widget.LinearLayout during layout: running second layout pass
@@ -186,18 +181,24 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         updateKeys()
     }
 
-    private fun createSmartFixButton(): TextView = TextView(context, null, R.attr.suggestionWordStyle).apply {
-        text = context.getString(R.string.sv_correct_button)
-        contentDescription = context.getString(R.string.sv_correct_button_description)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-        gravity = Gravity.CENTER
-        setPadding(8.dpToPx(resources), 0, 8.dpToPx(resources), 0)
-        minWidth = resources.getDimensionPixelSize(R.dimen.config_suggestions_strip_edge_key_width)
-        layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT
-        )
-        setOnClickListener { SmartUi.correctCurrentWord() }
-        setOnLongClickListener { SmartUi.undoLastCorrection(); true }
+    private fun rebuildPinnedKeys() {
+        val colors = Settings.getValues().mColors
+        pinnedKeys.removeAllViews()
+        for (pinnedKey in getPinnedToolbarKeys(context.prefs())) {
+            val button = createToolbarKey(context, pinnedKey)
+            button.layoutParams = toolbarKeyLayoutParams
+            setupKey(button, colors)
+            if (pinnedKey == ToolbarKey.VOICE) {
+                val ui = helium314.keyboard.smart.ui.SvUi
+                button.background = ui.ripple(ui.surface(if (ui.isDark()) 0xFF324F87.toInt() else ui.accent(), 24.dpToPx(resources).toFloat()), 24.dpToPx(resources).toFloat())
+                button.setColorFilter(if (ui.isDark()) android.graphics.Color.WHITE else ui.onAccent())
+            }
+            pinnedKeys.addView(button)
+            val pinnedKeyInToolbar = toolbar.findViewWithTag<View>(pinnedKey)
+            if (pinnedKeyInToolbar != null && Settings.getValues().mQuickPinToolbarKeys)
+                pinnedKeyInToolbar.background = enabledToolKeyBackground
+        }
+        updateVoiceKey()
     }
 
     private lateinit var listener: Listener
@@ -310,6 +311,7 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
     // overrides: necessarily public, but not used from outside
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
+        if (key == Settings.PREF_PINNED_TOOLBAR_KEYS) post { rebuildPinnedKeys() }
         setToolbarButtonsActivatedStateOnPrefChange(pinnedKeys, key)
         setToolbarButtonsActivatedStateOnPrefChange(toolbar, key)
         if (key == Settings.PREF_ALWAYS_INCOGNITO_MODE)
@@ -457,7 +459,7 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
                 suggestedWords, startIndexOfMoreSuggestions, moreSuggestionsContainer, layoutHelper, this
         ))
             return false
-        for (i in 0..<startIndexOfMoreSuggestions) {
+        for (i in 0..<minOf(startIndexOfMoreSuggestions, wordViews.size)) {
             wordViews[i].isPressed = false
         }
         return true
@@ -533,13 +535,8 @@ class SuggestionStripView(context: Context, attrs: AttributeSet?, defStyle: Int)
         val settingsValues = Settings.getValues()
 
         val toolbarIsExpandable = settingsValues.mToolbarMode != ToolbarMode.HIDDEN
-        if (settingsValues.mIncognitoModeEnabled) {
-            toolbarExpandKey.setImageDrawable(incognitoIcon)
-            toolbarExpandKey.isVisible = true
-        } else {
-            toolbarExpandKey.setImageDrawable(toolbarArrowIcon)
-            toolbarExpandKey.isVisible = toolbarIsExpandable
-        }
+        toolbarExpandKey.setImageDrawable(toolbarArrowIcon)
+        toolbarExpandKey.isVisible = toolbarIsExpandable
 
         toolbarExpandKey.setOnClickListener(if (!toolbarIsExpandable) null else this)
         pinnedKeys.visibility = suggestionsStrip.visibility

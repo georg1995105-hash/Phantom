@@ -20,8 +20,30 @@
     <string name="sv_clip_file">Файл: %s</string>
     <string name="sv_clip_empty">Здесь появятся скопированные тексты, ссылки и изображения</string>
     <string name="sv_clip_empty_text">Скопированного текста пока нет</string>
-    <string name="sv_clip_empty_photos">Скопированных изображений пока нет. Скриншот, сохранённый только в галерею, в буфер не попадает.</string>
+    <string name="sv_clip_empty_photos">Изображений пока нет. Чтобы новые скриншоты появлялись здесь сами, нажмите «Скриншоты» вверху.</string>
+    <string name="sv_clip_empty_photos_access">Скриншоты включены, но Android не дал доступ ко всем фото. Нажмите «Скриншоты: доступ» вверху.</string>
+    <string name="sv_clip_empty_photos_active">Изображений пока нет. Новый скриншот появится здесь через пару секунд.</string>
+    <string name="sv_screenshot_chip_off">Скриншоты</string>
+    <string name="sv_screenshot_chip_access">Скриншоты: доступ</string>
     <string name="sv_clip_empty_links">Скопированных ссылок пока нет</string>
     <string name="sv_clip_share_title">Поделиться изображением</string>
     <string name="sv_clip_image_not_supported">Это поле не принимает изображения. Можно поделиться им.</string>
+    <string name="sv_clip_confirm_delete">Удалить фрагменты: %1$d?</string>
+    <string name="sv_clip_clear_recent">Очистить недавние, сохранив закреплённые</string>
+    <string name="sv_clip_empty_pinned">Нет закреплённых. Удерживайте фрагмент для закрепления.</string>
+    <string name="sv_clip_missing">Файл недоступен. Скопируйте его ещё раз.</string>
+    <string name="sv_clip_search">Поиск в буфере</string>
+    <string name="sv_clip_history_toggle">Сохранять историю буфера</string>
+    <string name="sv_clip_today">Сегодня</string>
+    <string name="sv_clip_yesterday">Вчера</string>
+    <string name="sv_clip_expand">Развернуть / свернуть</string>
+    <plurals name="sv_clip_character_count">
+        <item quantity="one">%d символ</item>
+        <item quantity="few">%d символа</item>
+        <item quantity="many">%d символов</item>
+        <item quantity="other">%d символа</item>
+    </plurals>
+    <string name="sv_clip_paste_fallback">Пробуем системную вставку. Если фото не появилось, выберите «Поделиться» в меню карточки.</string>
+    <string name="sv_screenshot_setup">Новые снимки экрана</string>
+    <string name="sv_clip_save_failed">Не удалось сохранить изображение. Проверьте доступ и лимит размера или выберите файл в настройках буфера.</string>
 </resources>

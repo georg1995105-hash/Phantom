@@ -38,7 +38,7 @@ class ClipboardHistoryEntry(
 
     fun getContentUri(context: Context) = filename?.let { FileProvider.getUriForFile(
         context,
-        context.getString(R.string.clipboard_provider_authority),
+        if (context.packageName.startsWith("ru.smartvoice.keyboard.preview")) context.packageName + ".clipprovider" else context.getString(R.string.clipboard_provider_authority),
         File(ClipboardDao.clipFilesDir, it)
     ) }
 

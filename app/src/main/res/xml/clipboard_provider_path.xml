@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <files-path name="sticker_data" path="stickers/"/>
     <files-path
         name="clipboard_data"
         path="clipboard/"/>

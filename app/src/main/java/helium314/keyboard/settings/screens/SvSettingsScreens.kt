@@ -67,6 +67,7 @@ import helium314.keyboard.settings.SettingsActivity
 import helium314.keyboard.settings.SettingsDestination
 import helium314.keyboard.settings.SettingsWithoutKey
 import helium314.keyboard.settings.dialogs.ConfirmationDialog
+import helium314.keyboard.settings.dialogs.TextInputDialog
 import helium314.keyboard.settings.preferences.ListPreference
 import helium314.keyboard.settings.preferences.Preference
 import helium314.keyboard.settings.preferences.SwitchPreference
@@ -173,9 +174,16 @@ fun SvVoiceScreen(onClickBack: () -> Unit) {
         settings = listOf(
             SvSettingKeys.VOICE_PERMISSION,
             SvSettingKeys.VOICE_ENGINE,
+            SmartPrefs.VOICE_ENGINE_MODE,
+            "sv_voice_download_model",
             SmartPrefs.VOICE_LANGUAGE,
             SmartPrefs.VOICE_SMART_PUNCTUATION,
             SmartPrefs.VOICE_REMOVE_FILLERS,
+            SmartPrefs.VOICE_PREFER_OFFLINE,
+            SmartPrefs.VOICE_CONTINUOUS,
+            SmartPrefs.VOICE_COMMANDS,
+            SmartPrefs.VOICE_VOCABULARY_ENABLED,
+            SmartPrefs.VOICE_VOCABULARY,
         )
     )
 }
@@ -194,6 +202,7 @@ fun SvClipboardScreen(onClickBack: () -> Unit) {
             if (history) Settings.PREF_CLIPBOARD_HISTORY_RETENTION_TIME else null,
             if (history) Settings.PREF_CLIPBOARD_HISTORY_PINNED_FIRST else null,
             if (history) Settings.PREF_CLIPBOARD_USE_FILES else null,
+            "sv_screenshot_setup",
             SmartPrefs.CLIP_CHIP,
             if (chip) SmartPrefs.CLIP_CHIP_MINUTES else null,
             SvSettingKeys.CLIP_SENSITIVE,
@@ -311,6 +320,17 @@ fun createSvSettings(context: Context) = listOf(
             }
         )
     },
+    Setting(context, SmartPrefs.VOICE_ENGINE_MODE, R.string.sv_voice_engine_mode, R.string.sv_voice_engine_mode_help) {
+        val ctx = LocalContext.current
+        ListPreference(it, listOf(ctx.getString(R.string.sv_voice_engine_auto) to "auto",
+            ctx.getString(R.string.sv_voice_engine_system) to "system"), "auto")
+    },
+    Setting(context, "sv_voice_download_model", R.string.sv_voice_download_model, R.string.sv_voice_download_model_help) {
+        val ctx = LocalContext.current
+        Preference(name = it.title, description = it.description, onClick = {
+            ctx.startActivity(Intent(ctx, helium314.keyboard.smart.voice.VoiceModelActivity::class.java))
+        })
+    },
     Setting(context, SmartPrefs.VOICE_LANGUAGE, R.string.sv_set_voice_language) {
         val ctx = LocalContext.current
         ListPreference(it, listOf(
@@ -336,6 +356,35 @@ fun createSvSettings(context: Context) = listOf(
     },
     Setting(context, SmartPrefs.VOICE_SEND_COMMAND, R.string.sv_set_voice_send, R.string.sv_set_voice_send_summary) {
         SwitchPreference(it, SmartPrefs.DEF_VOICE_SEND_COMMAND)
+    },
+    Setting(context, SmartPrefs.VOICE_VOCABULARY_ENABLED, R.string.sv_voice_vocabulary_enabled, R.string.sv_voice_vocabulary_summary) {
+        SwitchPreference(it, false)
+    },
+    Setting(context, SmartPrefs.VOICE_VOCABULARY, R.string.sv_voice_vocabulary_terms, R.string.sv_voice_vocabulary_help) { setting ->
+        val prefs = LocalContext.current.prefs()
+        var editing by rememberSaveable { mutableStateOf(false) }
+        Preference(name = setting.title, description = setting.description, onClick = { editing = true })
+        if (editing) TextInputDialog(
+            onDismissRequest = { editing = false },
+            title = { Text(setting.title) },
+            description = { Text(stringResource(R.string.sv_voice_vocabulary_help)) },
+            initialText = prefs.getString(SmartPrefs.VOICE_VOCABULARY, "").orEmpty(),
+            singleLine = false,
+            checkTextValid = { text ->
+                val terms = text.split('\n', ';').filter { it.isNotBlank() }
+                text.length <= helium314.keyboard.smart.voice.VoiceVocabulary.MAX_INPUT && terms.size <= 100 && terms.all { it.trim().length <= 80 }
+            },
+            onConfirmed = { text -> prefs.edit { putString(SmartPrefs.VOICE_VOCABULARY,
+                helium314.keyboard.smart.voice.VoiceVocabulary.parse(text).joinToString("\n")) } },
+            neutralButtonText = stringResource(R.string.sv_clip_delete),
+            onNeutral = { prefs.edit { remove(SmartPrefs.VOICE_VOCABULARY) } },
+        )
+    },
+    Setting(context, "sv_screenshot_setup", R.string.sv_screenshot_setup) {
+        val ctx = LocalContext.current
+        Preference(name = it.title, description = "Только новые скриншоты · разрешения Android", onClick = {
+            ctx.startActivity(Intent(ctx, helium314.keyboard.smart.clipboard.ScreenshotPermissionActivity::class.java))
+        })
     },
     Setting(context, SmartPrefs.CLIP_CHIP, R.string.sv_set_clip_chip, R.string.sv_set_clip_chip_summary) {
         SwitchPreference(it, SmartPrefs.DEF_CLIP_CHIP)

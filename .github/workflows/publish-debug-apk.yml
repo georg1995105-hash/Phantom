@@ -2,6 +2,20 @@ name: Publish private debug APK
 
 on:
   workflow_dispatch:
+    inputs:
+      approved_preview:
+        description: Build separately installable approved-design preview with comparison screenshots
+        type: boolean
+        default: false
+
+      prepared_ref:
+        description: Temporary private ref containing the APK already built and checked in the cloud workspace
+        type: string
+        default: ''
+      evidence_only:
+        description: Refresh verified screenshots and report without rebuilding or re-signing the published preview
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -18,12 +32,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
+        if: ${{ !inputs.evidence_only && inputs.prepared_ref == '' }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Install Android platform 37.0 and NDK 28
+        if: ${{ !inputs.evidence_only && inputs.prepared_ref == '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -33,15 +49,71 @@ jobs:
           "$SDK_MANAGER" --install "platforms;android-37.0" "build-tools;37.0.0" "ndk;28.0.13004108"
 
       - name: Set up Gradle build cache
+        if: ${{ !inputs.evidence_only && inputs.prepared_ref == '' }}
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build Android debug APK
+        if: ${{ !inputs.evidence_only && inputs.prepared_ref == '' }}
         shell: bash
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebugNoMinify
+          PREVIEW_ARGS=()
+          if [[ '${{ inputs.approved_preview }}' == 'true' ]]; then
+            PREVIEW_ARGS+=('-PsmartvoicePreview=true')
+          fi
+          ./gradlew --no-daemon --stacktrace :app:assembleDebugNoMinify "${PREVIEW_ARGS[@]}"
+
+      - name: Fetch prepared cloud artifact
+        if: inputs.approved_preview && inputs.prepared_ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.prepared_ref }}
+          path: prepared
+
+      - name: Verify prepared source and APK checksum
+        if: inputs.approved_preview && inputs.prepared_ref != ''
+        run: |
+          python3 - <<'PYVERIFY'
+          import hashlib, json, os, pathlib, shutil
+          root = pathlib.Path('prepared')
+          meta = json.loads((root / 'manifest.json').read_text())
+          assert meta['source_sha'] == os.environ['GITHUB_SHA'], 'Prepared APK source does not match the reviewed ref'
+          apk = root / 'preview.apk'
+          assert hashlib.sha256(apk.read_bytes()).hexdigest() == meta['apk_sha256']
+          target = pathlib.Path('app/build/outputs/apk/debugNoMinify')
+          target.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(apk, target / 'preview.apk')
+          PYVERIFY
+
+      - name: Reuse the exact published APK for evidence refresh
+        if: inputs.approved_preview && inputs.evidence_only
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p app/build/outputs/apk/debugNoMinify
+          gh release download preview-emoji-numpad-20261105 --repo "$GITHUB_REPOSITORY" --pattern '*.apk' --dir app/build/outputs/apk/debugNoMinify
+
+      - name: Package approved preview evidence
+        if: inputs.approved_preview
+        run: python3 tools/package-preview.py
+
+      - name: Publish approved preview to this private repository
+        if: inputs.approved_preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="preview-emoji-numpad-20261105"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --prerelease --latest=false --title 'SmartVoice Test Fix — эмодзи, стикеры и цифровая панель · 2026-11-05'
+          gh release upload "$TAG" preview-assets/*.apk preview-assets/*.zip preview-assets/*.png preview-assets/SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          TARGET_ARGS=()
+          if [[ '${{ inputs.evidence_only }}' != 'true' ]]; then TARGET_ARGS+=(--target "$GITHUB_SHA"); fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" "${TARGET_ARGS[@]}" --title 'SmartVoice Test Fix — эмодзи, стикеры и цифровая панель · 2026-11-05' --notes-file preview-assets/RELEASE_NOTES.md --draft=false --prerelease --latest=false
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets >> "$GITHUB_STEP_SUMMARY"
 
       - name: Record APK checksum
+        if: ${{ !inputs.approved_preview }}
         shell: bash
         run: |
           set -euo pipefail
@@ -49,6 +121,7 @@ jobs:
           cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish debug APK to this private repository
+        if: ${{ !inputs.approved_preview }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

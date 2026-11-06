@@ -168,18 +168,26 @@ class InputLogicTest {
         assertEquals("\uD83E\uDD70", text)
     }
 
-    // todo: make it work, but it might not be that simple because adding is done in combiner
-    //  https://github.com/HeliBorg/HeliBoard/issues/214
-    @Test fun insertLetterIntoWordHangulFails() {
-        if (BuildConfig.BUILD_TYPE == "runTests") return
+    // Regression for upstream 214: keep the suffix when editing a composing Hangul word.
+    @Test fun insertLetterIntoWordHangulPreservesSuffix() {
         latinIME.switchToSubtype(SubtypeSettings.getResourceSubtypesForLocale("ko".constructLocale()).first())
+        currentScript = ScriptUtils.SCRIPT_HANGUL
         chainInput("ㅛㅎㄹㅎㅕㅛ")
         setCursorPosition(3)
-        input('ㄲ') // fails, as expected from the hangul issue when processing the event in onCodeInput
+        // This edit deliberately starts a fresh syllable at the cursor. The generic input()
+        // helper assumes the same composing span remains, which is not correct here.
+        latinIME.onEvent(Event.createEventForCodePointFromUnknownSource('ㄲ'.code))
+        handleMessages()
+        checkConnectionConsistency()
         assertEquals("ㅛㅎㄹㄲ혀ㅛ", getWordAtCursor())
         assertEquals("ㅛㅎㄹㄲ혀ㅛ", getTextFromConnection())
         assertEquals("ㅛㅎㄹㄲ혀ㅛ", textBeforeCursor + textAfterCursor)
         assertEquals(4, getCursorPosition())
+        assertEquals(4, cursor)
+        latinIME.onEvent(Event.createEventForCodePointFromUnknownSource('ㅏ'.code))
+        handleMessages()
+        checkConnectionConsistency()
+        assertEquals("ㅛㅎㄹ까혀ㅛ", text)
         assertEquals(4, cursor)
     }
 

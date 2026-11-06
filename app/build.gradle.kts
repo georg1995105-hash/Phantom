@@ -11,6 +11,9 @@ android {
 
     defaultConfig {
         applicationId = "ru.smartvoice.keyboard"
+        manifestPlaceholders["keyboardLabel"] = "@string/english_ime_name"
+        manifestPlaceholders["clipProviderAuthority"] = "@string/clipboard_provider_authority"
+        manifestPlaceholders["gestureProviderAuthority"] = "@string/gesture_data_provider_authority"
         minSdk = 21
         targetSdk = 37
         versionCode = 6
@@ -51,7 +54,13 @@ android {
             isMinifyEnabled = false
             isJniDebuggable = false
             signingConfig = signingConfigs.getByName("debug")
-            applicationIdSuffix = ".debug"
+            applicationIdSuffix = if (providers.gradleProperty("smartvoicePreview").orNull == "true") ".previewfix" else ".debug"
+            if (providers.gradleProperty("smartvoicePreview").orNull == "true") {
+                versionNameSuffix = "-emoji-numpad-test"
+                manifestPlaceholders["keyboardLabel"] = "SmartVoice Test Fix"
+                manifestPlaceholders["clipProviderAuthority"] = "ru.smartvoice.keyboard.previewfix.clipprovider"
+                manifestPlaceholders["gestureProviderAuthority"] = "ru.smartvoice.keyboard.previewfix.gestureprovider"
+            }
             isDefault = true
         }
 
@@ -65,6 +74,9 @@ android {
                 variant.proguardFiles.add(project.layout.buildDirectory.file(project.buildFile.parent + "/proguard-rules.pro"))
             }
             variant.outputs.forEach { output ->
+                if (variant.buildType == "debugNoMinify" && providers.gradleProperty("smartvoicePreview").orNull == "true") {
+                    output.versionCode.set(7)
+                }
                 if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
                     output.outputFileName = "SmartVoiceKeyboard_${defaultConfig.versionName}-${variant.buildType}.apk"
                 }
@@ -73,6 +85,7 @@ android {
     }
 
     buildFeatures {
+        resValues = true
         viewBinding = true
         buildConfig = true
         compose = true

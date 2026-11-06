@@ -35,7 +35,8 @@ object SvUi {
     fun key() = colors.get(ColorType.KEY_BACKGROUND)
     fun functional() = colors.get(ColorType.FUNCTIONAL_KEY_BACKGROUND)
     fun accent() = opaque(colors.get(ColorType.ACTION_KEY_BACKGROUND))
-    fun onAccent() = opaque(colors.get(ColorType.ACTION_KEY_ICON))
+    fun onAccent(): Int = if (ColorUtils.calculateContrast(Color.WHITE, accent()) >= 4.5) Color.WHITE else Color.rgb(0x10, 0x13, 0x1C)
+    fun selectedSurface() = if (isDark()) Color.rgb(0x32, 0x4F, 0x87) else accent()
     fun strip() = colors.get(ColorType.STRIP_BACKGROUND)
 
     /** solid background color usable for overlays, never fully transparent */
@@ -57,6 +58,15 @@ object SvUi {
         if (strokeColor != null) setStroke(strokeWidth, strokeColor)
     }
 
+    /** Subtle graphite depth and hairline edge shared by all approved panels. */
+    fun surface(color: Int = key(), radius: Float = 18f): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(ColorUtils.blendARGB(color, text(), 0.055f), ColorUtils.blendARGB(color, Color.BLACK, 0.12f))
+    ).apply {
+        cornerRadius = radius
+        setStroke(dp(Settings.getCurrentContext(), 0.6f).coerceAtLeast(1), ColorUtils.blendARGB(color, text(), 0.18f))
+    }
+
     fun ripple(content: Drawable?, radius: Float): RippleDrawable {
         val mask = rounded(Color.WHITE, radius)
         return RippleDrawable(ColorStateList.valueOf(ColorUtils.setAlphaComponent(text(), 0x33)), content, mask)
@@ -67,7 +77,9 @@ object SvUi {
 
     fun iconButton(context: Context, res: Int, description: CharSequence, sizeDp: Int = 48, onClick: (View) -> Unit): ImageButton =
         ImageButton(context).apply {
+            setPadding(0, 0, 0, 0)
             setImageDrawable(icon(context, res))
+            imageTintList = ColorStateList.valueOf(text())
             contentDescription = description
             scaleType = ImageView.ScaleType.CENTER
             background = ripple(null, dp(context, sizeDp) / 2f)
@@ -84,10 +96,10 @@ object SvUi {
         includeFontPadding = false
     }
 
-    fun chip(context: Context, text: CharSequence, filled: Boolean = false) = label(context, 14f, if (filled) onAccent() else text()).apply {
+    fun chip(context: Context, text: CharSequence, filled: Boolean = false) = label(context, 14f, if (filled) Color.WHITE else text()).apply {
         this.text = text
         val r = dp(context, 18).toFloat()
-        background = ripple(if (filled) rounded(accent(), r) else rounded(key(), r), r)
+        background = ripple(surface(if (filled) selectedSurface() else key(), r), r)
         setPadding(dp(context, 14), dp(context, 8), dp(context, 14), dp(context, 8))
     }
 

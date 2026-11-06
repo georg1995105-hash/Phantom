@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
 <resources>
+    <string name="sv_voice_vocabulary_enabled">Use my dictation terms</string>
+    <string name="sv_voice_vocabulary_summary">Local hints for names and technical terms. The dictionary is only passed to an on-device recognizer; conservative selection among existing hypotheses also works locally.</string>
+    <string name="sv_voice_vocabulary_terms">Personal dictation dictionary</string>
+    <string name="sv_voice_vocabulary_help">Enter one name, term or short phrase per line (or separate with semicolons). Up to 100 entries, 80 characters each. Stored on this device; full dictations are not saved. The recognizer may ignore hints. No automatic word replacement.</string>
     <string name="sv_set_keyboard_main">Keyboard</string>
     <string name="sv_set_keyboard_main_summary">Appearance, size and vibration</string>
     <string name="sv_set_languages_input">Languages and typing</string>
@@ -57,8 +61,8 @@
     <string name="sv_set_voice_commands">Edit commands</string>
     <string name="sv_set_voice_commands_summary">“comma”, “new line”, “delete last sentence”, “replace X with Y”</string>
     <string name="sv_set_voice_continuous">Keep listening after a pause</string>
-    <string name="sv_set_voice_offline">Prefer offline recognition</string>
-    <string name="sv_set_voice_offline_summary">Uses the on-device model when the service provides one</string>
+    <string name="sv_set_voice_offline">Offline only</string>
+    <string name="sv_set_voice_offline_summary">Requires Android 12+ and an installed on-device language model. No network fallback.</string>
     <string name="sv_set_voice_send">“Send” command</string>
     <string name="sv_set_voice_send_summary">Only in fields that offer a Send action. Otherwise the text stays in the field</string>
 

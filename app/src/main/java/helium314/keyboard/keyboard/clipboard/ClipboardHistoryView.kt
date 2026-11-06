@@ -15,6 +15,8 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import helium314.keyboard.latin.utils.prefs
+import helium314.keyboard.latin.settings.Defaults
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.StaggeredGridLayoutManager
 import helium314.keyboard.event.HapticEvent
@@ -36,6 +38,7 @@ import helium314.keyboard.latin.database.ClipboardDao
 import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.utils.ResourceUtils
 import helium314.keyboard.smart.clipboard.ClipCategory
+import helium314.keyboard.smart.clipboard.ScreenshotHistory
 import helium314.keyboard.smart.clipboard.SmartClipAdapter
 import helium314.keyboard.smart.clipboard.SmartClipboard
 import helium314.keyboard.smart.ui.SmartUi
@@ -63,6 +66,7 @@ class ClipboardHistoryView @JvmOverloads constructor(
     lateinit var keyboardActionListener: KeyboardActionListener
     private var clipboardHistoryManager: ClipboardHistoryManager? = null
     private var category = ClipCategory.ALL
+    private var pendingDelete: List<Long>? = null
 
     init {
         fitsSystemWindows = true
@@ -114,6 +118,18 @@ class ClipboardHistoryView @JvmOverloads constructor(
     private fun updateHeader() {
         val row = header ?: return
         row.removeAllViews()
+        pendingDelete?.let { ids ->
+            row.addView(SvUi.label(context, 14f).apply {
+                text = context.getString(R.string.sv_clip_confirm_delete, ids.size)
+            }, LayoutParams(0, SvUi.dp(context, 44), 1f))
+            row.addView(stripButton(R.drawable.ic_sv_close, android.R.string.cancel) { pendingDelete = null; updateHeader() })
+            row.addView(stripButton(R.drawable.ic_sv_check, R.string.sv_clip_delete) {
+                pendingDelete = null
+                clipboardHistoryManager?.deleteIds(ids)
+                setSelectionMode(false)
+            })
+            return
+        }
         val btn = LayoutParams(SvUi.dp(context, 44), SvUi.dp(context, 44))
         if (adapter.selectionMode) {
             row.addView(stripButton(R.drawable.ic_sv_close, R.string.sv_clip_cancel_selection) { setSelectionMode(false) }, btn)
@@ -135,19 +151,74 @@ class ClipboardHistoryView @JvmOverloads constructor(
             return
         }
         row.addView(stripButton(R.drawable.ic_arrow_back, R.string.sv_back) { backToKeyboard() }, btn)
-        val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        row.addView(SvUi.label(context, 16f, bold = true).apply {
+            setText(R.string.sv_fn_clipboard)
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        }, LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        row.addView(android.widget.Switch(context).apply {
+            contentDescription = context.getString(R.string.sv_clip_history_toggle)
+            thumbTintList = android.content.res.ColorStateList.valueOf(SvUi.accent())
+            trackTintList = android.content.res.ColorStateList.valueOf(androidx.core.graphics.ColorUtils.blendARGB(SvUi.key(), SvUi.accent(), 0.35f))
+            isChecked = context.prefs().getBoolean(Settings.PREF_ENABLE_CLIPBOARD_HISTORY, Defaults.PREF_ENABLE_CLIPBOARD_HISTORY)
+            setOnCheckedChangeListener { _, checked ->
+                context.prefs().edit().putBoolean(Settings.PREF_ENABLE_CLIPBOARD_HISTORY, checked).apply()
+            }
+        }, LayoutParams(SvUi.dp(context, 48), SvUi.dp(context, 44)))
+        row.addView(stripButton(R.drawable.ic_edit, R.string.sv_clip_select) { setSelectionMode(true) }, btn)
+    }
+
+    private fun buildCategories() {
+        val chips = findViewById<LinearLayout>(R.id.sv_clip_categories)
+        chips.removeAllViews()
         listOf(ClipCategory.ALL to R.string.sv_clip_all, ClipCategory.TEXT to R.string.sv_clip_text,
-            ClipCategory.IMAGES to R.string.sv_clip_photos, ClipCategory.LINKS to R.string.sv_clip_links).forEach { (cat, label) ->
+            ClipCategory.IMAGES to R.string.sv_clip_photos, ClipCategory.LINKS to R.string.sv_clip_links,
+            ClipCategory.PINNED to R.string.sv_clip_pinned).forEach { (cat, label) ->
             val chip = SvUi.chip(context, context.getString(label), filled = cat == category).apply {
+                val icon = when (cat) {
+                    ClipCategory.ALL -> R.drawable.ic_sv_apps
+                    ClipCategory.TEXT -> R.drawable.ic_sv_text
+                    ClipCategory.IMAGES -> R.drawable.ic_sv_image
+                    ClipCategory.LINKS -> R.drawable.ic_sv_link
+                    ClipCategory.PINNED -> R.drawable.ic_sv_pin
+                }
+                setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, icon, if (cat == category) android.graphics.Color.WHITE else SvUi.text()), null, null, null)
+                compoundDrawablePadding = SvUi.dp(context, 4)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(SvUi.dp(context, 11), SvUi.dp(context, 6), SvUi.dp(context, 11), SvUi.dp(context, 6))
-                setOnClickListener { SvUi.haptic(it); category = cat; updateHeader(); refresh(scrollTop = true) }
+                setOnClickListener { SvUi.haptic(it); category = cat; buildCategories(); refresh(scrollTop = true) }
             }
             chips.addView(chip, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = SvUi.dp(context, 5) })
         }
-        val scroll = HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }
-        row.addView(scroll, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(stripButton(R.drawable.ic_sv_select, R.string.sv_clip_select) { setSelectionMode(true) }, btn)
+        val search = findViewById<LinearLayout>(R.id.sv_clip_search_row)
+        search.removeAllViews()
+        search.addView(SvUi.chip(context, context.getString(R.string.sv_clip_search)).apply {
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            setTextColor(SvUi.secondaryText())
+            setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, R.drawable.sym_keyboard_search_lxx), null, null, null)
+            compoundDrawablePadding = SvUi.dp(context, 8)
+            setOnClickListener {
+                SmartUi.openClipboardSearch()
+            }
+        }, LayoutParams(0, SvUi.dp(context, 36), 1f))
+        val openScreenshotSetup = {
+            context.startActivity(android.content.Intent(context, helium314.keyboard.smart.clipboard.ScreenshotPermissionActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        val screenshotStatus = ScreenshotHistory.status(context)
+        if (screenshotStatus != ScreenshotHistory.Status.ACTIVE && (category == ClipCategory.ALL || category == ClipCategory.IMAGES)) {
+            // Without this visible entry point the opt-in import looked like "screenshots never appear".
+            search.addView(SvUi.chip(context, context.getString(if (screenshotStatus == ScreenshotHistory.Status.OFF)
+                R.string.sv_screenshot_chip_off else R.string.sv_screenshot_chip_access)).apply {
+                setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, R.drawable.ic_sv_image), null, null, null)
+                compoundDrawablePadding = SvUi.dp(context, 4)
+                setOnClickListener { SvUi.haptic(it); openScreenshotSetup() }
+            }, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, SvUi.dp(context, 36)).apply { marginStart = SvUi.dp(context, 5) })
+        } else if (category == ClipCategory.IMAGES) search.addView(stripButton(R.drawable.ic_sv_image, R.string.sv_screenshot_setup) {
+            openScreenshotSetup()
+        }, LayoutParams(SvUi.dp(context, 44), SvUi.dp(context, 40)))
+        search.addView(stripButton(R.drawable.ic_sv_delete, R.string.sv_clip_clear_recent) {
+            pendingDelete = entries().filter { !it.isPinned }.map { it.id }; updateHeader()
+        }, LayoutParams(SvUi.dp(context, 44), SvUi.dp(context, 40)))
     }
 
     // ---------- list ----------
@@ -158,17 +229,22 @@ class ClipboardHistoryView @JvmOverloads constructor(
 
     private fun refresh(scrollTop: Boolean = false) {
         val all = entries().filter { SmartClipboard.matches(it, category) }
-        val hasPinned = all.any { it.isPinned }
-        val hasOther = all.any { !it.isPinned }
-        val rows = ArrayList<SmartClipAdapter.Row>(all.size + 2)
-        var lastPinned: Boolean? = null
-        for (e in all) {
-            if (hasPinned && e.isPinned != lastPinned) {
-                if (e.isPinned) rows.add(SmartClipAdapter.Row.Header(R.string.sv_clip_pinned))
-                else if (hasOther) rows.add(SmartClipAdapter.Row.Header(R.string.sv_clip_recent))
-                lastPinned = e.isPinned
-            }
-            rows.add(SmartClipAdapter.Row.Clip(e))
+        val rows = ArrayList<SmartClipAdapter.Row>(all.size + 4)
+        val today = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val yesterday = java.util.Calendar.getInstance().apply { timeInMillis = today; add(java.util.Calendar.DAY_OF_YEAR, -1) }.timeInMillis
+        val groups = all.sortedWith(compareByDescending<ClipboardHistoryEntry> { it.isPinned }.thenByDescending { it.timeStamp })
+            .groupBy { when {
+                it.isPinned -> context.getString(R.string.sv_clip_pinned)
+                it.timeStamp >= today -> context.getString(R.string.sv_clip_today)
+                it.timeStamp >= yesterday -> context.getString(R.string.sv_clip_yesterday)
+                else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM).format(java.util.Date(it.timeStamp))
+            } }
+        groups.forEach { (label, clips) ->
+            rows.add(SmartClipAdapter.Row.Header(R.string.sv_clip_recent, label))
+            clips.forEach { rows.add(SmartClipAdapter.Row.Clip(it)) }
         }
         adapter.selected.retainAll(all.mapTo(HashSet()) { it.id })
         adapter.rows = rows
@@ -179,8 +255,13 @@ class ClipboardHistoryView @JvmOverloads constructor(
         placeholderView.setText(when (category) {
             ClipCategory.ALL -> R.string.sv_clip_empty
             ClipCategory.TEXT -> R.string.sv_clip_empty_text
-            ClipCategory.IMAGES -> R.string.sv_clip_empty_photos
+            ClipCategory.IMAGES -> when (ScreenshotHistory.status(context)) {
+                ScreenshotHistory.Status.ACTIVE -> R.string.sv_clip_empty_photos_active
+                ScreenshotHistory.Status.OFF -> R.string.sv_clip_empty_photos
+                else -> R.string.sv_clip_empty_photos_access
+            }
             ClipCategory.LINKS -> R.string.sv_clip_empty_links
+            ClipCategory.PINNED -> R.string.sv_clip_empty_pinned
         })
         if (scrollTop) recycler.scrollToPosition(0)
         if (adapter.selectionMode) updateHeader()
@@ -206,10 +287,8 @@ class ClipboardHistoryView @JvmOverloads constructor(
     }
 
     private fun deleteSelected() {
-        val ids = adapter.selected.toList()
-        adapter.selected.clear()
-        clipboardHistoryManager?.deleteIds(ids)
-        setSelectionMode(false)
+        pendingDelete = adapter.selected.toList()
+        updateHeader()
     }
 
     private fun backToKeyboard() {
@@ -218,6 +297,7 @@ class ClipboardHistoryView @JvmOverloads constructor(
 
     /** System back: leave selection first, then return to the letters. */
     fun onBack(): Boolean {
+        if (pendingDelete != null) { pendingDelete = null; updateHeader(); return true }
         if (adapter.selectionMode) { setSelectionMode(false); return true }
         backToKeyboard()
         return true
@@ -231,7 +311,15 @@ class ClipboardHistoryView @JvmOverloads constructor(
             return
         }
         keyboardActionListener.onPressKey(KeyCode.NOT_SPECIFIED, 0, 1, HapticEvent.KEY_PRESS)
-        if (entry.filename != null) keyboardActionListener.onContent(entry.getContentInfo(context))
+        if (entry.filename != null) {
+            if (!java.io.File(ClipboardDao.clipFilesDir, entry.filename).isFile) {
+                android.widget.Toast.makeText(context, R.string.sv_clip_missing, android.widget.Toast.LENGTH_LONG).show()
+                return
+            }
+            runCatching { keyboardActionListener.onContent(entry.getContentInfo(context)) }.onFailure {
+                android.widget.Toast.makeText(context, R.string.sv_clip_missing, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
         else keyboardActionListener.onTextInput(entry.text)
         keyboardActionListener.onReleaseKey(KeyCode.NOT_SPECIFIED, false)
         if (Settings.getValues().mAlphaAfterClipHistoryEntry)
@@ -244,6 +332,43 @@ class ClipboardHistoryView @JvmOverloads constructor(
         adapter.selected.add(entry.id)
         updateHeader()
         adapter.notifyDataSetChanged()
+    }
+
+    override fun onClipMenu(entry: ClipboardHistoryEntry, anchor: View) {
+        val menu = LinearLayout(context).apply { orientation = VERTICAL; setPadding(8, 8, 8, 8) }
+        val scroll = android.widget.ScrollView(context).apply { addView(menu) }
+        val popupHeight = minOf(SvUi.dp(context, 240), height - SvUi.dp(context, 12)).coerceAtLeast(SvUi.dp(context, 48))
+        val popup = android.widget.PopupWindow(scroll, SvUi.dp(context, 220), popupHeight, true).apply {
+            setBackgroundDrawable(SvUi.surface(SvUi.panelBackground(), SvUi.dp(context, 18).toFloat()))
+            isOutsideTouchable = true
+            elevation = SvUi.dp(context, 6).toFloat()
+        }
+        fun option(label: Int, action: () -> Unit) {
+            menu.addView(SvUi.label(context, 15f).apply {
+                setText(label); minHeight = SvUi.dp(context, 48)
+                setOnClickListener { popup.dismiss(); action() }
+            }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        }
+        option(R.string.sv_fn_paste) { onClipClick(entry) }
+        if (entry.filename != null) option(R.string.sv_clip_share_title) {
+            if (java.io.File(ClipboardDao.clipFilesDir, entry.filename).isFile) {
+                val content = entry.getContentInfo(context)
+                SmartClipboard.shareFallback(context, content.contentUri, content.description)
+            } else android.widget.Toast.makeText(context, R.string.sv_clip_missing, android.widget.Toast.LENGTH_LONG).show()
+        }
+        option(if (entry.isPinned) R.string.sv_clip_unpin else R.string.sv_clip_pin) {
+            clipboardHistoryManager?.setPinned(listOf(entry.id), !entry.isPinned)
+        }
+        if (entry.filename == null) option(R.string.sv_clip_expand) {
+            if (!adapter.expanded.add(entry.id)) adapter.expanded.remove(entry.id)
+            adapter.notifyDataSetChanged()
+        }
+        option(R.string.sv_clip_select) { onClipLongClick(entry) }
+        option(R.string.sv_clip_delete) { pendingDelete = listOf(entry.id); updateHeader() }
+        // A card near the IME's lower edge has no room for a dropdown. Anchor the
+        // scrollable actions above the system navigation region instead.
+        val nav = if (android.os.Build.VERSION.SDK_INT >= 23) rootWindowInsets?.stableInsetBottom ?: 0 else 0
+        popup.showAtLocation(this, Gravity.BOTTOM or Gravity.END, SvUi.dp(context, 8), nav + SvUi.dp(context, 8))
     }
 
     // ---------- lifecycle ----------
@@ -275,6 +400,7 @@ class ClipboardHistoryView @JvmOverloads constructor(
         historyManager.setHistoryChangeListener(this)
         adapter.selectionMode = false
         adapter.selected.clear()
+        pendingDelete = null
         category = ClipCategory.ALL
         SmartUi.clipboardBack = { onBack() }
 
@@ -308,7 +434,9 @@ class ClipboardHistoryView @JvmOverloads constructor(
             this@ClipboardHistoryView.adapter.columnWidth = (keyboardWidth - leftPadding - rightPadding - 6 * pad) / 2
         }
         adapter.textSizePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
+        setBackgroundColor(SvUi.panelBackground())
         buildHeader()
+        buildCategories()
         refresh(scrollTop = true)
     }
 

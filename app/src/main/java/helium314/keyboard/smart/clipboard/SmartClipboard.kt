@@ -25,7 +25,7 @@ import kotlin.math.max
 
 enum class ClipKind { TEXT, LINK, IMAGE, FILE }
 
-enum class ClipCategory { ALL, TEXT, IMAGES, LINKS }
+enum class ClipCategory { ALL, TEXT, IMAGES, LINKS, PINNED }
 
 /** Clipboard helpers: categories, thumbnails and the share fallback for images. */
 object SmartClipboard {
@@ -48,6 +48,7 @@ object SmartClipboard {
         ClipCategory.TEXT -> kindOf(entry) == ClipKind.TEXT
         ClipCategory.IMAGES -> kindOf(entry) == ClipKind.IMAGE
         ClipCategory.LINKS -> kindOf(entry) == ClipKind.LINK
+        ClipCategory.PINNED -> entry.isPinned
     }
 
     // ---------- thumbnails ----------
@@ -77,15 +78,20 @@ object SmartClipboard {
         }
     }
 
-    fun decodeFile(file: File, targetPx: Int): Bitmap? = try {
+    fun decodeFile(file: File, targetPx: Int): Bitmap? {
+        if (!file.isFile || file.length() == 0L || targetPx < 1) return null
+        return try {
         val opt = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, opt)
+        if (opt.outWidth <= 0 || opt.outHeight <= 0) return null
         var sample = 1
         while (opt.outWidth / (sample * 2) >= targetPx && opt.outHeight / (sample * 2) >= targetPx / 2) sample *= 2
         BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
     } catch (e: Exception) {
         Log.w(TAG, "could not decode clip image", e)
         null
+    }
+
     }
 
     /** Small synchronous decode of a content uri, e.g. the current primary clip; null if not readable. */
@@ -111,10 +117,11 @@ object SmartClipboard {
     /** The field does not accept this content type: offer the system share sheet instead of pretending it was pasted. */
     fun shareFallback(context: Context, uri: Uri, description: ClipDescription) {
         try {
-            val type = if (description.mimeTypeCount > 0) description.getMimeType(0) else "image/*"
+            val type = (0 until description.mimeTypeCount).map { description.getMimeType(it) }.firstOrNull { it.startsWith("image/") } ?: "image/*"
             val send = Intent(Intent.ACTION_SEND).apply {
                 this.type = type
                 putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(context.contentResolver, "Image", uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             val chooser = Intent.createChooser(send, context.getString(R.string.sv_clip_share_title)).apply {

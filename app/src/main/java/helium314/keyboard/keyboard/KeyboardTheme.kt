@@ -68,7 +68,9 @@ private constructor(val themeId: Int, @JvmField val mStyleId: Int) {
         const val THEME_SV_LIGHT = "sv_light"
         const val THEME_SV_DARK = "sv_dark"
         const val THEME_SV_GRAPHITE = "sv_graphite"
+        const val THEME_SV_CALM = "sv_calm"
         fun getAvailableDefaultColors(prefs: SharedPreferences, isNight: Boolean) = listOfNotNull(
+            THEME_SV_CALM, THEME_SV_LIGHT, THEME_SV_DARK, THEME_SV_GRAPHITE,
             if (!isNight) THEME_LIGHT else null, THEME_DARK,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) THEME_DYNAMIC else null,
             if (prefs.getString(Settings.PREF_THEME_STYLE, Defaults.PREF_THEME_STYLE) == STYLE_HOLO) THEME_HOLO_WHITE else null,
@@ -168,14 +170,21 @@ private constructor(val themeId: Int, @JvmField val mStyleId: Int) {
                 )
                 THEME_SV_DARK -> DefaultColors(
                     themeStyle, hasBorders,
-                    "#A8C7FA".toColorInt(),
-                    "#202124".toColorInt(),
-                    "#3C4043".toColorInt(),
-                    "#2D2F31".toColorInt(),
-                    "#3C4043".toColorInt(),
-                    "#E8EAED".toColorInt(),
-                    "#9AA0A6".toColorInt(),
+                    "#96B8FF".toColorInt(),
+                    "#10131C".toColorInt(),
+                    "#292E39".toColorInt(),
+                    "#303C54".toColorInt(),
+                    "#292E39".toColorInt(),
+                    "#F2F3FA".toColorInt(),
+                    "#B8C0D3".toColorInt(),
                     keyboardBackground = backgroundImage
+                )
+                THEME_SV_CALM -> DefaultColors(
+                    themeStyle, hasBorders,
+                    "#A8B9EF".toColorInt(), "#202124".toColorInt(),
+                    "#3C4043".toColorInt(), "#42485A".toColorInt(), "#3C4043".toColorInt(),
+                    "#E8EAED".toColorInt(), "#B9BEC9".toColorInt(),
+                    keyboardBackground = backgroundImage, flatKeySurface = true
                 )
                 THEME_SV_GRAPHITE -> DefaultColors(
                     themeStyle, hasBorders,

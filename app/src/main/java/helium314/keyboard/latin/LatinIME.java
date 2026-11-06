@@ -547,8 +547,12 @@ public class LatinIME extends InputMethodService implements
         Log.i(TAG, "Hardware accelerated drawing: " + mIsHardwareAcceleratedDrawingEnabled);
     }
 
+    /** True while the system keeps this input method service bound in the current process. */
+    public static volatile boolean sServiceRunning = false;
+
     @Override
     public void onCreate() {
+        sServiceRunning = true;
         mSettings.startListener();
         KeyboardIconsSet.Companion.getInstance().loadIcons(this);
         mRichImm = RichInputMethodManager.getInstance();
@@ -708,6 +712,7 @@ public class LatinIME extends InputMethodService implements
 
     @Override
     public void onDestroy() {
+        sServiceRunning = false;
         mClipboardHistoryManager.onDestroy();
         mDictionaryFacilitator.closeDictionaries();
         mSettings.onDestroy();
@@ -898,6 +903,7 @@ public class LatinIME extends InputMethodService implements
                 mSuggestionStripView.updateVoiceKey();
         }
 
+        mClipboardHistoryManager.onInputViewStarted();
         switcher.updateKeyboardTheme(mDisplayContext);
         MainKeyboardView mainKeyboardView = switcher.getMainKeyboardView();
         currentSettingsValues = mSettings.getCurrent(); // settingsValues may have been reloaded
@@ -1020,6 +1026,8 @@ public class LatinIME extends InputMethodService implements
                 currentSettingsValues.mGestureTrailEnabled,
                 currentSettingsValues.mGestureFloatingPreviewTextEnabled);
 
+        mHandler.postDelayed(() -> helium314.keyboard.smart.clipboard.ClipboardSearchActivity.pasteOnReturn(this), 150);
+        mHandler.postDelayed(() -> helium314.keyboard.smart.emoji.GifImportActivity.onReturn(this), 200);
         if (TRACE) Debug.startMethodTracing("/data/trace/latinime");
     }
 
@@ -1443,6 +1451,7 @@ public class LatinIME extends InputMethodService implements
             mVoice.toggle();
             return;
         }
+        if (mVoice.isActive()) mVoice.close();
         final InputTransaction completeInputTransaction =
                 mInputLogic.onCodeInput(mSettings.getCurrent(), event,
                         mKeyboardSwitcher.getKeyboardCapsMode(),
@@ -1458,7 +1467,8 @@ public class LatinIME extends InputMethodService implements
         InputTransaction completeInputTransaction = mInputLogic.onTextInput(mSettings.getCurrent(),
             event, mKeyboardSwitcher.getKeyboardCapsMode(), mHandler);
         updateStateAfterInputTransaction(completeInputTransaction);
-        mInputLogic.restartSuggestionsOnWordTouchedByCursor(mSettings.getCurrent(), mKeyboardSwitcher.getCurrentKeyboardScript());
+        if (mKeyboardSwitcher.getKeyboardSwitchState() != KeyboardSwitcher.KeyboardSwitchState.EMOJI)
+            mInputLogic.restartSuggestionsOnWordTouchedByCursor(mSettings.getCurrent(), mKeyboardSwitcher.getCurrentKeyboardScript());
         mKeyboardSwitcher.onEvent(event, getCurrentAutoCapsState(), getCurrentRecapitalizeState());
     }
 
@@ -1577,6 +1587,11 @@ public class LatinIME extends InputMethodService implements
      *  Checks if a recent clipboard suggestion is available. If available, it is set in suggestion strip.
      *  returns whether a clipboard suggestion has been set.
      */
+    public void svOnScreenshotSaved() {
+        if (isInputViewShown() && !mVoice.isActive() && mInputLogic.getComposingLength() == 0)
+            tryShowClipboardSuggestion();
+    }
+
     public boolean tryShowClipboardSuggestion() {
         if (!hasSuggestionStripView()) return false;
         View clipboardView = mClipboardHistoryManager.getClipboardSuggestionView(getCurrentInputEditorInfo(), mSuggestionStripView);
@@ -1761,6 +1776,8 @@ public class LatinIME extends InputMethodService implements
         return mVoice;
     }
 
+    public int svSuggestionCount() { return mInputLogic.mSuggestedWords.size(); }
+
     public RichInputConnection svConnection() {
         return mInputLogic.mConnection;
     }
@@ -1820,9 +1837,7 @@ public class LatinIME extends InputMethodService implements
     }
 
     public void launchEmojiSearch() {
-        Log.d(EmojiSearchActivityKt.TAG, "before activity launch");
-        startActivity(new Intent().setClass(this, EmojiSearchActivity.class)
-                          .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_MULTIPLE_TASK));
+        mKeyboardSwitcher.openEmojiSearch();
     }
 
     private void onEmojiSearchDone(Intent intent) {

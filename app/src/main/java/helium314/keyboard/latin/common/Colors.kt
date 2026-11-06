@@ -44,6 +44,7 @@ interface Colors {
     val themeStyle: String
     /** used in parser to decide background of ZWNJ key */
     val hasKeyBorders: Boolean
+    val flatKeySurface: Boolean get() = false
     val accentShiftedIcon: Boolean get() =
         Settings.getCurrentContext().prefs().getBoolean(Settings.PREF_ACCENT_SHIFTED_ICON, Defaults.PREF_ACCENT_SHIFTED_ICON)
 
@@ -65,6 +66,35 @@ interface Colors {
 
     /** returns a colored drawable selected from [attr], which must contain using R.styleable.KeyboardView_* */
     fun selectAndColorDrawable(attr: TypedArray, color: ColorType): Drawable {
+        if (hasKeyBorders && flatKeySurface && color in setOf(KEY_BACKGROUND, FUNCTIONAL_KEY_BACKGROUND, SPACE_BAR_BACKGROUND, ACTION_KEY_BACKGROUND)) {
+            val density = Settings.getCurrentContext().resources.displayMetrics.density
+            val base = if (color == ACTION_KEY_BACKGROUND) get(FUNCTIONAL_KEY_BACKGROUND) else get(color)
+            fun surface(pressed: Boolean) = GradientDrawable().apply {
+                setColor(if (pressed) ColorUtils.blendARGB(base, Color.WHITE, .18f) else base)
+                cornerRadius = density * if (color == ACTION_KEY_BACKGROUND) 24f else 7f
+            }
+            return android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), surface(true))
+                addState(intArrayOf(), surface(false))
+            }
+        }
+        if (hasKeyBorders && get(MAIN_BACKGROUND) == android.graphics.Color.rgb(0x10, 0x13, 0x1C) &&
+            color in setOf(KEY_BACKGROUND, FUNCTIONAL_KEY_BACKGROUND, SPACE_BAR_BACKGROUND, ACTION_KEY_BACKGROUND)) {
+            val density = Settings.getCurrentContext().resources.displayMetrics.density
+            val base = if (color == ACTION_KEY_BACKGROUND) android.graphics.Color.rgb(0x32, 0x51, 0x8D) else get(color)
+            val radius = density * when (color) { ACTION_KEY_BACKGROUND -> 20f; FUNCTIONAL_KEY_BACKGROUND -> 12f; else -> 7f }
+            fun surface(pressed: Boolean) = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(
+                ColorUtils.blendARGB(base, Color.WHITE, if (pressed) 0.20f else 0.06f),
+                ColorUtils.blendARGB(base, Color.BLACK, 0.12f)
+            )).apply {
+                cornerRadius = radius
+                setStroke((density * 0.5f).toInt().coerceAtLeast(1), ColorUtils.blendARGB(base, Color.WHITE, 0.2f))
+            }
+            return android.graphics.drawable.StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_pressed), surface(true))
+                addState(intArrayOf(), surface(false))
+            }
+        }
         val drawable = when (color) {
             KEY_BACKGROUND, MORE_SUGGESTIONS_WORD_BACKGROUND, ACTION_KEY_POPUP_KEYS_BACKGROUND, POPUP_KEYS_BACKGROUND ->
                 attr.getDrawable(R.styleable.KeyboardView_keyBackground)
@@ -271,6 +301,7 @@ class DynamicColors(context: Context, override val themeStyle: String, override 
         actionKeyIconColorFilter = when {
             themeStyle == STYLE_HOLO -> keyTextFilter
             // the white icon may not have enough contrast, and can't be adjusted by the user
+            background == Color.rgb(0x10, 0x13, 0x1C) -> null
             isBrightColor(accent) -> colorFilter(Color.DKGRAY)
             else -> null
         }
@@ -381,6 +412,7 @@ class DefaultColors (
     private val spaceBarText: Int = keyHintText,
     private val gesture: Int = accent,
     private var keyboardBackground: Drawable? = null,
+    override val flatKeySurface: Boolean = false,
 ) : Colors {
     private val navBar: Int
     /** brightened or darkened variant of [background], to be used if exact background color would be
@@ -470,6 +502,7 @@ class DefaultColors (
         actionKeyIconColorFilter = when {
             themeStyle == STYLE_HOLO -> keyTextFilter
             // the white icon may not have enough contrast, and can't be adjusted by the user
+            background == Color.rgb(0x10, 0x13, 0x1C) -> null
             isBrightColor(accent) -> colorFilter(Color.DKGRAY)
             else -> null
         }

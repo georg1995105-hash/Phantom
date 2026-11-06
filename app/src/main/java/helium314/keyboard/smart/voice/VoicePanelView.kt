@@ -52,6 +52,10 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
         controller?.finishByUser()
     }
 
+    private val language = action("RU") { controller?.switchLanguage() }.apply { minWidth = 0 }
+    private val undo = SvUi.iconButton(context, R.drawable.ic_sv_reset, context.getString(R.string.sv_fn_undo), 40) { controller?.undo() }
+    private val mic = SvUi.iconButton(context, R.drawable.ic_sv_mic, context.getString(R.string.sv_fn_voice), 40) { controller?.onMicTapped() }
+
     init {
         visibility = GONE
         isClickable = true
@@ -66,7 +70,7 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
             gravity = Gravity.CENTER_VERTICAL
         }
         val barWidth = SvUi.dp(context, 3)
-        for (i in 0..6) {
+        for (i in 0..2) {
             val bar = View(context)
             val lp = LinearLayout.LayoutParams(barWidth, SvUi.dp(context, if (i % 2 == 0) 8 else 13))
             lp.marginEnd = SvUi.dp(context, 3)
@@ -77,6 +81,9 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
             marginStart = SvUi.dp(context, 8)
         })
         row.addView(middle, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        row.addView(language, LinearLayout.LayoutParams(SvUi.dp(context, 40), LayoutParams.MATCH_PARENT))
+        row.addView(undo, LinearLayout.LayoutParams(SvUi.dp(context, 40), LayoutParams.MATCH_PARENT))
+        row.addView(mic, LinearLayout.LayoutParams(SvUi.dp(context, 40), LayoutParams.MATCH_PARENT))
         row.addView(done, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
         addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
@@ -85,7 +92,8 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
         setBackgroundColor(SvUi.panelBackground())
         status.setTextColor(SvUi.text())
         cancel.setTextColor(SvUi.text())
-        done.setTextColor(SvUi.accent())
+        done.setTextColor(SvUi.text())
+        language.setTextColor(SvUi.text())
         for (bar in wave) {
             bar.background = GradientDrawable().apply {
                 setColor(SvUi.accent())
@@ -100,7 +108,7 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
     }
 
     override fun onVoiceState(state: VoiceController.State, message: CharSequence?) {
-        status.text = when (state) {
+        status.text = message ?: when (state) {
             VoiceController.State.LISTENING -> context.getString(R.string.sv_voice_listening)
             VoiceController.State.STARTING -> context.getString(R.string.sv_voice_starting)
             VoiceController.State.PROCESSING -> context.getString(R.string.sv_voice_processing)
@@ -110,7 +118,7 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
             VoiceController.State.ERROR -> message ?: context.getString(R.string.sv_voice_error_title)
             VoiceController.State.OFF -> ""
         }
-        done.isEnabled = state != VoiceController.State.PROCESSING && state != VoiceController.State.OFF
+        done.isEnabled = state != VoiceController.State.OFF
         done.alpha = if (done.isEnabled) 1f else 0.45f
     }
 
@@ -127,6 +135,12 @@ class VoicePanelView @JvmOverloads constructor(context: Context, attrs: Attribut
         }
     }
 
-    override fun onVoiceLanguage(languageTag: String) = Unit
-    override fun onUndoAvailable(available: Boolean) = Unit
+    override fun onVoiceLanguage(languageTag: String) {
+        language.text = languageTag.substringBefore('-').uppercase()
+        language.contentDescription = VoiceController.displayLanguage(languageTag)
+    }
+    override fun onUndoAvailable(available: Boolean) {
+        undo.isEnabled = available
+        undo.alpha = if (available) 1f else 0.4f
+    }
 }

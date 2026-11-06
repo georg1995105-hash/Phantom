@@ -83,7 +83,7 @@ fun WelcomeWizard(
     val textColor = Color(ContextCompat.getColor(ctx, R.color.setup_text_action))
     val textColorDim = textColor.copy(alpha = 0.5f)
     val titleColor = Color(ContextCompat.getColor(ctx, R.color.setup_text_title))
-    val appName = stringResource(ctx.applicationInfo.labelRes)
+    val appName = ctx.applicationInfo.loadLabel(ctx.packageManager).toString()
     @Composable fun bigText() {
         val resource = if (step == 0) R.string.setup_welcome_title else R.string.setup_steps_title
         Column(Modifier.padding(bottom = 36.dp)) {
