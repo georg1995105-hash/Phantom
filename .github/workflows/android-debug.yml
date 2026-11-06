@@ -56,3 +56,24 @@ jobs:
           sha256sum app/build/outputs/apk/debugNoMinify/*.apk | tee SHA256SUMS.txt
           cat SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Build separately installable preview APK
+        shell: bash
+        run: |
+          ./gradlew --no-daemon --stacktrace :app:assembleDebugNoMinify -PsmartvoicePreview=true
+
+      - name: Record preview APK checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum app/build/outputs/apk/debugNoMinify/*.apk | tee PREVIEW_SHA256SUMS.txt
+          cat PREVIEW_SHA256SUMS.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save preview APK privately as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartVoice-Test-Fix-${{ github.sha }}
+          path: |
+            app/build/outputs/apk/debugNoMinify/*.apk
+            PREVIEW_SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
