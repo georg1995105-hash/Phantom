@@ -547,8 +547,12 @@ public class LatinIME extends InputMethodService implements
         Log.i(TAG, "Hardware accelerated drawing: " + mIsHardwareAcceleratedDrawingEnabled);
     }
 
+    /** True while the system keeps this input method service bound in the current process. */
+    public static volatile boolean sServiceRunning = false;
+
     @Override
     public void onCreate() {
+        sServiceRunning = true;
         mSettings.startListener();
         KeyboardIconsSet.Companion.getInstance().loadIcons(this);
         mRichImm = RichInputMethodManager.getInstance();
@@ -708,6 +712,7 @@ public class LatinIME extends InputMethodService implements
 
     @Override
     public void onDestroy() {
+        sServiceRunning = false;
         mClipboardHistoryManager.onDestroy();
         mDictionaryFacilitator.closeDictionaries();
         mSettings.onDestroy();

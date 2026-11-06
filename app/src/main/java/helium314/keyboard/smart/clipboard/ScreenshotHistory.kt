@@ -96,6 +96,8 @@ class ScreenshotHistory(private val context: Context, private val allowed: () ->
             if (savedAny && !closed) handler.post { if (!closed && allowed()) onSaved() }
         } catch (_: Exception) { /* Provider restart/revoked grant: retry next opening or notification. */ }
     }
+    enum class Status { OFF, NEED_ACCESS, PARTIAL_ACCESS, ACTIVE }
+
     companion object {
         const val ENABLED = "sv_new_screenshots"
         const val SINCE = "sv_screenshot_since"
@@ -103,7 +105,19 @@ class ScreenshotHistory(private val context: Context, private val allowed: () ->
         const val LABEL = "Скриншот"
         fun permission() = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
         fun permitted(context: Context) = Build.VERSION.SDK_INT < 23 || context.checkSelfPermission(permission()) == PackageManager.PERMISSION_GRANTED
-        private val screenshotName = Regex("(?i)(screenshots?|screen[_ -]?captures?|снимки экрана|скриншот)")
+        // Declaring and requesting this lets Android 14+ report "selected photos only" honestly. Without it the
+        // system grants READ_MEDIA_IMAGES only until the activity leaves the foreground, and imports stop silently.
+        private const val USER_SELECTED = "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+        fun requestedPermissions() = if (Build.VERSION.SDK_INT >= 34) arrayOf(permission(), USER_SELECTED) else arrayOf(permission())
+
+        fun status(context: Context): Status = when {
+            !context.prefs().getBoolean(ENABLED, false) -> Status.OFF
+            permitted(context) -> Status.ACTIVE
+            Build.VERSION.SDK_INT >= 34 && context.checkSelfPermission(USER_SELECTED) == PackageManager.PERMISSION_GRANTED -> Status.PARTIAL_ACCESS
+            else -> Status.NEED_ACCESS
+        }
+        // OEM folders/names: AOSP/Samsung/Vivo "Screenshots", Huawei "Screen capture", older Vivo/Xiaomi "截屏"/"截图".
+        private val screenshotName = Regex("(?i)(screen[_ -]?shots?|screen[_ -]?captures?|screencap|снимки экрана|скриншот|截屏|截图)")
         fun isScreenshot(name: String, path: String): Boolean = screenshotName.containsMatchIn(path + "/" + name)
     }
 }
@@ -111,12 +125,21 @@ class ScreenshotHistory(private val context: Context, private val allowed: () ->
 class ScreenshotPermissionActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        android.app.AlertDialog.Builder(this).setTitle("Новые снимки экрана")
-            .setMessage("Добавлять только новые скриншоты в историю буфера? Нужен доступ к изображениям. Старые фото не импортируются. На Android 14+ доступ только к выбранным фото не позволяет обнаруживать будущие снимки. Без доступа скопируйте снимок в буфер вручную.")
-            .setPositiveButton("Включить") { _, _ ->
-                if (!prefs().getBoolean(ScreenshotHistory.ENABLED, false))
-                    prefs().edit().putLong(ScreenshotHistory.SINCE, System.currentTimeMillis()/1000).putLong(ScreenshotHistory.LAST, 0).apply()
-                if (ScreenshotHistory.permitted(this)) enable() else requestPermissions(arrayOf(ScreenshotHistory.permission()), 31)
+        val status = ScreenshotHistory.status(this)
+        val message = when (status) {
+            ScreenshotHistory.Status.ACTIVE -> "Сейчас включено: новые скриншоты сами появляются в буфере клавиатуры. Старые фото не импортируются."
+            ScreenshotHistory.Status.PARTIAL_ACCESS -> PARTIAL_MESSAGE
+            ScreenshotHistory.Status.NEED_ACCESS -> "Добавление скриншотов включено, но доступа к фото нет. Нажмите «Включить» и разрешите доступ ко всем фото."
+            ScreenshotHistory.Status.OFF -> "Добавлять только новые скриншоты в историю буфера? Нужен доступ ко всем фото. Старые фото не импортируются. Без доступа можно выбрать снимок вручную."
+        }
+        android.app.AlertDialog.Builder(this).setTitle("Новые снимки экрана").setMessage(message)
+            .setPositiveButton(if (status == ScreenshotHistory.Status.PARTIAL_ACCESS) "Открыть настройки" else "Включить") { _, _ ->
+                markEnabled()
+                when {
+                    ScreenshotHistory.permitted(this) -> enable()
+                    status == ScreenshotHistory.Status.PARTIAL_ACCESS -> { openAppSettings(); finish() }
+                    else -> requestPermissions(ScreenshotHistory.requestedPermissions(), 31)
+                }
             }.setNeutralButton("Выбрать снимок") { _, _ ->
                 startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                     type = "image/*"; addCategory(Intent.CATEGORY_OPENABLE)
@@ -124,6 +147,21 @@ class ScreenshotPermissionActivity : Activity() {
             }.setNegativeButton("Выключить") { _, _ -> prefs().edit().putBoolean(ScreenshotHistory.ENABLED, false).apply(); finish() }
             .setOnCancelListener { finish() }.show()
     }
+
+    /** Store the user's choice before the permission dialog, so an access granted later in system settings still works. */
+    private fun markEnabled() {
+        if (prefs().getBoolean(ScreenshotHistory.ENABLED, false)) return
+        prefs().edit().putLong(ScreenshotHistory.SINCE, System.currentTimeMillis() / 1000)
+            .putLong(ScreenshotHistory.LAST, 0).putBoolean(ScreenshotHistory.ENABLED, true).apply()
+        if (ScreenshotHistory.permitted(this)) watermarkNewest()
+    }
+
+    private fun watermarkNewest() {
+        contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, arrayOf("_id"), null, null, "_id DESC")?.use {
+            if (it.moveToFirst()) prefs().edit().putLong(ScreenshotHistory.LAST, it.getLong(0)).apply()
+        }
+    }
+
     override fun onActivityResult(request: Int, result: Int, data: Intent?) {
         super.onActivityResult(request, result, data)
         val uri = data?.data
@@ -139,31 +177,37 @@ class ScreenshotPermissionActivity : Activity() {
             }
         }.start()
     }
+
     private fun enable() {
-        Thread {
-            val ready = runCatching {
-                if (!prefs().getBoolean(ScreenshotHistory.ENABLED, false)) {
-                    var last = 0L
-                    contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, arrayOf("_id"), null, null, "_id DESC")?.use {
-                        if (it.moveToFirst()) last = it.getLong(0)
-                    }
-                    prefs().edit().putLong(ScreenshotHistory.LAST, last)
-                        .putLong(ScreenshotHistory.SINCE, System.currentTimeMillis()/1000).apply()
-                }
-                prefs().edit().putBoolean(ScreenshotHistory.ENABLED, true).apply()
-            }.isSuccess
-            runOnUiThread {
-                android.widget.Toast.makeText(this, if (ready) "Новые скриншоты появятся в буфере клавиатуры" else "Нет доступа к новым снимкам. Выберите изображение вручную", android.widget.Toast.LENGTH_LONG).show()
-                finish()
-            }
-        }.start()
+        android.widget.Toast.makeText(this, "Новые скриншоты появятся в буфере клавиатуры", android.widget.Toast.LENGTH_LONG).show()
+        finish()
+    }
+
+    private fun openAppSettings() {
+        runCatching {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        android.widget.Toast.makeText(this, "Разрешения → Фото и видео → «Разрешить все»", android.widget.Toast.LENGTH_LONG).show()
     }
 
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)
-        if (ScreenshotHistory.permitted(this)) enable() else {
-            android.widget.Toast.makeText(this, "Для будущих скриншотов нужен доступ ко всем фото. Можно выбрать снимок вручную", android.widget.Toast.LENGTH_LONG).show()
-            finish()
+        when (ScreenshotHistory.status(this)) {
+            ScreenshotHistory.Status.ACTIVE -> enable()
+            ScreenshotHistory.Status.PARTIAL_ACCESS -> android.app.AlertDialog.Builder(this).setTitle("Нужен доступ ко всем фото")
+                .setMessage(PARTIAL_MESSAGE)
+                .setPositiveButton("Открыть настройки") { _, _ -> openAppSettings(); finish() }
+                .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+                .setOnCancelListener { finish() }.show()
+            else -> {
+                android.widget.Toast.makeText(this, "Без доступа к фото новые скриншоты не видны. Можно выбрать снимок вручную", android.widget.Toast.LENGTH_LONG).show()
+                finish()
+            }
         }
+    }
+
+    private companion object {
+        const val PARTIAL_MESSAGE = "Android дал доступ только к выбранным фото. Будущие скриншоты так не видны клавиатуре. В настройках приложения откройте Разрешения → Фото и видео и выберите «Разрешить все»."
     }
 }

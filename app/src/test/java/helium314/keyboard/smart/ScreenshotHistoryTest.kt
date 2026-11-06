@@ -100,4 +100,24 @@ class ScreenshotHistoryTest {
         assertEquals(1, dao.count())
         history.close()
     }
+    @Test fun recognizesOemScreenshotFolders() {
+        assertTrue(ScreenshotHistory.isScreenshot("Screenshot_20261106_091900_com.vivo.jpg", "DCIM/Screenshots/"))
+        assertTrue(ScreenshotHistory.isScreenshot("IMG_20261106.jpg", "Pictures/截屏/"))
+        assertTrue(ScreenshotHistory.isScreenshot("Screen_Shot_1.png", "Pictures/"))
+        assertFalse(ScreenshotHistory.isScreenshot("IMG_0042.jpg", "DCIM/Camera/"))
+    }
+    @Test fun statusExplainsWhyScreenshotsAreNotImported() {
+        assertEquals(ScreenshotHistory.Status.ACTIVE, ScreenshotHistory.status(context))
+        shadowOf(context).denyPermissions(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        assertEquals(ScreenshotHistory.Status.NEED_ACCESS, ScreenshotHistory.status(context))
+        context.prefs().edit().putBoolean(ScreenshotHistory.ENABLED, false).commit()
+        assertEquals(ScreenshotHistory.Status.OFF, ScreenshotHistory.status(context))
+    }
+    @Test @Config(sdk = [34]) fun selectedPhotosOnlyIsReportedAsPartialAccess() {
+        shadowOf(context).denyPermissions(android.Manifest.permission.READ_MEDIA_IMAGES)
+        shadowOf(context).grantPermissions("android.permission.READ_MEDIA_VISUAL_USER_SELECTED")
+        assertEquals(ScreenshotHistory.Status.PARTIAL_ACCESS, ScreenshotHistory.status(context))
+        shadowOf(context).grantPermissions(android.Manifest.permission.READ_MEDIA_IMAGES)
+        assertEquals(ScreenshotHistory.Status.ACTIVE, ScreenshotHistory.status(context))
+    }
 }

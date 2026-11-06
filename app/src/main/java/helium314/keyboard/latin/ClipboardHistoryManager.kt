@@ -51,9 +51,12 @@ class ClipboardHistoryManager(
     private var tempPrimaryClip = false
 
     private val screenshots = helium314.keyboard.smart.clipboard.ScreenshotHistory(latinIME, allowed = {
-        latinIME.mSettings.current.mClipboardHistoryEnabled && !latinIME.mSettings.current.mIncognitoModeEnabled &&
-            !latinIME.mSettings.current.mInputAttributes.mNoLearning &&
-            !InputTypeUtils.isPasswordInputType(latinIME.currentInputEditorInfo?.inputType ?: 0)
+        val current = latinIME.mSettings.current
+        // Field protection only describes the editor the keyboard is shown in. With the keyboard hidden,
+        // the attributes are those of an earlier field and must not discard unrelated screenshots.
+        val protectedField = latinIME.isInputViewShown && (current.mInputAttributes.mNoLearning ||
+            InputTypeUtils.isPasswordInputType(latinIME.currentInputEditorInfo?.inputType ?: 0))
+        current.mClipboardHistoryEnabled && !current.mIncognitoModeEnabled && !protectedField
     }, onSaved = {
         dontShowCurrentSuggestion = false
         latinIME.svOnScreenshotSaved()

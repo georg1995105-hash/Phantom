@@ -34,6 +34,7 @@ class VoiceControllerTest {
     private lateinit var voice: VoiceController
     private var originalVoicePrefs = emptyMap<String, Any?>()
     @Before fun setup() {
+        resetEngineMemory()
         ime = Robolectric.setupService(LatinIME::class.java)
         originalVoicePrefs = ime.prefs().all.filterKeys { it.startsWith("sv_voice_") }
         ShadowInputMethodService.reset()
@@ -50,6 +51,7 @@ class VoiceControllerTest {
     }
     @After fun cleanup() {
         voice.close()
+        resetEngineMemory()
         val editor = ime.prefs().edit()
         ime.prefs().all.keys.filter { it.startsWith("sv_voice_") }.forEach(editor::remove)
         originalVoicePrefs.forEach { (key, value) -> when (value) {
@@ -207,5 +209,70 @@ class VoiceControllerTest {
         }
         voice.onResults(bundle)
         assertEquals("Привет, мир.", ShadowInputMethodService.text)
+    }
+    private fun resetEngineMemory() = VoiceController::class.java.getDeclaredField("onDeviceFailedInProcess")
+        .apply { isAccessible = true }.setBoolean(null, false)
+    private fun allowNetworkFallback() {
+        enableSystemRecognizer()
+        ime.prefs().edit().putBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, false).apply()
+        voice.close(); voice.open()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(onDevice())
+    }
+    @Test fun silentLocalEngineFallsBackToSystemService() {
+        allowNetworkFallback()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(7))
+        assertFalse(onDevice())
+        assertNotEquals(VoiceController.State.PAUSED, voice.state)
+        assertTrue(voice.isActive)
+    }
+    @Test fun localEngineDisconnectFallsBackToSystemService() {
+        allowNetworkFallback()
+        voice.onError(SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(150))
+        assertFalse(onDevice())
+        assertEquals(VoiceController.State.STARTING, voice.state)
+    }
+    @Test fun localEngineWithoutAnyResultFallsBackOnce() {
+        allowNetworkFallback()
+        voice.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(150))
+        assertFalse(onDevice())
+        voice.onError(SpeechRecognizer.ERROR_NO_MATCH)
+        assertEquals(VoiceController.State.PAUSED, voice.state)
+    }
+    @Test fun strictOfflineNeverSwitchesToSystemService() {
+        enableSystemRecognizer()
+        voice.onError(SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+        assertTrue(onDevice())
+        assertEquals(VoiceController.State.ERROR, voice.state)
+    }
+    @Test fun dictationContinuesAfterMicrophonePermissionDialog() {
+        voice.close()
+        shadowOf(ime.application).denyPermissions(Manifest.permission.RECORD_AUDIO)
+        voice.open()
+        assertEquals(VoiceController.State.NEED_PERMISSION, voice.state)
+        // The permission activity hides the keyboard window.
+        voice.onInputFinished()
+        assertFalse(voice.isActive)
+        shadowOf(ime.application).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        voice.onStartInputView()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(voice.isActive)
+        assertNotEquals(VoiceController.State.NEED_PERMISSION, voice.state)
+    }
+    @Test fun deniedPermissionDoesNotReopenLater() {
+        voice.close()
+        shadowOf(ime.application).denyPermissions(Manifest.permission.RECORD_AUDIO)
+        voice.open()
+        voice.onInputFinished()
+        voice.onStartInputView()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(voice.isActive)
+        shadowOf(ime.application).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        voice.onStartInputView()
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(voice.isActive)
     }
 }

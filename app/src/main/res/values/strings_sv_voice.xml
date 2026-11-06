@@ -26,6 +26,7 @@
     <string name="sv_voice_error_generic">Recognition stopped. Tap the microphone to retry</string>
     <string name="sv_voice_error_busy">Recognizer is busy. Tap the microphone to retry</string>
     <string name="sv_voice_error_network">No connection to the recognition service. Check the network or enable offline recognition</string>
+    <string name="sv_voice_fallback_system">On-device recognition did not respond. Using the system speech service…</string>
     <string name="sv_voice_error_language">This language is not supported by the recognition service</string>
     <string name="sv_voice_not_found">“%1$s” not found</string>
     <string name="sv_voice_offline_unavailable">On-device recognition unavailable. Install a language model or choose the system engine in Voice settings.</string>

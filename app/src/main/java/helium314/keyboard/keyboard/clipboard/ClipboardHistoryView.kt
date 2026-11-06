@@ -38,6 +38,7 @@ import helium314.keyboard.latin.database.ClipboardDao
 import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.utils.ResourceUtils
 import helium314.keyboard.smart.clipboard.ClipCategory
+import helium314.keyboard.smart.clipboard.ScreenshotHistory
 import helium314.keyboard.smart.clipboard.SmartClipAdapter
 import helium314.keyboard.smart.clipboard.SmartClipboard
 import helium314.keyboard.smart.ui.SmartUi
@@ -199,9 +200,21 @@ class ClipboardHistoryView @JvmOverloads constructor(
                 SmartUi.openClipboardSearch()
             }
         }, LayoutParams(0, SvUi.dp(context, 36), 1f))
-        if (category == ClipCategory.IMAGES) search.addView(stripButton(R.drawable.ic_sv_image, R.string.sv_screenshot_setup) {
+        val openScreenshotSetup = {
             context.startActivity(android.content.Intent(context, helium314.keyboard.smart.clipboard.ScreenshotPermissionActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        val screenshotStatus = ScreenshotHistory.status(context)
+        if (screenshotStatus != ScreenshotHistory.Status.ACTIVE && (category == ClipCategory.ALL || category == ClipCategory.IMAGES)) {
+            // Without this visible entry point the opt-in import looked like "screenshots never appear".
+            search.addView(SvUi.chip(context, context.getString(if (screenshotStatus == ScreenshotHistory.Status.OFF)
+                R.string.sv_screenshot_chip_off else R.string.sv_screenshot_chip_access)).apply {
+                setCompoundDrawablesRelativeWithIntrinsicBounds(SvUi.icon(context, R.drawable.ic_sv_image), null, null, null)
+                compoundDrawablePadding = SvUi.dp(context, 4)
+                setOnClickListener { SvUi.haptic(it); openScreenshotSetup() }
+            }, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, SvUi.dp(context, 36)).apply { marginStart = SvUi.dp(context, 5) })
+        } else if (category == ClipCategory.IMAGES) search.addView(stripButton(R.drawable.ic_sv_image, R.string.sv_screenshot_setup) {
+            openScreenshotSetup()
         }, LayoutParams(SvUi.dp(context, 44), SvUi.dp(context, 40)))
         search.addView(stripButton(R.drawable.ic_sv_delete, R.string.sv_clip_clear_recent) {
             pendingDelete = entries().filter { !it.isPinned }.map { it.id }; updateHeader()
@@ -242,7 +255,11 @@ class ClipboardHistoryView @JvmOverloads constructor(
         placeholderView.setText(when (category) {
             ClipCategory.ALL -> R.string.sv_clip_empty
             ClipCategory.TEXT -> R.string.sv_clip_empty_text
-            ClipCategory.IMAGES -> R.string.sv_clip_empty_photos
+            ClipCategory.IMAGES -> when (ScreenshotHistory.status(context)) {
+                ScreenshotHistory.Status.ACTIVE -> R.string.sv_clip_empty_photos_active
+                ScreenshotHistory.Status.OFF -> R.string.sv_clip_empty_photos
+                else -> R.string.sv_clip_empty_photos_access
+            }
             ClipCategory.LINKS -> R.string.sv_clip_empty_links
             ClipCategory.PINNED -> R.string.sv_clip_empty_pinned
         })

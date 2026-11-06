@@ -20,7 +20,11 @@
     <string name="sv_clip_file">File: %s</string>
     <string name="sv_clip_empty">Copied texts, links and pictures will appear here</string>
     <string name="sv_clip_empty_text">No copied text yet</string>
-    <string name="sv_clip_empty_photos">No copied pictures yet. A screenshot saved only to the gallery is not in the clipboard.</string>
+    <string name="sv_clip_empty_photos">No pictures yet. Tap “Screenshots” above to add new screenshots here automatically.</string>
+    <string name="sv_clip_empty_photos_access">Screenshots are enabled, but Android did not grant access to all photos. Tap “Screenshots: access” above.</string>
+    <string name="sv_clip_empty_photos_active">No pictures yet. A new screenshot appears here within a few seconds.</string>
+    <string name="sv_screenshot_chip_off">Screenshots</string>
+    <string name="sv_screenshot_chip_access">Screenshots: access</string>
     <string name="sv_clip_empty_links">No copied links yet</string>
     <string name="sv_clip_share_title">Share image</string>
     <string name="sv_clip_image_not_supported">This field does not accept images. Share it instead.</string>

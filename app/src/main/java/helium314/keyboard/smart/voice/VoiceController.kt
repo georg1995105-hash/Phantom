@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -63,6 +64,10 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     private var hadSpeechInSession = false
     private var retries = 0
     private var pendingStartAfterPermission = false
+    private var resumeAfterPermissionUntil = 0L
+    private var readyInSegment = false
+    private var partialInSession = false
+    private var systemFallbackTried = false
     private var pauseRequested = false
     private var finishRequested = false
     var languageTag: String = "ru-RU"
@@ -77,6 +82,9 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
 
     fun open() {
         useSystemForSession = false
+        systemFallbackTried = false
+        partialInSession = false
+        resumeAfterPermissionUntil = 0L
         finishRequested = false
         emptyResults = 0
         retries = 0
@@ -158,10 +166,22 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     }
 
     fun onInputFinished() {
-        if (isActive) close()
+        if (!isActive) return
+        // The permission dialog is a separate activity, so the keyboard window is hidden while it is shown.
+        // Remember the request, otherwise granting the microphone would not continue the dictation.
+        val waitingForPermission = state == State.NEED_PERMISSION && pendingStartAfterPermission
+        close()
+        if (waitingForPermission) resumeAfterPermissionUntil = SystemClock.uptimeMillis() + PERMISSION_RESUME_WINDOW
     }
 
     fun onStartInputView() {
+        if (resumeAfterPermissionUntil != 0L) {
+            val resume = SystemClock.uptimeMillis() < resumeAfterPermissionUntil && hasPermission()
+            resumeAfterPermissionUntil = 0L
+            // Posted: the input view and voice panel are rebuilt later in onStartInputView.
+            if (resume) handler.post { if (!isActive && ime.isInputViewShown) open() }
+            return
+        }
         if (state == State.NEED_PERMISSION && pendingStartAfterPermission && hasPermission()) {
             pendingStartAfterPermission = false
             startListening()
@@ -198,7 +218,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         val onDeviceAvailable = Build.VERSION.SDK_INT >= 31 && runCatching { SpeechRecognizer.isOnDeviceRecognitionAvailable(ime) }.getOrDefault(false)
         val defaultAvailable = runCatching { SpeechRecognizer.isRecognitionAvailable(ime) }.getOrDefault(false)
         return try {
-            val systemSelected = prefs.getString(SmartPrefs.VOICE_ENGINE_MODE, "auto") == "system" || useSystemForSession
+            val systemSelected = prefs.getString(SmartPrefs.VOICE_ENGINE_MODE, "auto") == "system" || useSystemForSession || onDeviceFailedInProcess
             if (defaultAvailable && systemSelected && !preferOffline) {
                 recognizerIsOnDevice = false
                 SpeechRecognizer.createSpeechRecognizer(ime)
@@ -279,8 +299,9 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
             override fun onEvent(e: Int, b: Bundle?) = Unit
         })
         listening = true
+        readyInSegment = false
         setState(State.STARTING)
-        watchdog(15000)
+        watchdog(if (canFallBackToSystem()) ON_DEVICE_STARTUP_TIMEOUT else 15000)
         try {
             recognizer?.startListening(recognizerIntent())
         } catch (e: Exception) {
@@ -312,12 +333,14 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
     // ---------- RecognitionListener ----------
 
     override fun onReadyForSpeech(params: Bundle?) {
+        readyInSegment = true
         if (!listening || state == State.OFF || state == State.PROCESSING || pauseRequested || finishRequested) return
         watchdog(120000)
         setState(State.LISTENING)
     }
 
     override fun onBeginningOfSpeech() {
+        readyInSegment = true
         if (!listening || state == State.OFF || state == State.PROCESSING || pauseRequested || finishRequested) return
         setState(State.LISTENING)
     }
@@ -338,7 +361,9 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         handler.removeCallbacksAndMessages(null)
         handler.postDelayed({
             if (listening && state != State.OFF) {
+                val neverStarted = !readyInSegment && composing.isEmpty()
                 stopRecognizer(cancel = true)
+                if (neverStarted && !finishRequested && !pauseRequested && fallBackToSystem()) return@postDelayed
                 finishComposingAsDictation()
                 destroyRecognizer()
                 if (finishRequested) close()
@@ -351,6 +376,8 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         if (!listening || state == State.OFF) return
         val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.trim().orEmpty()
         if (text.isEmpty()) return
+        readyInSegment = true
+        partialInSession = true
         if (segmentBefore == null) segmentBefore = connection.getTextBeforeCursor(SENTENCE_CONTEXT, 0) ?: ""
         val display = SpeechCorrector.correctPartial(text, segmentBefore, options())
         if (display != composing) {
@@ -403,6 +430,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
             return
         }
         Log.i(TAG, "recognizer error $error")
+        if (error !in USER_SIDE_ERRORS && fallBackToSystem()) return
         when (error) {
             SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                 // keep what was shown as partial result, it's better than nothing
@@ -429,14 +457,7 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
             }
             SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
                 finishComposingAsDictation()
-                if (!prefs.getBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, SmartPrefs.DEF_VOICE_PREFER_OFFLINE) && recognizerIsOnDevice && runCatching { SpeechRecognizer.isRecognitionAvailable(ime) }.getOrDefault(false) && retries++ < 1) {
-                    // on-device model for this language is missing, use the regular service
-                    destroyRecognizer()
-                    useSystemForSession = true
-                    recognizer = SpeechRecognizer.createSpeechRecognizer(ime)
-                    recognizerIsOnDevice = false
-                    startListening()
-                } else setState(State.ERROR, ime.getString(R.string.sv_voice_error_language))
+                setState(State.ERROR, ime.getString(R.string.sv_voice_error_language))
             }
             else -> {
                 finishComposingAsDictation()
@@ -449,6 +470,8 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
 
     private fun onNothingRecognized() {
         if (finishRequested) { close(); return }
+        // A local service without a usable model for the language answers every phrase with "no match".
+        if (!partialInSession && !hadSpeechInSession && !pauseRequested && fallBackToSystem()) return
         emptyResults++
         if (pauseRequested || emptyResults >= 2 ||
             !prefs.getBoolean(SmartPrefs.VOICE_CONTINUOUS, SmartPrefs.DEF_VOICE_CONTINUOUS)) {
@@ -457,6 +480,27 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         }
         setState(State.STARTING)
         handler.postDelayed({ if (state != State.OFF && !pauseRequested) startListening() }, RESTART_DELAY)
+    }
+
+    private fun strictOffline() = prefs.getBoolean(SmartPrefs.VOICE_PREFER_OFFLINE, SmartPrefs.DEF_VOICE_PREFER_OFFLINE)
+
+    private fun canFallBackToSystem() = recognizerIsOnDevice && !systemFallbackTried && !strictOffline() &&
+        runCatching { SpeechRecognizer.isRecognitionAvailable(ime) }.getOrDefault(false)
+
+    /** The local recognizer did not start or cannot recognize this language: continue with the regular system service. */
+    private fun fallBackToSystem(): Boolean {
+        if (!canFallBackToSystem()) return false
+        Log.i(TAG, "on-device recognizer failed, switching to the system recognition service")
+        systemFallbackTried = true
+        useSystemForSession = true
+        onDeviceFailedInProcess = true
+        listening = false
+        finishComposingAsDictation()
+        destroyRecognizer()
+        recognizerIsOnDevice = false
+        setState(State.STARTING, ime.getString(R.string.sv_voice_fallback_system))
+        handler.postDelayed({ if (state != State.OFF && !pauseRequested && !finishRequested) startListening() }, RESTART_DELAY)
+        return true
     }
 
     // ---------- text editing ----------
@@ -634,6 +678,13 @@ class VoiceController(private val ime: LatinIME) : RecognitionListener {
         private const val SENTENCE_CONTEXT = 120
         private const val MAX_FIELD = 20000
         private const val RESTART_DELAY = 120L
+        private const val ON_DEVICE_STARTUP_TIMEOUT = 6000L
+        private const val PERMISSION_RESUME_WINDOW = 90_000L
+        /** Errors caused by silence, the microphone or permissions; switching engines would not help. */
+        private val USER_SIDE_ERRORS = setOf(SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS, SpeechRecognizer.ERROR_AUDIO)
+        /** Once the local engine failed, later sessions in this process start with the system service directly. */
+        @Volatile private var onDeviceFailedInProcess = false
 
         fun displayLanguage(tag: String): String {
             val l = Locale.forLanguageTag(tag)

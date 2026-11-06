@@ -20,7 +20,11 @@
     <string name="sv_clip_file">Файл: %s</string>
     <string name="sv_clip_empty">Здесь появятся скопированные тексты, ссылки и изображения</string>
     <string name="sv_clip_empty_text">Скопированного текста пока нет</string>
-    <string name="sv_clip_empty_photos">Скопированных изображений пока нет. Скриншот, сохранённый только в галерею, в буфер не попадает.</string>
+    <string name="sv_clip_empty_photos">Изображений пока нет. Чтобы новые скриншоты появлялись здесь сами, нажмите «Скриншоты» вверху.</string>
+    <string name="sv_clip_empty_photos_access">Скриншоты включены, но Android не дал доступ ко всем фото. Нажмите «Скриншоты: доступ» вверху.</string>
+    <string name="sv_clip_empty_photos_active">Изображений пока нет. Новый скриншот появится здесь через пару секунд.</string>
+    <string name="sv_screenshot_chip_off">Скриншоты</string>
+    <string name="sv_screenshot_chip_access">Скриншоты: доступ</string>
     <string name="sv_clip_empty_links">Скопированных ссылок пока нет</string>
     <string name="sv_clip_share_title">Поделиться изображением</string>
     <string name="sv_clip_image_not_supported">Это поле не принимает изображения. Можно поделиться им.</string>

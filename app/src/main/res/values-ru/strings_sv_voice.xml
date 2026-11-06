@@ -26,6 +26,7 @@
     <string name="sv_voice_error_generic">Распознавание остановлено. Нажмите на микрофон, чтобы повторить</string>
     <string name="sv_voice_error_busy">Служба распознавания занята. Нажмите на микрофон ещё раз</string>
     <string name="sv_voice_error_network">Нет связи со службой распознавания. Проверьте сеть или включите офлайн-распознавание</string>
+    <string name="sv_voice_fallback_system">Локальное распознавание не ответило. Переключаюсь на системный сервис…</string>
     <string name="sv_voice_error_language">Служба распознавания не поддерживает этот язык</string>
     <string name="sv_voice_not_found">«%1$s» не найдено</string>
     <string name="sv_voice_offline_unavailable">Офлайн-распознавание недоступно. Установите языковую модель или выберите системный движок в настройках голоса.</string>
