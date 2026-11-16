@@ -21,6 +21,10 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,6 +55,8 @@ private val panelShape = RoundedCornerShape(18.dp)
 @Composable
 fun HomeScreen(
     refreshVersion: Int = 0,
+    externalImport: String? = null,
+    onExternalImportConsumed: () -> Unit = {},
     vpnStatus: String = "disconnected",
     vpnError: String = "",
     onStartVpn: (String) -> Unit = {},
@@ -110,6 +116,17 @@ fun HomeScreen(
             } catch (e: Exception) {
                 snackbar.showSnackbar(e.message ?: "Ошибка добавления подписки")
             }
+        }
+    }
+
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
+    }
+
+    LaunchedEffect(externalImport) {
+        externalImport?.takeIf { it.isNotBlank() }?.let {
+            add(it)
+            onExternalImportConsumed()
         }
     }
 
@@ -357,6 +374,15 @@ fun HomeScreen(
                     Spacer(Modifier.height(8.dp))
                     OutlinedTextField(title, { title = it }, label = { Text("Название (необязательно)") })
                     Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = {
+                        showAdd = false
+                        scanLauncher.launch(ScanOptions()
+                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            .setPrompt("Наведите камеру на QR-код подписки")
+                            .setOrientationLocked(false))
+                    }) {
+                        Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(8.dp)); Text("Сканировать QR")
+                    }
                     TextButton(onClick = { value = pasteText() }) {
                         Icon(Icons.Default.ContentPaste, null); Spacer(Modifier.width(8.dp)); Text("Вставить из буфера")
                     }

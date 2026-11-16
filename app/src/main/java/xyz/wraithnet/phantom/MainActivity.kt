@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
     private val refreshVersion = mutableIntStateOf(0)
+    private val externalImport = mutableStateOf<String?>(null)
 
     private val vpnPermission = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        externalImport.value = intent?.dataString
         val refreshWork = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(
             1, TimeUnit.HOURS,
         ).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
@@ -83,6 +85,8 @@ class MainActivity : ComponentActivity() {
             PhantomTheme(mode = theme) {
                 HomeScreen(
                     refreshVersion = refreshVersion.intValue,
+                    externalImport = externalImport.value,
+                    onExternalImportConsumed = { externalImport.value = null },
                     vpnStatus = vpnStatus.value,
                     vpnError = vpnError.value,
                     onStartVpn = ::requestVpn,
@@ -94,6 +98,12 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        externalImport.value = intent.dataString
     }
 
     override fun onResume() {
