@@ -37,13 +37,6 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.activity.result.contract.ActivityResultContracts
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.InputStreamReader
-import xyz.wraithnet.phantom.data.ConfigurationFiles
-import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.SaveAlt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
