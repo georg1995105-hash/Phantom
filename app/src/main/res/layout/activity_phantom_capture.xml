@@ -24,7 +24,7 @@
             android:layout_height="56dp"
             android:layout_marginStart="8dp"
             android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:src="@drawable/ic_qr_close"
             android:tint="#F0F4F6"
             android:contentDescription="Закрыть сканер" />
 
