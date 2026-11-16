@@ -209,7 +209,11 @@ fun HomeScreen(
                         latencies[serverId] = delayMs
                     }
                 }
-                snackbar.showSnackbar("Проверка серверов завершена")
+                val checked = servers.count { (latencies[it.id] ?: -1L) > 0L }
+                snackbar.showSnackbar(
+                    if (checked == 0) "Не получено ни одного результата проверки"
+                    else "Проверено: " + checked + " из " + servers.size + " серверов"
+                )
             } catch (e: Exception) {
                 snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
