@@ -4,6 +4,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
+import org.json.JSONObject
+import org.json.JSONArray
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -220,6 +223,8 @@ fun HomeScreen(
         }
     }
 
+    BackHandler(enabled = showSettings) { showSettings = false }
+
     if (showSettings) {
         PhantomSettings(onBack = { showSettings = false }, onThemeChange = onThemeChange)
         return
@@ -290,7 +295,7 @@ fun HomeScreen(
                         Text(vpnError, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center, fontSize = 13.sp)
                     } else if (selected != null) {
                         Spacer(Modifier.height(5.dp))
-                        Text(selected.name, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                        Text(displayServerName(selected), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     }
                 }
             }
@@ -346,7 +351,7 @@ fun HomeScreen(
                             Column(Modifier.padding(horizontal = 18.dp, vertical = 5.dp)) {
                                 if (item.totalBytes != null) {
                                     val used = (item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)
-                                    Text("Трафик: " + sizeLabel(used) + " / " + sizeLabel(item.totalBytes),
+                                    Text("Трафик: " + sizeLabel(used) + " / " + if (item.totalBytes > 0L) sizeLabel(item.totalBytes) else "∞",
                                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (item.totalBytes > 0L) {
                                         Spacer(Modifier.height(5.dp))
@@ -388,7 +393,7 @@ fun HomeScreen(
                                     Text(server.countryFlag.ifBlank { "◇" }, fontSize = 23.sp)
                                     Spacer(Modifier.width(12.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text(server.name, fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal, fontSize = 15.sp)
+                                        Text(displayServerName(server), fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal, fontSize = 15.sp)
                                         Text(protocolLabel(server),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                                     }
@@ -456,10 +461,29 @@ fun HomeScreen(
     }
 }
 
-private fun protocolLabel(server: ServerProfile): String = when (server.scheme.lowercase()) {
-    "xray" -> "Xray JSON"
-    "hysteria", "hysteria2", "hy2" -> "Hysteria2"
-    else -> server.scheme.uppercase()
+private fun displayServerName(server: ServerProfile): String =
+    server.name.trim().removePrefix(server.countryFlag).trim().ifBlank { server.name }
+
+private fun protocolLabel(server: ServerProfile): String {
+    if (server.scheme.lowercase() !in setOf("xray", "json")) return when (server.scheme.lowercase()) {
+        "hysteria", "hysteria2", "hy2" -> "Hysteria2"
+        else -> server.scheme.uppercase()
+    }
+    return runCatching {
+        val root = JSONObject(server.raw)
+        val array = root.optJSONArray("outbounds")
+        val proxy = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
+            .firstOrNull { it.optString("protocol") !in setOf("freedom", "blackhole", "dns") }
+            ?: root
+        val protocol = proxy.optString("protocol").ifBlank { "Xray" }
+        val stream = proxy.optJSONObject("streamSettings")
+        val transport = stream?.optString("method")?.ifBlank { stream.optString("network") }
+        val security = stream?.optString("security")
+        listOf(protocol, transport, security)
+            .filterNot { it.isNullOrBlank() || it.equals("none", true) || it.equals("raw", true) }
+            .map { it!!.uppercase(Locale.ROOT) }
+            .distinct().joinToString(" · ").ifBlank { "Xray" }
+    }.getOrDefault("Xray")
 }
 
 private fun sizeLabel(bytes: Long): String {
