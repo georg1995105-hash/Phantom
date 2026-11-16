@@ -94,7 +94,10 @@ object PhantomHttp {
             encryptedFallbacks = listOf(cloudflare, google),
             allowFallback = {
                 app.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-                    .getBoolean(DNS_FALLBACK_KEY, true) && !hasStrictPrivateDns(app)
+                    .getBoolean(DNS_FALLBACK_KEY, true) &&
+                    !hasStrictPrivateDns(app) &&
+                    // Do not bypass DNS policy defined by a different VPN.
+                    !networkState(app).otherVpn
             }
         )
 
