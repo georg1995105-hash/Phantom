@@ -81,6 +81,7 @@ import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
+import xyz.wraithnet.phantom.ui.settings.ComponentsScreen
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
@@ -1037,6 +1038,7 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
+    var showComponents by remember { mutableStateOf(false) }
     if (showThemeGallery) {
         ThemeGalleryScreen(
             selected = mode,
@@ -1047,6 +1049,10 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
+    if (showComponents) {
+        ComponentsScreen(onBack = { showComponents = false })
+        return
+    }
     val version = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
             .getOrNull() ?: "—"
@@ -1282,7 +1288,18 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    PhantomUpdateSection()
+                    Row(Modifier.fillMaxWidth().clickable { showComponents = true }
+                        .padding(horizontal = 16.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Компоненты и лицензии", fontSize = 15.sp)
+                            Text("Протоколы, библиотеки, открытые лицензии",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
             item {
@@ -1303,6 +1320,19 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         Icon(Icons.Default.ChevronRight, null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+            }
+            item {
+                Text("ОБНОВЛЕНИЯ", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    PhantomUpdateSection()
                 }
             }
         }
