@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Speed
@@ -106,6 +108,9 @@ fun HomeScreen(
     var pingCompleted by remember { mutableIntStateOf(0) }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
+    var activeSubMenu by remember { mutableStateOf<String?>(null) }
+    var editSubId by remember { mutableStateOf<String?>(null) }
+    var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -511,8 +516,7 @@ fun HomeScreen(
                     }
                 }
             }
-            items(subscriptions, key = { it.id }) { item ->
-                var menuExpanded by remember(item.id) { mutableStateOf(false) }
+            items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -538,26 +542,19 @@ fun HomeScreen(
                                 Text(item.servers.size.toString() + " серверов · " + timeLabel(item.updatedAt),
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = { probeSubscription(item) },
-                                enabled = item.id !in probing, modifier = Modifier.size(36.dp)) {
-                                if (item.id in probing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Speed, "Проверить пинг", Modifier.size(21.dp))
-                            }
                             IconButton(onClick = { scope.launch { refresh(item) } },
                                 enabled = item.id !in refreshing, modifier = Modifier.size(36.dp)) {
                                 if (item.id in refreshing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                                 else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
                             }
-                            Box {
-                                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.MoreVert, "Управление подпиской", Modifier.size(21.dp))
-                                }
-                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text("Удалить подписку") },
-                                        onClick = { menuExpanded = false; deleteId = item.id }
-                                    )
-                                }
+                            IconButton(onClick = { probeSubscription(item) },
+                                enabled = item.id !in probing, modifier = Modifier.size(36.dp)) {
+                                if (item.id in probing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.Speed, "Проверить пинг", Modifier.size(21.dp))
+                            }
+                            IconButton(onClick = { activeSubMenu = item.id }, modifier = Modifier.size(40.dp)) {
+                                Text("•••", fontSize = 16.sp, letterSpacing = 2.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         if (item.totalBytes != null || item.expiresAt != null) {
@@ -613,7 +610,12 @@ fun HomeScreen(
                                         .padding(horizontal = 16.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(server.countryFlag.ifBlank { "◇" }, fontSize = 24.sp)
+                                    Text(server.countryFlag.ifBlank {
+                                        when {
+                                            server.name.contains("📶") -> "📶"
+                                            else -> "🌐"
+                                        }
+                                    }, fontSize = 23.sp)
                                     Spacer(Modifier.width(11.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(displayServerName(server), fontSize = 15.sp,
@@ -649,6 +651,99 @@ fun HomeScreen(
             text = { Text(vpnError, fontSize = 13.sp) },
             confirmButton = { TextButton(onClick = { showErrorDetails = false }) { Text("Закрыть") } }
         )
+    }
+
+    activeSubMenu?.let { id ->
+        val sub = subscriptions.firstOrNull { it.id == id }
+        if (sub != null) {
+            ModalBottomSheet(
+                onDismissRequest = { activeSubMenu = null },
+                containerColor = MaterialTheme.colorScheme.surface,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 18.dp)) {
+                    Text(sub.title, fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                    funActionRow("Настройки подписки", Icons.Default.Settings) {
+                        editSubId = sub.id
+                        activeSubMenu = null
+                    }
+                    funActionRow("Маршрутизация приложений", Icons.Default.Route) {
+                        activeSubMenu = null
+                        showSettings = true
+                    }
+                    funActionRow("Обновить подписку", Icons.Default.Refresh) {
+                        activeSubMenu = null
+                        scope.launch { refresh(sub) }
+                    }
+                    funActionRow("Проверить задержку", Icons.Default.Speed) {
+                        activeSubMenu = null
+                        probeSubscription(sub)
+                    }
+                    funActionRow(
+                        if (pinnedSubId == sub.id) "Открепить" else "Закрепить",
+                        Icons.Default.PushPin
+                    ) {
+                        pinnedSubId = if (pinnedSubId == sub.id) null else sub.id
+                        prefs.edit().putString("pinned_sub_id", pinnedSubId).apply()
+                        activeSubMenu = null
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
+                        activeSubMenu = null
+                        deleteId = sub.id
+                    }
+                }
+            }
+        }
+    }
+
+    editSubId?.let { id ->
+        val sub = subscriptions.firstOrNull { it.id == id }
+        if (sub != null) {
+            var editedName by remember(id) { mutableStateOf(sub.title) }
+            var interval by remember(id) {
+                mutableStateOf((sub.updateIntervalSeconds / 3600L).coerceIn(1L, 24L).toString())
+            }
+            ModalBottomSheet(
+                onDismissRequest = { editSubId = null },
+                containerColor = MaterialTheme.colorScheme.surface,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Настройки подписки",
+                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(editedName, { editedName = it },
+                        label = { Text("Название") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(interval, { interval = it },
+                        label = { Text("Интервал обновления, часы (1–24)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth())
+                    Button(
+                        enabled = editedName.isNotBlank() &&
+                            (interval.toIntOrNull() ?: 0) in 1..24,
+                        onClick = {
+                            persist(subscriptions.map {
+                                if (it.id == id) it.copy(
+                                    title = editedName.trim(),
+                                    updateIntervalSeconds = interval.toLong() * 3600L
+                                ) else it
+                            })
+                            editSubId = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Сохранить") }
+                }
+            }
+        }
     }
 
     if (importMode != null) {
@@ -744,7 +839,25 @@ fun HomeScreen(
 }
 
 private fun displayServerName(server: ServerProfile): String =
-    server.name.trim().removePrefix(server.countryFlag).trim().ifBlank { server.name }
+    server.name.trim().removePrefix(server.countryFlag)
+        .removePrefix("🌐").removePrefix("📶").trim().ifBlank { server.name }
+
+
+@Composable
+private fun funActionRow(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 55.dp)
+        .clickable(onClick = onClick).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(21.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(18.dp))
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    }
+}
 
 private fun protocolLabel(server: ServerProfile): String {
     if (server.scheme.lowercase() !in setOf("xray", "json")) return when (server.scheme.lowercase()) {
