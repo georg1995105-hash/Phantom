@@ -682,58 +682,56 @@ fun HomeScreen(
                 item(key = "ota-update") {
                     val release = availableUpdate!!
                     Card(
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(17.dp),
+                        border = BorderStroke(1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = .38f)),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .58f)
+                            containerColor = MaterialTheme.colorScheme.surface
                         )
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(22.dp),
+                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(20.dp),
                                     tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(9.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text("Доступно обновление " + release.version,
-                                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Официальный выпуск Phantom VPN",
+                                    Text("Обновление " + release.version,
+                                        fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("Новая версия доступна",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                IconButton(
-                                    onClick = { otaDismissed = true },
-                                    enabled = !otaDownload,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, "Скрыть уведомление", Modifier.size(18.dp))
+                                IconButton(onClick = { otaDismissed = true },
+                                    enabled = !otaDownload, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Close, "Скрыть", Modifier.size(18.dp))
                                 }
                             }
+                            val details = formatUpdateNotes(release.notes)
+                            if (details.isNotBlank()) {
+                                Spacer(Modifier.height(7.dp))
+                                Text(details, fontSize = 11.sp, lineHeight = 15.sp,
+                                    maxLines = 4,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             if (otaDownload) {
-                                Spacer(Modifier.height(8.dp))
+                                Spacer(Modifier.height(7.dp))
                                 LinearProgressIndicator(
                                     progress = { otaProgress.toFloat() / 100f },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                Text("Загрузка: " + otaProgress + "%", fontSize = 12.sp)
+                                Text("Загрузка " + otaProgress + "%", fontSize = 11.sp)
                             }
                             otaError?.let { message ->
-                                Spacer(Modifier.height(6.dp))
-                                Text(message, fontSize = 12.sp,
+                                Text(message, fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.error)
                             }
                             Spacer(Modifier.height(7.dp))
-                            Button(
-                                onClick = ::startOtaInstall,
+                            OutlinedButton(onClick = ::startOtaInstall,
                                 enabled = !otaDownload,
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                if (otaDownload) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(if (otaDownload) "Скачивание…"
-                                    else if (otaFile?.exists() == true) "Установить обновление"
-                                    else "Обновить сейчас")
+                                shape = RoundedCornerShape(12.dp)) {
+                                Text(if (otaFile?.exists() == true) "Установить"
+                                    else "Скачать обновление", fontSize = 13.sp)
                             }
                         }
                     }
@@ -1007,6 +1005,13 @@ private fun sizeLabel(bytes: Long): String {
     while (value >= 1024 && i < units.lastIndex) { value /= 1024; i++ }
     return String.format(Locale.getDefault(), "%.1f %s", value, units[i])
 }
+
+private fun formatUpdateNotes(notes: String): String =
+    notes.lineSequence()
+        .map { it.trim().removePrefix("- ").removePrefix("* ").trim() }
+        .filter { it.isNotBlank() && !it.startsWith("#") }
+        .take(4)
+        .joinToString("\n") { "• " + it }
 
 private fun timeLabel(millis: Long): String =
     SimpleDateFormat("dd.MM, HH:mm", Locale.getDefault()).format(Date(millis))
