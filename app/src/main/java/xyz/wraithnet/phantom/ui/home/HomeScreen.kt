@@ -409,7 +409,7 @@ fun HomeScreen(
                                 Column(Modifier.weight(1f)) {
                                     Text("Доступно обновление " + release.version,
                                         fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Phantom VPN · проверенная версия",
+                                    Text("Официальный выпуск Phantom VPN",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }

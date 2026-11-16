@@ -26,7 +26,9 @@ object VpnEventLog {
         }
         val safeReason = if (state == "error") scrub(message) else ""
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val existing = JSONArray(prefs.getString(KEY, "[]") ?: "[]")
+        val existing = runCatching {
+            JSONArray(prefs.getString(KEY, "[]") ?: "[]")
+        }.getOrDefault(JSONArray())
         val array = JSONArray()
         array.put(JSONObject().put("timestamp", System.currentTimeMillis())
             .put("state", safeState).put("reason", safeReason))
