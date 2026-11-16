@@ -77,6 +77,7 @@ import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
+import xyz.wraithnet.phantom.data.ReleaseNotes
 import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
@@ -689,7 +690,7 @@ fun HomeScreen(
                                     Icon(Icons.Default.Close, "Скрыть", Modifier.size(18.dp))
                                 }
                             }
-                            val details = formatUpdateNotes(release.notes)
+                            val details = ReleaseNotes.summary(release.notes)
                             if (details.isNotBlank()) {
                                 Spacer(Modifier.height(7.dp))
                                 Text(details, fontSize = 11.sp, lineHeight = 15.sp,
@@ -1009,13 +1010,6 @@ private fun sizeLabel(bytes: Long): String {
     while (value >= 1024 && i < units.lastIndex) { value /= 1024; i++ }
     return String.format(Locale.getDefault(), "%.1f %s", value, units[i])
 }
-
-private fun formatUpdateNotes(notes: String): String =
-    notes.lineSequence()
-        .map { it.trim().removePrefix("- ").removePrefix("* ").trim() }
-        .filter { it.isNotBlank() && !it.startsWith("#") }
-        .take(4)
-        .joinToString("\n") { "• " + it }
 
 private fun timeLabel(millis: Long): String =
     SimpleDateFormat("dd.MM, HH:mm", Locale.getDefault()).format(Date(millis))
