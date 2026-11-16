@@ -2,13 +2,17 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
-    <!-- Restrained monoline P: a simple branded letter, not a generic power icon -->
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#E5EBFF" android:strokeWidth="7"
-        android:strokeLineCap="round" android:strokeLineJoin="round"
-        android:pathData="M39,77 L39,31 L58,31 C75,31 78,42 78,51 C78,62 70,67 57,67 L39,67" />
-    <path android:fillColor="@android:color/transparent"
-        android:strokeColor="#8197D3" android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M49,42 L58,42 C64,42 67,45 67,50 C67,54 64,57 58,57 L49,57" />
+    <!-- Clean P-shaped continuous mark; the adaptive icon mask clips outside safe area. -->
+    <path android:fillColor="#E8F1FF"
+        android:pathData="M38,26 C35.8,26 34,27.8 34,30 L34,78
+                          C34,80.2 35.8,82 38,82 L40,82
+                          C42.2,82 44,80.2 44,78 L44,64
+                          L59,64 C74,64 82,56 82,45
+                          C82,33.9 74,26 59,26 Z
+                          M44,37 L58,37 C65.6,37 70,39.7 70,45
+                          C70,50.3 65.6,53 58,53 L44,53 Z"
+        android:fillType="evenOdd" />
+    <path android:fillColor="#81AAFF"
+        android:pathData="M48,69 L65,69 C67.2,69 69,70.8 69,73
+                          C69,75.2 67.2,77 65,77 L48,77 Z"/>
 </vector>
