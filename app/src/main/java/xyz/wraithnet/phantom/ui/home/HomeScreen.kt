@@ -97,6 +97,7 @@ fun HomeScreen(
     var showImportMenu by remember { mutableStateOf(false) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
+    var importError by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
@@ -118,6 +119,7 @@ fun HomeScreen(
             return
         }
         importBusy = true
+        importError = null
         scope.launch {
             try {
                 val source = raw.trim()
@@ -139,7 +141,9 @@ fun HomeScreen(
                 showImportMenu = false
                 snackbar.showSnackbar("Добавлено серверов: " + subscription.servers.size)
             } catch (e: Exception) {
-                snackbar.showSnackbar(e.message ?: "Не удалось добавить подписку")
+                val message = e.message ?: "Не удалось добавить подписку"
+                if (importMode != null) importError = message
+                else snackbar.showSnackbar(message)
             } finally {
                 importBusy = false
             }
@@ -546,7 +550,7 @@ fun HomeScreen(
                 )
                 OutlinedTextField(
                     value = value,
-                    onValueChange = { value = it },
+                    onValueChange = { value = it; importError = null },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = !manual,
                     minLines = if (manual) 5 else 1,
@@ -557,6 +561,9 @@ fun HomeScreen(
                     keyboardOptions = KeyboardOptions(keyboardType =
                         if (manual) KeyboardType.Text else KeyboardType.Uri)
                 )
+                importError?.let { error ->
+                    Text(error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
                 if (manual) {
                     OutlinedTextField(
                         value = optionalName,
