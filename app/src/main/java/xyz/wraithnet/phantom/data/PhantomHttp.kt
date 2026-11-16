@@ -29,6 +29,41 @@ object PhantomHttp {
     const val DNS_FALLBACK_KEY = "http_dns_fallback"
     private val lock = Any()
     @Volatile private var shared: OkHttpClient? = null
+    @Volatile private var activeRoute: String? = null
+
+    data class NetworkState(
+        val routeId: String?,
+        val validated: Boolean,
+        val otherVpn: Boolean,
+    )
+
+    internal fun explainFailure(error: IOException, network: NetworkState): String {
+        if (network.otherVpn && (error is UnknownHostException ||
+                    error is ConnectException || error is SocketTimeoutException)) {
+            return "Сеть сейчас работает через другой VPN. Отключите его, " +
+                "дождитесь восстановления интернета и повторите попытку. " +
+                "Android не запускает два VPN одновременно."
+        }
+        return describe(error, network.validated)
+    }
+
+    private fun networkState(context: Context): NetworkState {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return NetworkState(null, true, false)
+        return runCatching {
+            val network = cm.activeNetwork
+            val caps = network?.let { cm.getNetworkCapabilities(it) }
+            val ownVpn = context.getSharedPreferences(
+                "phantom_preferences", Context.MODE_PRIVATE).getBoolean("vpn_running", false)
+            NetworkState(
+                routeId = network?.toString(),
+                validated = caps?.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true,
+                otherVpn = caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true &&
+                    !ownVpn,
+            )
+        }.getOrDefault(NetworkState(null, true, false))
+    }
 
     private fun ip(vararg bytes: Int): InetAddress =
         InetAddress.getByAddress(bytes.map { it.toByte() }.toByteArray())
@@ -73,10 +108,22 @@ object PhantomHttp {
             .build()
     }
 
-    private fun client(context: Context): OkHttpClient =
-        shared ?: synchronized(lock) {
-            shared ?: createClient(context).also { shared = it }
+    private fun client(context: Context): OkHttpClient {
+        val route = networkState(context).routeId
+        val current = shared
+        if (current != null && route == activeRoute) return current
+        return synchronized(lock) {
+            val old = shared
+            if (old != null && route == activeRoute) return@synchronized old
+            // When Android switches INCY -> Phantom or VPN -> mobile/Wi-Fi,
+            // discard pooled sockets and DNS caches bound to the old network.
+            val fresh = createClient(context)
+            activeRoute = route
+            shared = fresh
+            old?.connectionPool?.evictAll()
+            fresh
         }
+    }
 
     private fun hasStrictPrivateDns(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
@@ -86,16 +133,6 @@ object PhantomHttp {
             val active = cm.activeNetwork ?: return@runCatching false
             !cm.getLinkProperties(active)?.privateDnsServerName.isNullOrBlank()
         }.getOrDefault(false)
-    }
-
-    private fun hasValidatedNetwork(context: Context): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return true
-        return runCatching {
-            val active = cm.activeNetwork ?: return@runCatching false
-            cm.getNetworkCapabilities(active)
-                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
-        }.getOrDefault(true)
     }
 
     /** No credentials are logged; raw URLs may contain subscriber secrets. */
@@ -127,17 +164,18 @@ object PhantomHttp {
         val request = Request.Builder().url(url).get().apply {
             headers.forEach { (name, value) -> header(name, value) }
         }.build()
-        for (attempt in 0..1) {
+        for (attempt in 0..2) {
             val call = client(context).newCall(request)
             if (callTimeoutMs > 0L) call.timeout().timeout(callTimeoutMs, TimeUnit.MILLISECONDS)
             val response = try {
                 call.execute()
             } catch (e: IOException) {
-                if (attempt == 0 && retryable(e)) {
-                    delay(450)
+                if (attempt < 2 && retryable(e)) {
+                    // The network/DNS may not yet be ready after a VPN switch.
+                    delay(if (attempt == 0) 450L else 1200L)
                     continue
                 }
-                throw Failure(describe(e, hasValidatedNetwork(context)), e)
+                throw Failure(explainFailure(e, networkState(context)), e)
             }
             response.use {
                 if (!it.isSuccessful) throw IOException("Сервер ответил HTTP " + it.code)
