@@ -22,6 +22,7 @@ import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
+import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 
 class PhantomVpnService : VpnService() {
@@ -48,6 +49,9 @@ class PhantomVpnService : VpnService() {
                 stopSelf()
             }
             ACTION_QUERY -> sendStatus(state)
+            ACTION_RELOAD -> ioScope.launch { mutex.withLock {
+                startLocked(prefs.getString("vpn_last_profile", "").orEmpty())
+            } }
             ACTION_KEEP_ALIVE -> ioScope.launch {
                 mutex.withLock { configureWakeLock() }
             }
@@ -85,7 +89,7 @@ class PhantomVpnService : VpnService() {
                 .addAddress("fd00:1111::2", 64)
                 .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
-                .addDisallowedApplication(packageName)
+                .also { AppRouting.apply(this, it) }
                 .establish() ?: error("Android не создал VPN-интерфейс")
             vpnInterface = tun
 
@@ -200,6 +204,7 @@ class PhantomVpnService : VpnService() {
         const val ACTION_STOP = "xyz.wraithnet.phantom.STOP_VPN"
         const val ACTION_QUERY = "xyz.wraithnet.phantom.QUERY_VPN"
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
+        const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_STATUS = "status"
