@@ -439,9 +439,9 @@ fun HomeScreen(
         }
     ) { inner ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(inner).navigationBarsPadding(),
-            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier.fillMaxSize().padding(inner),
+            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             item(key = "connection-metrics") {
                 val isConnected = vpnStatus == "connected"
@@ -468,70 +468,9 @@ fun HomeScreen(
                     }
                 }
             }
-            if (availableUpdate != null && !otaDismissed) {
-                item(key = "ota-update") {
-                    val release = availableUpdate!!
-                    Card(
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .58f)
-                        )
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(22.dp),
-                                    tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.width(9.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Доступно обновление " + release.version,
-                                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Text("Официальный выпуск Phantom VPN",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                IconButton(
-                                    onClick = { otaDismissed = true },
-                                    enabled = !otaDownload,
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, "Скрыть уведомление", Modifier.size(18.dp))
-                                }
-                            }
-                            if (otaDownload) {
-                                Spacer(Modifier.height(8.dp))
-                                LinearProgressIndicator(
-                                    progress = { otaProgress.toFloat() / 100f },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Text("Загрузка: " + otaProgress + "%", fontSize = 12.sp)
-                            }
-                            otaError?.let { message ->
-                                Spacer(Modifier.height(6.dp))
-                                Text(message, fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.error)
-                            }
-                            Spacer(Modifier.height(7.dp))
-                            Button(
-                                onClick = ::startOtaInstall,
-                                enabled = !otaDownload,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                if (otaDownload) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Text(if (otaDownload) "Скачивание…"
-                                    else if (otaFile?.exists() == true) "Установить обновление"
-                                    else "Обновить сейчас")
-                            }
-                        }
-                    }
-                }
-            }
             item {
                 Column(
-                    Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp),
+                    Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 0.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     val connected = vpnStatus == "connected"
@@ -557,7 +496,7 @@ fun HomeScreen(
                             tint = if (connected) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurface)
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(9.dp))
                     Text(when (vpnStatus) {
                         "connected" -> "Подключено"
                         "starting" -> "Подключение…"
@@ -572,7 +511,7 @@ fun HomeScreen(
                             Text("Причина ошибки", fontSize = 12.sp)
                         }
                     } else if (selected != null) {
-                        Spacer(Modifier.height(5.dp))
+                        Spacer(Modifier.height(3.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(CountryFlags.flag(selected), fontSize = 19.sp)
                             Spacer(Modifier.width(7.dp))
@@ -604,37 +543,18 @@ fun HomeScreen(
                     }
                 }
             }
-            if (subscriptions.isNotEmpty()) {
-                item(key = "toggle-all-servers") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = {
-                            expandedIds = if (subscriptions.all { it.id in expandedIds })
-                                emptySet()
-                            else subscriptions.map { it.id }.toSet()
-                        }) {
-                            Icon(
-                                if (subscriptions.all { it.id in expandedIds }) Icons.Default.ExpandLess
-                                    else Icons.Default.ExpandMore,
-                                null, Modifier.size(17.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(if (subscriptions.all { it.id in expandedIds })
-                                "Скрыть все" else "Показать все", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
             items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
                 Card(
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = .45f)),
+                    border = BorderStroke(1.5.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = .72f)),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 6.dp, end = 4.dp, top = 4.dp, bottom = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            Modifier.fillMaxWidth().padding(start = 7.dp, end = 7.dp, top = 9.dp, bottom = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             IconButton(
                                 onClick = { expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id },
@@ -649,22 +569,22 @@ fun HomeScreen(
                             }) {
                                 Text(item.title, style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                Text(item.servers.size.toString() + " серверов · " + timeLabel(item.updatedAt),
+                                Text("Обновлено " + timeLabel(item.updatedAt),
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             IconButton(onClick = { scope.launch { refresh(item) } },
-                                enabled = item.id !in refreshing, modifier = Modifier.size(36.dp)) {
+                                enabled = item.id !in refreshing, modifier = Modifier.size(40.dp)) {
                                 if (item.id in refreshing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                                 else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
                             }
                             IconButton(onClick = { probeSubscription(item) },
-                                enabled = item.id !in probing, modifier = Modifier.size(36.dp)) {
+                                enabled = item.id !in probing, modifier = Modifier.size(40.dp)) {
                                 if (item.id in probing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                                 else Icon(Icons.Default.Speed, "Проверить пинг", Modifier.size(21.dp))
                             }
                             IconButton(onClick = { activeSubMenu = item.id }, modifier = Modifier.size(40.dp)) {
-                                Text("•••", fontSize = 16.sp, letterSpacing = 2.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(Icons.Default.MoreVert, "Меню подписки", Modifier.size(22.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         if (item.totalBytes != null || item.expiresAt != null) {
@@ -747,6 +667,68 @@ fun HomeScreen(
                     }
                 }
             }
+            if (availableUpdate != null && !otaDismissed) {
+                item(key = "ota-update") {
+                    val release = availableUpdate!!
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .58f)
+                        )
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(22.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(9.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("Доступно обновление " + release.version,
+                                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("Официальный выпуск Phantom VPN",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(
+                                    onClick = { otaDismissed = true },
+                                    enabled = !otaDownload,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, "Скрыть уведомление", Modifier.size(18.dp))
+                                }
+                            }
+                            if (otaDownload) {
+                                Spacer(Modifier.height(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { otaProgress.toFloat() / 100f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text("Загрузка: " + otaProgress + "%", fontSize = 12.sp)
+                            }
+                            otaError?.let { message ->
+                                Spacer(Modifier.height(6.dp))
+                                Text(message, fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.error)
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Button(
+                                onClick = ::startOtaInstall,
+                                enabled = !otaDownload,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (otaDownload) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (otaDownload) "Скачивание…"
+                                    else if (otaFile?.exists() == true) "Установить обновление"
+                                    else "Обновить сейчас")
+                            }
+                        }
+                    }
+                }
+            }
+
         }
     }
     if (showErrorDetails && vpnError.isNotBlank()) {
@@ -935,7 +917,7 @@ private fun sizeLabel(bytes: Long): String {
 }
 
 private fun timeLabel(millis: Long): String =
-    SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(millis))
+    SimpleDateFormat("dd.MM, HH:mm", Locale.getDefault()).format(Date(millis))
 
 private fun dateLabel(seconds: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(seconds * 1000L))
@@ -987,7 +969,7 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
         }
     ) { inner ->
         LazyColumn(
-            Modifier.fillMaxSize().padding(inner).navigationBarsPadding(),
+            Modifier.fillMaxSize().padding(inner),
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
