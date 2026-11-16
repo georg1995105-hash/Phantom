@@ -45,6 +45,16 @@ jobs:
           echo "cdfef146218233a31a8b52c8b1016557730d3b63fc121d4c84cacea50e669155  app/libs/libv2ray.aar" | sha256sum -c -
           ls -lh app/libs/
 
+      - name: Download and isolate pinned sing-box libbox AAR
+        run: |
+          curl --retry 3 -fSL -o app/libs/libbox-original.aar \\
+            https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar
+          echo "d2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  app/libs/libbox-original.aar" | sha256sum -c -
+          python3 scripts/isolate_libbox_aar.py app/libs/libbox-original.aar app/libs/libbox-isolated.aar
+          rm app/libs/libbox-original.aar
+          unzip -l app/libs/libbox-isolated.aar | grep 'libsbjni.so' | head -4
+          ls -lh app/libs/
+
       - name: Download pinned Xray geo databases
         run: |
           mkdir -p app/src/main/assets
