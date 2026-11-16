@@ -68,6 +68,7 @@ import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
+import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -102,6 +103,7 @@ fun HomeScreen(
     var expanded by remember { mutableStateOf(subscriptions.firstOrNull()?.id) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
+    var pingCompleted by remember { mutableIntStateOf(0) }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var importMode by remember { mutableStateOf<String?>(null) }
@@ -204,6 +206,7 @@ fun HomeScreen(
     fun probeSubscription(item: Subscription) {
         if (item.id in probing) return
         probing = probing + item.id
+        pingCompleted = 0
         scope.launch {
             try {
                 val supported = setOf("vless", "vmess", "trojan", "ss", "xray", "hysteria", "hysteria2", "hy2")
@@ -216,6 +219,8 @@ fun HomeScreen(
                                 runCatching { LatencyProbe.measure(context.applicationContext, server) }
                                     .getOrNull() ?: -1L
                             }
+                            latencies[server.id] = ping
+                            pingCompleted++
                             server.id to ping
                         }
                     }.awaitAll().forEach { (serverId, delayMs) ->
@@ -790,7 +795,9 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
+    var showPing by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     val version = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
@@ -960,6 +967,29 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                             Text("Ограничения батареи", fontSize = 15.sp)
                             Text("Разрешения фоновой работы",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
+                Text("ПРОВЕРКА СЕРВЕРОВ", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showPing = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Пинг", fontSize = 15.sp)
+                            Text("Метод проверки и тайм-аут",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Icon(Icons.Default.ChevronRight, null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant)
