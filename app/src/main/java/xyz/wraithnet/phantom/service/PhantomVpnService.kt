@@ -20,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
+import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 

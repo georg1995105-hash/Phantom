@@ -70,6 +70,7 @@ import java.util.Locale
 
 private val panelShape = RoundedCornerShape(18.dp)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     refreshVersion: Int = 0,
