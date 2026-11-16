@@ -129,7 +129,9 @@ class PhantomVpnService : VpnService() {
             require(verified) { "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер." }
 
             running = true
-            prefs.edit().putString("vpn_last_profile", raw).putBoolean("vpn_running", true).apply()
+            prefs.edit().putString("vpn_last_profile", raw)
+                .putBoolean("vpn_running", true)
+                .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             setState(STATUS_CONNECTED)
             updateNotification("VPN подключён")
@@ -150,7 +152,8 @@ class PhantomVpnService : VpnService() {
         controller = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
-        prefs.edit().putBoolean("vpn_running", false).apply()
+        prefs.edit().putBoolean("vpn_running", false)
+            .putLong("vpn_connected_since_elapsed", 0L).apply()
         if (report) {
             setState(STATUS_DISCONNECTED)
             updateNotification("VPN отключён")
@@ -207,16 +210,20 @@ class PhantomVpnService : VpnService() {
     }
 
     private fun setState(next: String, error: String = "") {
-        VpnEventLog.record(applicationContext, next, error)
-        PhantomQuickTileService.notifyStateChanged(applicationContext)
+        // Persist and publish the real service state BEFORE asking SystemUI to redraw.
         state = next
+        prefs.edit().putString("vpn_status", next).apply()
+        VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
+        PhantomQuickTileService.notifyStateChanged(applicationContext)
     }
 
     private fun sendStatus(status: String, error: String = "") {
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName)
                 .putExtra(EXTRA_STATUS, status).putExtra(EXTRA_ERROR, error)
+                .putExtra(EXTRA_CONNECTED_SINCE,
+                    if (status == STATUS_CONNECTED) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
         )
     }
 
@@ -265,6 +272,13 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (::prefs.isInitialized) {
+            running = false
+            prefs.edit().putBoolean("vpn_running", false)
+                .putString("vpn_status", STATUS_DISCONNECTED)
+                .putLong("vpn_connected_since_elapsed", 0L).apply()
+            PhantomQuickTileService.notifyStateChanged(applicationContext)
+        }
         trafficJob?.cancel()
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
@@ -287,6 +301,7 @@ class PhantomVpnService : VpnService() {
         const val ACTION_TRAFFIC_OFF = "xyz.wraithnet.phantom.TRAFFIC_OFF"
         const val EXTRA_DOWNLOAD_BPS = "download_bytes_per_second"
         const val EXTRA_UPLOAD_BPS = "upload_bytes_per_second"
+        const val EXTRA_CONNECTED_SINCE = "connected_since_elapsed"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_STATUS = "status"
         const val EXTRA_ERROR = "error"
