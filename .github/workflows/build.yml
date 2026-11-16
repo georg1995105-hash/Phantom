@@ -50,6 +50,7 @@ jobs:
           curl --retry 3 -fSL -o app/libs/libbox-original.aar \
             https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar
           echo "d2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  app/libs/libbox-original.aar" | sha256sum -c -
+          python3 -m pip install --no-cache-dir --user "lief==1.0.0"
           python3 scripts/isolate_libbox_aar.py app/libs/libbox-original.aar app/libs/libbox-isolated.aar
           rm app/libs/libbox-original.aar
           unzip -l app/libs/libbox-isolated.aar | grep -E 'lib(box|sbjni).so' | head -4
