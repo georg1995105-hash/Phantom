@@ -764,6 +764,9 @@ fun HomeScreen(
 
     if (showErrorDetails && vpnError.isNotBlank()) {
         AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
             onDismissRequest = { showErrorDetails = false },
             title = { Text("Ошибка подключения") },
             text = { Text(vpnError, fontSize = 13.sp) },
@@ -883,6 +886,9 @@ fun HomeScreen(
 
     deleteId?.let { id ->
         AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
             onDismissRequest = { deleteId = null },
             title = { Text("Удалить подписку?") },
             text = { Text("Серверы этой подписки будут удалены с устройства.") },
