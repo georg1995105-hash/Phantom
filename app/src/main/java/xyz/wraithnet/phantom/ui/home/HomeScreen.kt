@@ -299,7 +299,7 @@ fun HomeScreen(
                         if (expanded == item.id) {
                             HorizontalDivider(Modifier.padding(top = 7.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
                             item.servers.forEach { server ->
-                                val supported = server.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss", "xray")
+                                val supported = server.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss", "xray", "hysteria", "hysteria2", "hy2")
                                 val chosen = selected?.id == server.id
                                 Row(
                                     Modifier.fillMaxWidth()
@@ -309,7 +309,7 @@ fun HomeScreen(
                                             if (supported) {
                                                 selectedId = server.id
                                                 prefs.edit().putString("selected_server_id", server.id).apply()
-                                                if (vpnStatus == "connected") onStopVpn()
+                                                if (vpnStatus == "connected") onStartVpn(server.raw)
                                             } else {
                                                 scope.launch { snackbar.showSnackbar(
                                                     server.scheme.uppercase() + ": для подключения требуется дополнительное ядро"

@@ -38,7 +38,7 @@ object SubscriptionFetcher {
             DownloadedSubscription(
                 body = body,
                 title = decodeHeader(connection.getHeaderField("profile-title")),
-                updateIntervalSeconds = connection.getHeaderField("profile-update-interval")?.toLongOrNull(),
+                updateIntervalSeconds = connection.getHeaderField("profile-update-interval")?.toLongOrNull()?.times(3600),
                 uploadBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "upload"),
                 downloadBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "download"),
                 totalBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "total"),

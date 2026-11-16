@@ -11,7 +11,7 @@ object XrayConfigBuilder {
     fun build(profile: ServerProfile): String {
         val source = profile.raw.trim()
         if (source.startsWith("{")) return buildJson(source)
-        require(profile.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss")) {
+        require(profile.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")) {
             "${profile.scheme.uppercase()} работает через sing-box и пока не подключён"
         }
 
@@ -20,6 +20,7 @@ object XrayConfigBuilder {
             "vmess" -> vmess(profile.raw)
             "trojan" -> trojan(profile.raw)
             "ss" -> shadowsocks(profile.raw)
+            "hysteria", "hysteria2", "hy2" -> hysteria2(profile.raw)
             else -> error("Неподдерживаемый Xray-протокол")
         }.put("tag", "proxy")
 
@@ -64,6 +65,46 @@ object XrayConfigBuilder {
         root.put("inbounds", JSONArray().put(tun))
         if (!root.has("log")) root.put("log", JSONObject().put("loglevel", "warning"))
         return root.toString()
+    }
+
+    /** Native Xray 26.x Hysteria2 transport with QUIC keepalive and Salamander. */
+    private fun hysteria2(raw: String): JSONObject {
+        val uri = URI(raw)
+        val q = query(uri)
+        val host = requireNotNull(uri.host) { "У Hysteria2 нет адреса сервера" }
+        val auth = decode(uri.rawUserInfo ?: "")
+        require(auth.isNotBlank()) { "В ссылке Hysteria2 нет пароля" }
+        val stream = JSONObject()
+            .put("network", "hysteria")
+            .put("security", "tls")
+            .put("hysteriaSettings", JSONObject().put("version", 2).put("auth", auth)
+                .put("udpIdleTimeout", 60))
+            .put("tlsSettings", JSONObject()
+                .put("serverName", q["sni"] ?: q["peer"] ?: host)
+                .put("alpn", JSONArray().apply {
+                    (q["alpn"] ?: "h3").split(",").forEach { put(it) }
+                })
+                .put("fingerprint", q["fp"] ?: "chrome")
+                .put("allowInsecure", q["insecure"] == "1" || q["insecure"] == "true"))
+        val finalmask = JSONObject().put("quicParams", JSONObject().put("keepAlivePeriod", 15))
+        if (q["obfs"]?.lowercase() == "salamander") {
+            val password = q["obfs-password"].orEmpty()
+            require(password.isNotBlank()) { "У Salamander отсутствует пароль" }
+            finalmask.put("udp", JSONArray().put(JSONObject().put("type", "salamander")
+                .put("settings", JSONObject().put("password", password))))
+        } else if (!q["obfs"].isNullOrBlank()) {
+            error("Эта маскировка Hysteria2 пока не поддерживается")
+        }
+        q["mport"]?.takeIf { it.isNotBlank() }?.let {
+            finalmask.getJSONObject("quicParams").put("udpHop",
+                JSONObject().put("ports", it).put("interval",
+                    q["mportHopInt"]?.toIntOrNull()?.coerceAtLeast(5) ?: 30))
+        }
+        stream.put("finalmask", finalmask)
+        return JSONObject()
+            .put("protocol", "hysteria")
+            .put("settings", JSONObject().put("version", 2).put("address", host).put("port", port(uri)))
+            .put("streamSettings", stream)
     }
 
     private fun vless(raw: String): JSONObject {
