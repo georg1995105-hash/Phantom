@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import xyz.wraithnet.phantom.MainActivity
 import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.data.SubscriptionStore
+import xyz.wraithnet.phantom.data.QuickTileProfileSelector
 
 /** Android Quick Settings tile. Never starts a tunnel without VPN permission. */
 class PhantomQuickTileService : TileService() {
@@ -105,10 +106,8 @@ class PhantomQuickTileService : TileService() {
             val selectedId = context.getSharedPreferences(
                 "phantom_preferences", Context.MODE_PRIVATE
             ).getString("selected_server_id", null)
-            val subscriptions = SubscriptionStore(context).read()
-            val servers = subscriptions.flatMap { it.servers }
-            return servers.firstOrNull { it.id == selectedId }?.raw
-                ?: servers.firstOrNull()?.raw
+            return QuickTileProfileSelector
+                .choose(SubscriptionStore(context).read(), selectedId)?.raw
         }
 
         /** The tile can also be added manually from Android's Edit tiles screen. */
