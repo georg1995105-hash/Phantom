@@ -97,7 +97,6 @@ class PhantomVpnService : VpnService() {
                 val route = runCatching { physicalRoute() }.getOrNull() ?: return@withLock
                 if (route == lastPhysicalRoute) return@withLock
                 val previous = lastPhysicalRoute
-                lastPhysicalRoute = route
                 val profile = prefs.getString("vpn_last_profile", "").orEmpty()
                 if (profile.isBlank()) return@withLock
                 // First boot or a real Wi-Fi/mobile handover; do not restart on
