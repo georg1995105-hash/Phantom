@@ -60,6 +60,8 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.PhantomUpdates
+import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -244,6 +246,26 @@ fun HomeScreen(
                     item.id !in refreshing
             }.forEach { refresh(it, quiet = true) }
             delay(60_000)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val lastCheck = prefs.getLong("ota_checked_at", 0L)
+        if (System.currentTimeMillis() - lastCheck >= 24L * 60 * 60 * 1000) {
+            try {
+                val update = PhantomUpdates.check(context)
+                prefs.edit().putLong("ota_checked_at", System.currentTimeMillis()).apply()
+                if (update != null) {
+                    val result = snackbar.showSnackbar(
+                        "Доступна версия Phantom " + update.version,
+                        actionLabel = "Обновить",
+                        duration = SnackbarDuration.Long
+                    )
+                    if (result == SnackbarResult.ActionPerformed) showSettings = true
+                }
+            } catch (_: Exception) {
+                // Manual update check remains available in Settings.
+            }
         }
     }
 
@@ -793,6 +815,8 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         }
                         Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    PhantomUpdateSection()
                 }
             }
         }

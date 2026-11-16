@@ -140,9 +140,11 @@ object PhantomUpdates {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun verifyApk(context: Context, file: File) {
         val pm = context.packageManager
-        val flags = PackageManager.GET_SIGNING_CERTIFICATES
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+            else PackageManager.GET_SIGNATURES
         @Suppress("DEPRECATION")
         val archive = pm.getPackageArchiveInfo(file.absolutePath, flags)
             ?: error("Установочный пакет повреждён")
@@ -152,14 +154,18 @@ object PhantomUpdates {
             "Идентификатор приложения в APK не совпадает"
         }
         val archiveCode = if (Build.VERSION.SDK_INT >= 28) archive.longVersionCode
-            else @Suppress("DEPRECATION") archive.versionCode.toLong()
+            else archive.versionCode.toLong()
         val installedCode = if (Build.VERSION.SDK_INT >= 28) current.longVersionCode
-            else @Suppress("DEPRECATION") current.versionCode.toLong()
+            else current.versionCode.toLong()
         require(archiveCode > installedCode) {
             "Скачанная версия не новее установленной"
         }
-        val currentKeys = current.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
-        val nextKeys = archive.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
+        val currentKeys = if (Build.VERSION.SDK_INT >= 28)
+            current.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
+            else current.signatures?.map { it.toCharsString() }?.toSet()
+        val nextKeys = if (Build.VERSION.SDK_INT >= 28)
+            archive.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
+            else archive.signatures?.map { it.toCharsString() }?.toSet()
         require(!currentKeys.isNullOrEmpty() && currentKeys == nextKeys) {
             "Подпись обновления не совпадает с установленным приложением"
         }
