@@ -64,6 +64,7 @@ import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
+import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
@@ -787,6 +788,8 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
         }.getOrDefault(PhantomThemeMode.GRAPHITE))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
+    var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
+    var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showApps by remember { mutableStateOf(false) }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     val version = remember {
@@ -881,6 +884,57 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                                     .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                             }
                         })
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Фрагментация TLS", fontSize = 15.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Для TCP-соединений с TLS/REALITY. На Hysteria2 не действует.",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = fragment.enabled, onCheckedChange = { enabled ->
+                            val next = fragment.copy(enabled = enabled)
+                            if (next.isValid()) {
+                                fragment = next
+                                FragmentationOptions.save(context, next)
+                                fragmentMessage = "При следующем подключении изменения вступят в силу"
+                            } else {
+                                fragmentMessage = "Исправьте значения фрагментации"
+                            }
+                        })
+                    }
+                    if (fragment.enabled) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = fragment.lengths,
+                                onValueChange = { fragment = fragment.copy(lengths = it) },
+                                label = { Text("Размер, байт") },
+                                placeholder = { Text("80-120") },
+                                singleLine = true, modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = fragment.delays,
+                                onValueChange = { fragment = fragment.copy(delays = it) },
+                                label = { Text("Задержка, мс") },
+                                placeholder = { Text("3-10") },
+                                singleLine = true, modifier = Modifier.weight(1f)
+                            )
+                        }
+                        TextButton(
+                            enabled = fragment.isValid(),
+                            onClick = {
+                                FragmentationOptions.save(context, fragment)
+                                fragmentMessage = "Настройки сохранены. Переподключите VPN."
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        ) { Text("Применить параметры") }
+                    }
+                    fragmentMessage?.let {
+                        Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
                     Row(Modifier.fillMaxWidth().clickable {

@@ -10,7 +10,7 @@ import xyz.wraithnet.phantom.service.XrayEnvironment
 object LatencyProbe {
     suspend fun measure(context: Context, server: ServerProfile): Long = withContext(Dispatchers.IO) {
         XrayEnvironment.initialize(context)
-        val config = XrayConfigBuilder.build(server)
+        val config = FragmentationOptions.load(context).apply(XrayConfigBuilder.build(server))
         Libv2ray.measureOutboundDelay(config, "https://cp.cloudflare.com/generate_204")
             .takeIf { it >= 0L } ?: -1L
     }

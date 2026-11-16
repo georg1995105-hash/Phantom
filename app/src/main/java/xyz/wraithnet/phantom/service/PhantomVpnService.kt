@@ -23,6 +23,7 @@ import libv2ray.CoreController
 import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
+import xyz.wraithnet.phantom.data.FragmentationOptions
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 
 class PhantomVpnService : VpnService() {
@@ -78,7 +79,9 @@ class PhantomVpnService : VpnService() {
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
-            val config = XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
+            val config = FragmentationOptions.load(this).apply(
+                XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
+            )
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
