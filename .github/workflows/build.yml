@@ -99,7 +99,18 @@ jobs:
           profile: pixel_6
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
-          script: ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
+          script: |
+            set +e
+            ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::group::ANDROID CRASH DIAGNOSTICS"
+              adb logcat -d -v threadtime | grep -E -A 60 -B 15 'FATAL EXCEPTION|Fatal signal|JNI DETECTED ERROR|UnsatisfiedLinkError|NoClassDefFoundError|No implementation found|A/libc|Abort message|xyz.wraithnet.phantom' | tail -n 420 || true
+              find app/build/outputs/androidTest-results app/build/reports/androidTests -type f 2>/dev/null | head -n 25 || true
+              find app/build/outputs/androidTest-results -name '*.xml' -exec sh -c 'echo ==== "$1"; head -c 15000 "$1"; echo' _ {} \; 2>/dev/null || true
+              echo "::endgroup::"
+            fi
+            exit "$rc"
 
       - name: Sign APK
         env:
