@@ -1,4 +1,4 @@
-# PHANTOM
+# Phantom
 
 Личный Android VPN-клиент на sing-box + Xray-core, интерфейс в стиле Happ/Incy.
 
