@@ -39,14 +39,15 @@ object SubscriptionParser {
         val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2", "tuic", "socks", "http")
         if (scheme !in supported) return null
         val uri = runCatching { URI(line) }.getOrNull()
-        val fragment = uri?.fragment?.let { java.net.URLDecoder.decode(it, "UTF-8") }
-        val host = uri?.host ?: ""
+        val fragment = uri?.rawFragment?.let(ShareLinkCodec::percentDecode)
+        val ss = if (scheme == "ss") runCatching { ShareLinkCodec.shadowsocks(line) }.getOrNull() else null
+        val host = ss?.host ?: uri?.host ?: ""
         return ServerProfile(
             id = "$scheme-$index-${line.hashCode()}",
             name = fragment?.takeIf { it.isNotBlank() } ?: host.ifBlank { "Сервер ${index + 1}" },
             scheme = scheme,
             address = host,
-            port = uri?.port?.takeIf { it > 0 },
+            port = ss?.port ?: uri?.port?.takeIf { it > 0 },
             raw = line,
             countryFlag = extractFlag(fragment),
         )
