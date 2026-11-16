@@ -1,7 +1,6 @@
 package xyz.wraithnet.phantom.data
 
 import android.util.Base64
-import android.util.Patterns
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
