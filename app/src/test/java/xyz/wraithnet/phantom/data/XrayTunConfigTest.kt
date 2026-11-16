@@ -47,4 +47,32 @@ class XrayTunConfigTest {
         assertTrue(policy.getJSONObject("system").getBoolean("statsOutboundDownlink"))
     }
 
+    @Test fun xhttpHttp3HasQuicAlpnAndValidNetwork() {
+        val profile = ServerProfile(id = "h3", name = "HTTP3", scheme = "vless",
+            raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=xhttp&security=tls&alpn=h3&path=%2Fvpn")
+        val outbound = JSONObject(XrayConfigBuilder.build(profile)).getJSONArray("outbounds").getJSONObject(0)
+        val stream = outbound.getJSONObject("streamSettings")
+        assertEquals("xhttp", stream.getString("network"))
+        assertEquals("h3", stream.getJSONObject("tlsSettings").getJSONArray("alpn").getString(0))
+        assertEquals("/vpn", stream.getJSONObject("xhttpSettings").getString("path"))
+    }
+
+    @Test fun oldQuicDoesNotProduceBrokenXrayConfig() {
+        val profile = ServerProfile(id = "quic", name = "Old", scheme = "vless",
+            raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=quic")
+        val err = assertThrows(IllegalArgumentException::class.java) {
+            XrayConfigBuilder.build(profile)
+        }
+        assertTrue(err.message.orEmpty().contains("удалён"))
+    }
+
+    @Test fun masqueProviderJsonIsPreservedWithoutClaimingLiveCompatibility() {
+        val raw = """{"outbounds":[{"tag":"proxy","protocol":"vless",
+            "streamSettings":{"network":"masque","security":"tls"}}]}"""
+        val root = JSONObject(XrayConfigBuilder.build(
+            ServerProfile(id = "masque", name = "MASQUE", scheme = "xray", raw = raw)))
+        assertEquals("masque", root.getJSONArray("outbounds").getJSONObject(0)
+            .getJSONObject("streamSettings").getString("network"))
+    }
+
 }
