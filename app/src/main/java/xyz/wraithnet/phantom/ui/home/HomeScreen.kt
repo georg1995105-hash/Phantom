@@ -416,9 +416,9 @@ fun HomeScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Column {
-                Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp),
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { showSettings = true }) {
@@ -429,31 +429,11 @@ fun HomeScreen(
                     Icon(Icons.Default.Add, "Добавить конфигурацию", Modifier.size(27.dp))
                 }
             }
-                SnackbarHost(
-                    hostState = snackbar,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 3.dp),
-                    snackbar = { data ->
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurface,
-                            shape = RoundedCornerShape(13.dp),
-                            border = BorderStroke(1.dp,
-                                MaterialTheme.colorScheme.outline.copy(alpha = .4f)),
-                            shadowElevation = 2.dp
-                        ) {
-                            Text(data.visuals.message,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                fontSize = 13.sp,
-                                maxLines = 2,
-                                textAlign = TextAlign.Center)
-                        }
-                    }
-                )
-            }
         }
     ) { inner ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(inner),
+        Box(Modifier.fillMaxSize().padding(inner)) {
+            LazyColumn(
+                Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
@@ -741,6 +721,27 @@ fun HomeScreen(
                 }
             }
 
+
+            }
+            SnackbarHost(
+                hostState = snackbar,
+                modifier = Modifier.align(Alignment.TopCenter)
+                    .fillMaxWidth().padding(horizontal = 28.dp, vertical = 4.dp),
+                snackbar = { data ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shape = RoundedCornerShape(13.dp),
+                        border = BorderStroke(1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = .4f)),
+                        shadowElevation = 3.dp
+                    ) {
+                        Text(data.visuals.message,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                            fontSize = 12.sp, maxLines = 2, textAlign = TextAlign.Center)
+                    }
+                }
+            )
         }
     }
     if (showImportMenu) {
