@@ -178,6 +178,13 @@ def main(source, target):
         result.append((name, data))
     if native_count < 1:
         native_files = [n for n, _ in entries if n.endswith(".so") or n.endswith(".aar")]
+        jar_blob = next((blob for n, blob in entries if n == "classes.jar"), None)
+        if jar_blob is not None:
+            with zipfile.ZipFile(io.BytesIO(jar_blob)) as jar:
+                classes = [n for n in jar.namelist() if n.endswith(".class")]
+                print("AAR Java classes sample:", classes[:30], flush=True)
+                print("AAR Go runtime classes:",
+                      [n for n in classes if n.startswith("go/")][:30], flush=True)
         raise ValueError("No gomobile libgojni.so found; archive native entries: " + repr(native_files[:25]))
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in result:
