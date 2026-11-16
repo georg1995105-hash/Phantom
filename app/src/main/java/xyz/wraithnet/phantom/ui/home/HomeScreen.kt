@@ -220,7 +220,16 @@ private fun SubscriptionCard(item: Subscription, onRefresh: () -> Unit, onSelect
 
 @Composable
 private fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Button(onClick, modifier.height(58.dp), RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.surface)) { Icon(icon, label); Spacer(Modifier.width(8.dp)); Text(label) }
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(58.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Icon(icon, label)
+        Spacer(Modifier.width(8.dp))
+        Text(label)
+    }
 }
 
 @Composable
