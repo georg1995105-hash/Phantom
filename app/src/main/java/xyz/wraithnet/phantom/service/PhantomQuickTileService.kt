@@ -42,7 +42,12 @@ class PhantomQuickTileService : TileService() {
             launchApplication(connect = false)
             return
         }
-        val prepared = try { VpnService.prepare(this) } catch (_: Exception) { null }
+        val prepared = try {
+            VpnService.prepare(this)
+        } catch (_: Exception) {
+            launchApplication(connect = true)
+            return
+        }
         // A null result normally means permission is granted; if the platform
         // denies starting an FGS from this service, ask the Activity to do it.
         if (prepared != null) {
@@ -71,9 +76,13 @@ class PhantomQuickTileService : TileService() {
             )
             startActivityAndCollapse(pending)
         } else {
-            @Suppress("DEPRECATION")
-            startActivityAndCollapse(intent)
+            startLegacyActivity(intent)
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun startLegacyActivity(intent: Intent) {
+        startActivityAndCollapse(intent)
     }
 
     private fun renderState() {
