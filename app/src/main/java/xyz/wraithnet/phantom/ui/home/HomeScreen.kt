@@ -96,10 +96,10 @@ fun HomeScreen() {
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
-                text = "PHANTOM",
+                text = "Phantom",
                 style = MaterialTheme.typography.headlineMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 6.sp
+                    letterSpacing = 2.sp
                 ),
                 color = Color.White
             )
