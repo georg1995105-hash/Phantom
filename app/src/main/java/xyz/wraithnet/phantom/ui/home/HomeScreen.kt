@@ -3,8 +3,6 @@ package xyz.wraithnet.phantom.ui.home
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.net.TrafficStats
-import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import org.json.JSONObject
@@ -68,7 +66,6 @@ import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.TrafficRates
-import xyz.wraithnet.phantom.data.TrafficSnapshot
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
 import xyz.wraithnet.phantom.data.CountryFlags
@@ -99,6 +96,8 @@ fun HomeScreen(
     onExternalImportConsumed: () -> Unit = {},
     vpnStatus: String = "disconnected",
     vpnError: String = "",
+    downloadRate: Long = -1L,
+    uploadRate: Long = -1L,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
     onThemeChange: (PhantomThemeMode) -> Unit = {},
@@ -126,27 +125,6 @@ fun HomeScreen(
     var showSettings by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
-    var downBytesPerSecond by remember { mutableLongStateOf(-1L) }
-    var upBytesPerSecond by remember { mutableLongStateOf(-1L) }
-
-    // Android device-wide traffic, explicitly not presented as Xray tunnel statistics.
-    LaunchedEffect(vpnStatus) {
-        downBytesPerSecond = -1L
-        upBytesPerSecond = -1L
-        if (vpnStatus != PhantomVpnService.STATUS_CONNECTED) return@LaunchedEffect
-        fun snapshot() = TrafficSnapshot(SystemClock.elapsedRealtime(),
-            TrafficStats.getTotalRxBytes(), TrafficStats.getTotalTxBytes())
-        var before = snapshot()
-        while (true) {
-            delay(1500L)
-            val after = snapshot()
-            val rate = TrafficRates.between(before, after)
-            downBytesPerSecond = rate?.downloadBytesPerSecond ?: -1L
-            upBytesPerSecond = rate?.uploadBytesPerSecond ?: -1L
-            before = after
-        }
-    }
-
     fun persist(list: List<Subscription>) {
         subscriptions = list
         store.write(list)
@@ -542,20 +520,20 @@ fun HomeScreen(
                         Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp),
                             horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(horizontalAlignment = Alignment.Start) {
-                                Text("↓ " + TrafficRates.label(downBytesPerSecond),
+                                Text("↓ " + TrafficRates.label(downloadRate),
                                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Text("Загрузка", fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text("↑ " + TrafficRates.label(upBytesPerSecond),
+                                Text("↑ " + TrafficRates.label(uploadRate),
                                     fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                                 Text("Отдача", fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Spacer(Modifier.height(5.dp))
-                        Text("Скорость сети устройства · не только VPN", fontSize = 10.sp,
+                        Text("Скорость VPN · Xray", fontSize = 10.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
