@@ -56,7 +56,7 @@ fun AppRoutingScreen(onBack: () -> Unit) {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад") }
-                Text("Маршрутизация", style = MaterialTheme.typography.titleLarge,
+                Text("Приложения и VPN", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold)
             }
         },
@@ -88,13 +88,13 @@ fun AppRoutingScreen(onBack: () -> Unit) {
         LazyColumn(Modifier.fillMaxSize().padding(inset).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                Text("Выберите, какие приложения используют VPN",
+                Text("Какие приложения должны работать через VPN?",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(12.dp))
                 val options = listOf(
                     AppRouting.ALL to "Все приложения",
-                    AppRouting.ONLY to "Только выбранные через VPN",
-                    AppRouting.EXCLUDE to "Выбранные без VPN"
+                    AppRouting.ONLY to "Через VPN только выбранные",
+                    AppRouting.EXCLUDE to "Выбранные — без VPN"
                 )
                 options.forEach { (value, title) ->
                     Row(Modifier.fillMaxWidth().clickable { mode = value }.heightIn(min = 52.dp),
