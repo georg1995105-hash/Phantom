@@ -214,7 +214,28 @@ private fun EmptyState(modifier: Modifier, onPaste: () -> Unit, onAdd: () -> Uni
 @Composable
 private fun SubscriptionCard(item: Subscription, onRefresh: () -> Unit, onSelect: () -> Unit) {
     Card(onClick = onSelect, Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.padding(16.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(item.title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, Modifier.weight(1f)); IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = MaterialTheme.colorScheme.onSurfaceVariant) } }; Text("${item.servers.size} серверов · автообновление 1 ч", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp) }
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = item.title,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Обновить",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Text(
+                text = "${item.servers.size} серверов · автообновление 1 ч",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 12.sp,
+            )
+        }
     }
 }
 
