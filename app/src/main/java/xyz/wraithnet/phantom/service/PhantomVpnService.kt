@@ -8,6 +8,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.VpnService
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
@@ -30,6 +34,7 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import xyz.wraithnet.phantom.data.TrafficRates
+import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 import xyz.wraithnet.phantom.R
@@ -43,6 +48,10 @@ class PhantomVpnService : VpnService() {
     private var controller: CoreController? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var trafficJob: Job? = null
+    private var handoverJob: Job? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var lastPhysicalRoute: String? = null
+
     @Volatile private var running = false
     @Volatile private var state = STATUS_DISCONNECTED
     @Volatile private var revokedByAndroid = false
@@ -52,13 +61,82 @@ class PhantomVpnService : VpnService() {
         prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Phantom VPN"))
+        observePhysicalNetworks()
+    }
+
+    /**
+     * Observe Wi-Fi and cellular availability, ignoring the Phantom VPN virtual
+     * interface. Re-establish stale outbound sockets only on a genuine change
+     * of the validated physical route.
+     */
+    private fun physicalRoute(): String? {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        return cm.allNetworks.mapNotNull { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                return@mapNotNull null
+            }
+            val priority = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
+                else -> 3
+            }
+            priority to network.toString()
+        }.sortedBy { it.first }.firstOrNull()?.second
+    }
+
+    private fun scheduleNetworkCheck() {
+        handoverJob?.cancel()
+        handoverJob = ioScope.launch {
+            delay(1600L)
+            mutex.withLock {
+                if (revokedByAndroid || !prefs.getBoolean("vpn_requested", false)) return@withLock
+                val route = runCatching { physicalRoute() }.getOrNull() ?: return@withLock
+                if (route == lastPhysicalRoute) return@withLock
+                val previous = lastPhysicalRoute
+                lastPhysicalRoute = route
+                val profile = prefs.getString("vpn_last_profile", "").orEmpty()
+                if (profile.isBlank()) return@withLock
+                // First boot or a real Wi-Fi/mobile handover; do not restart on
+                // unrelated network callbacks or repeated capability updates.
+                if (previous != null || !running) {
+                    startLocked(profile)
+                }
+            }
+        }
+    }
+
+    private fun observePhysicalNetworks() {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = scheduleNetworkCheck()
+            override fun onLost(network: Network) = scheduleNetworkCheck()
+            override fun onCapabilitiesChanged(
+                network: Network, capabilities: NetworkCapabilities
+            ) = scheduleNetworkCheck()
+        }
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching {
+            cm.registerNetworkCallback(request, callback)
+            networkCallback = callback
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_STOP -> ioScope.launch {
-                mutex.withLock { stopLocked() }
-                stopSelf()
+            ACTION_STOP -> {
+                prefs.edit().putBoolean("vpn_requested", false).apply()
+                handoverJob?.cancel()
+                ioScope.launch {
+                    mutex.withLock { stopLocked() }
+                    stopSelf()
+                }
             }
             ACTION_QUERY -> sendStatus(state)
             ACTION_TRAFFIC_ON -> ioScope.launch {
@@ -78,12 +156,27 @@ class PhantomVpnService : VpnService() {
             }
             ACTION_START -> {
                 val profile = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
-                ioScope.launch { mutex.withLock { startLocked(profile) } }
+                if (profile.isNotBlank()) {
+                    prefs.edit().putBoolean("vpn_requested", true).apply()
+                    ioScope.launch { mutex.withLock { startLocked(profile) } }
+                } else setState(STATUS_ERROR, "Сначала выберите сервер")
+            }
+            ACTION_BOOT_START -> {
+                val last = prefs.getString("vpn_last_profile", "").orEmpty()
+                if (last.isNotBlank() && VpnService.prepare(this) == null) {
+                    prefs.edit().putBoolean("vpn_requested", true).apply()
+                    setState(STATUS_STARTING)
+                    updateNotification("Ожидание сети после включения телефона")
+                    scheduleNetworkCheck()
+                } else stopSelf()
             }
             else -> {
-                if (prefs.getBoolean("vpn_running", false)) {
-                    val profile = prefs.getString("vpn_last_profile", "").orEmpty()
-                    ioScope.launch { mutex.withLock { startLocked(profile) } }
+                val last = prefs.getString("vpn_last_profile", "").orEmpty()
+                val alwaysOn = Build.VERSION.SDK_INT >= 29 && isAlwaysOn
+                if (last.isNotBlank() && (alwaysOn ||
+                    prefs.getBoolean("vpn_requested", false))) {
+                    prefs.edit().putBoolean("vpn_requested", true).apply()
+                    scheduleNetworkCheck()
                 } else {
                     stopSelf()
                 }
@@ -100,9 +193,11 @@ class PhantomVpnService : VpnService() {
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
-            val config = FragmentationOptions.load(this).apply(
+            val dns = VpnDnsSettings.load(this)
+            check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
+            val config = dns.applyToXray(FragmentationOptions.load(this).apply(
                 XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
-            )
+            ))
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
@@ -112,8 +207,10 @@ class PhantomVpnService : VpnService() {
                 .addRoute("0.0.0.0", 0)
                 .addAddress("fd00:1111::2", 64)
                 .addRoute("::", 0)
-                .addDnsServer("1.1.1.1")
-                .also { AppRouting.apply(this, it) }
+                .also { builder ->
+                    dns.addresses().forEach { builder.addDnsServer(it) }
+                    AppRouting.apply(this, builder)
+                }
                 .establish() ?: error("Android не создал VPN-интерфейс")
             vpnInterface = tun
 
@@ -136,6 +233,7 @@ class PhantomVpnService : VpnService() {
                 .putBoolean("vpn_running", true)
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
+            lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
             setState(STATUS_CONNECTED)
             updateNotification("VPN подключён")
             if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
@@ -275,6 +373,8 @@ class PhantomVpnService : VpnService() {
         // Publish the revoked state *before* super.onRevoke() stops the service:
         // deferred coroutines can be cancelled by onDestroy before they run.
         revokedByAndroid = true
+        prefs.edit().putBoolean("vpn_requested", false).apply()
+        handoverJob?.cancel()
         running = false
         prefs.edit().putBoolean("vpn_running", false)
             .putLong("vpn_connected_since_elapsed", 0L).apply()
@@ -291,6 +391,13 @@ class PhantomVpnService : VpnService() {
             PhantomQuickTileService.notifyStateChanged(applicationContext)
             sendStatus(STATUS_DISCONNECTED)
         }
+        handoverJob?.cancel()
+        networkCallback?.let { callback ->
+            runCatching {
+                getSystemService(ConnectivityManager::class.java)
+                    .unregisterNetworkCallback(callback)
+            }
+        }
         trafficJob?.cancel()
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
@@ -303,6 +410,7 @@ class PhantomVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "xyz.wraithnet.phantom.START_VPN"
+        const val ACTION_BOOT_START = "xyz.wraithnet.phantom.BOOT_START_VPN"
         const val ACTION_STOP = "xyz.wraithnet.phantom.STOP_VPN"
         const val ACTION_QUERY = "xyz.wraithnet.phantom.QUERY_VPN"
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
