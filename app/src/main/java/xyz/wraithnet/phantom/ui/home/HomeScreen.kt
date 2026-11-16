@@ -33,7 +33,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SystemUpdateAlt
-import androidx.compose.material.icons.filled.X
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
@@ -116,6 +116,7 @@ fun HomeScreen(
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showRoutingDirect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
 
@@ -319,6 +320,10 @@ fun HomeScreen(
 
     BackHandler(enabled = showSettings) { showSettings = false }
 
+    if (showRoutingDirect) {
+        AppRoutingScreen(onBack = { showRoutingDirect = false })
+        return
+    }
     if (showSettings) {
         PhantomSettings(onBack = { showSettings = false }, onThemeChange = onThemeChange)
         return
@@ -411,7 +416,7 @@ fun HomeScreen(
                                     enabled = !otaDownload,
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(Icons.Default.X, "Скрыть уведомление", Modifier.size(18.dp))
+                                    Icon(Icons.Default.Close, "Скрыть уведомление", Modifier.size(18.dp))
                                 }
                             }
                             if (otaDownload) {
@@ -674,7 +679,7 @@ fun HomeScreen(
                     }
                     funActionRow("Маршрутизация приложений", Icons.Default.Route) {
                         activeSubMenu = null
-                        showSettings = true
+                        showRoutingDirect = true
                     }
                     funActionRow("Обновить подписку", Icons.Default.Refresh) {
                         activeSubMenu = null
