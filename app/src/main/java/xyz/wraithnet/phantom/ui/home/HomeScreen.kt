@@ -3,6 +3,8 @@ package xyz.wraithnet.phantom.ui.home
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.TrafficStats
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import org.json.JSONObject
@@ -65,6 +67,8 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.TrafficRates
+import xyz.wraithnet.phantom.data.TrafficSnapshot
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
 import xyz.wraithnet.phantom.data.CountryFlags
@@ -72,7 +76,6 @@ import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
-import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.ui.theme.themeScheme
@@ -116,15 +119,33 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
-    var editSubId by remember { mutableStateOf<String?>(null) }
     var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    var showRoutingDirect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
+    var downBytesPerSecond by remember { mutableLongStateOf(-1L) }
+    var upBytesPerSecond by remember { mutableLongStateOf(-1L) }
+
+    // Android device-wide traffic, explicitly not presented as Xray tunnel statistics.
+    LaunchedEffect(vpnStatus) {
+        downBytesPerSecond = -1L
+        upBytesPerSecond = -1L
+        if (vpnStatus != PhantomVpnService.STATUS_CONNECTED) return@LaunchedEffect
+        fun snapshot() = TrafficSnapshot(SystemClock.elapsedRealtime(),
+            TrafficStats.getTotalRxBytes(), TrafficStats.getTotalTxBytes())
+        var before = snapshot()
+        while (true) {
+            delay(1500L)
+            val after = snapshot()
+            val rate = TrafficRates.between(before, after)
+            downBytesPerSecond = rate?.downloadBytesPerSecond ?: -1L
+            upBytesPerSecond = rate?.uploadBytesPerSecond ?: -1L
+            before = after
+        }
+    }
 
     fun persist(list: List<Subscription>) {
         subscriptions = list
@@ -336,10 +357,6 @@ fun HomeScreen(
 
     BackHandler(enabled = showSettings) { showSettings = false }
 
-    if (showRoutingDirect) {
-        AppRoutingScreen(onBack = { showRoutingDirect = false })
-        return
-    }
     if (showSettings) {
         PhantomSettings(onBack = { showSettings = false }, onThemeChange = onThemeChange)
         return
@@ -386,8 +403,10 @@ fun HomeScreen(
                                 showImportMenu = false
                                 scanLauncher.launch(
                                     ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                        .setPrompt("Наведите камеру на QR-код")
-                                        .setOrientationLocked(false)
+                                        .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                                        .setPrompt("Поместите QR-код в рамку")
+                                        .setOrientationLocked(true)
+                                        .setBeepEnabled(false)
                                 )
                             }
                         )
@@ -510,9 +529,34 @@ fun HomeScreen(
                             Text("Причина ошибки", fontSize = 12.sp)
                         }
                     } else if (selected != null) {
-                        Spacer(Modifier.height(3.dp))
-                        Text(displayServerName(selected), fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Spacer(Modifier.height(5.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(CountryFlags.flag(selected), fontSize = 19.sp)
+                            Spacer(Modifier.width(7.dp))
+                            Text(displayServerName(selected), fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                    if (connected) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text("↓ " + TrafficRates.label(downBytesPerSecond),
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Загрузка", fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("↑ " + TrafficRates.label(upBytesPerSecond),
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Отдача", fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text("Скорость сети устройства · не только VPN", fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
