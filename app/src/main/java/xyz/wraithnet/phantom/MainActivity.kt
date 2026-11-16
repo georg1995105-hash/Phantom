@@ -7,6 +7,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Bundle
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
+import xyz.wraithnet.phantom.service.SubscriptionRefreshWorker
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -14,6 +21,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -25,6 +33,8 @@ class MainActivity : ComponentActivity() {
     private var pendingProfile: String? = null
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
+    private val refreshVersion = mutableIntStateOf(0)
+    private val externalImport = mutableStateOf<String?>(null)
 
     private val vpnPermission = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -49,10 +59,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        externalImport.value = intent?.dataString
+        val refreshWork = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(
+            1, TimeUnit.HOURS,
+        ).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "phantom-subscription-refresh", ExistingPeriodicWorkPolicy.KEEP, refreshWork
+        )
         ContextCompat.registerReceiver(
-            this,
-            vpnReceiver,
-            IntentFilter(PhantomVpnService.ACTION_STATUS),
+            this, vpnReceiver, IntentFilter(PhantomVpnService.ACTION_STATUS),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         setContent {
@@ -62,30 +77,52 @@ class MainActivity : ComponentActivity() {
                     runCatching {
                         PhantomThemeMode.valueOf(
                             preferences.getString("theme", PhantomThemeMode.GRAPHITE.name)
-                                ?: PhantomThemeMode.GRAPHITE.name,
+                                ?: PhantomThemeMode.GRAPHITE.name
                         )
-                    }.getOrDefault(PhantomThemeMode.GRAPHITE),
+                    }.getOrDefault(PhantomThemeMode.GRAPHITE)
                 )
             }
             PhantomTheme(mode = theme) {
                 HomeScreen(
+                    refreshVersion = refreshVersion.intValue,
+                    externalImport = externalImport.value,
+                    onExternalImportConsumed = { externalImport.value = null },
                     vpnStatus = vpnStatus.value,
                     vpnError = vpnError.value,
                     onStartVpn = ::requestVpn,
                     onStopVpn = ::stopVpnService,
-                    onThemeChange = { selected ->
-                    theme = selected
-                    preferences.edit().putString("theme", selected.name).apply()
-                    },
+                    onThemeChange = { next ->
+                        theme = next
+                        preferences.edit().putString("theme", next.name).apply()
+                    }
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        externalImport.value = intent.dataString
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshVersion.intValue++
+        if (getSharedPreferences("phantom_preferences", MODE_PRIVATE).getBoolean("vpn_running", false)) {
+            startService(Intent(this, PhantomVpnService::class.java).setAction(PhantomVpnService.ACTION_QUERY))
         }
     }
 
     private fun requestVpn(profile: String) {
         pendingProfile = profile
         val intent = VpnService.prepare(this)
-        if (intent == null) startVpnService(profile) else vpnPermission.launch(intent)
+        if (intent == null) {
+            startVpnService(profile)
+            pendingProfile = null
+        } else {
+            vpnPermission.launch(intent)
+        }
     }
 
     private fun startVpnService(profile: String) {

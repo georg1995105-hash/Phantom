@@ -63,8 +63,9 @@ object SubscriptionParser {
     }
 
     private fun parseJsonObject(root: JSONObject): List<ServerProfile> {
-        val array = root.optJSONArray("configs") ?: root.optJSONArray("outbounds")
-        if (array != null) return parseJsonArray(array)
+        root.optJSONArray("configs")?.let { return parseJsonArray(it) }
+        root.optJSONArray("servers")?.let { return parseJsonArray(it) }
+        // A complete Xray config is one profile, not a list of its outbounds.
         return listOf(parseJsonConfig(root, 0))
     }
 
@@ -74,7 +75,7 @@ object SubscriptionParser {
             .ifBlank { config.optString("tag") }
             .ifBlank { "Сервер ${index + 1}" }
         val outbound = config.optJSONArray("outbounds")?.optJSONObject(0) ?: config
-        val type = outbound.optString("protocol").ifBlank { outbound.optString("type", "xray") }
+        val type = if (config.has("outbounds")) "xray" else outbound.optString("protocol").ifBlank { outbound.optString("type", "xray") }
         val address = outbound.optString("address").ifBlank { outbound.optString("server") }
         return ServerProfile(
             id = "json-$index-${remark.hashCode()}",
@@ -98,7 +99,14 @@ object SubscriptionParser {
     private fun inferTitle(servers: List<ServerProfile>): String = servers.first().name
 
     private fun extractFlag(value: String?): String {
-        if (value == null) return ""
-        return value.firstOrNull { it.code in 0x1F1E6..0x1F1FF }?.toString().orEmpty()
+        if (value.isNullOrBlank()) return ""
+        val points = value.codePoints().toArray()
+        for (i in 0 until points.size - 1) {
+            if (points[i] in 0x1F1E6..0x1F1FF && points[i + 1] in 0x1F1E6..0x1F1FF) {
+                return String(Character.toChars(points[i])) + String(Character.toChars(points[i + 1]))
+            }
+        }
+        return ""
     }
+
 }

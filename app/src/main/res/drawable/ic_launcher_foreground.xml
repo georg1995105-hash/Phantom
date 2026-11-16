@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#D7DCE3" android:pathData="M34,54a20,20 0,1 0,40 0a20,20 0,1 0,-40 0M42,54a12,12 0,1 1,24 0a12,12 0,1 1,-24 0" />
-    <path android:fillColor="#D7DCE3" android:pathData="M20,50h68v8h-68z" />
-    <path android:fillColor="#7F8B9B" android:pathData="M50,34h8v40h-8z" />
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Restrained monoline P: a simple branded letter, not a generic power icon -->
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#E5EBFF" android:strokeWidth="7"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M39,77 L39,31 L58,31 C75,31 78,42 78,51 C78,62 70,67 57,67 L39,67" />
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#8197D3" android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M49,42 L58,42 C64,42 67,45 67,50 C67,54 64,57 58,57 L49,57" />
 </vector>
