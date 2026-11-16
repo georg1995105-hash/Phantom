@@ -159,9 +159,26 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshVersion.intValue++
-        if (getSharedPreferences("phantom_preferences", MODE_PRIVATE).getBoolean("vpn_running", false)) {
-            startService(Intent(this, PhantomVpnService::class.java).setAction(PhantomVpnService.ACTION_QUERY))
+        val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
+        prefs.edit().putBoolean("ui_visible", true).apply()
+        if (prefs.getBoolean("vpn_running", false)) {
+            startService(Intent(this, PhantomVpnService::class.java)
+                .setAction(PhantomVpnService.ACTION_QUERY))
+            startService(Intent(this, PhantomVpnService::class.java)
+                .setAction(PhantomVpnService.ACTION_TRAFFIC_ON))
         }
+    }
+
+    override fun onPause() {
+        val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
+        prefs.edit().putBoolean("ui_visible", false).apply()
+        if (prefs.getBoolean("vpn_running", false)) {
+            runCatching {
+                startService(Intent(this, PhantomVpnService::class.java)
+                    .setAction(PhantomVpnService.ACTION_TRAFFIC_OFF))
+            }
+        }
+        super.onPause()
     }
 
     private fun requestVpn(profile: String) {
