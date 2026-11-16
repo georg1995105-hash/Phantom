@@ -10,11 +10,15 @@ import java.util.concurrent.atomic.AtomicInteger
 class ResilientDnsTest {
     private val address = InetAddress.getByAddress(byteArrayOf(1, 1, 1, 1))
 
+    private fun dns(block: (String) -> List<InetAddress>): Dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> = block(hostname)
+    }
+
     @Test fun systemResolverIsPreferred() {
         val fallbackCalls = AtomicInteger()
         val resolver = ResilientDns(
-            systemDns = Dns { listOf(address) },
-            encryptedFallbacks = listOf(Dns {
+            systemDns = dns { listOf(address) },
+            encryptedFallbacks = listOf(dns {
                 fallbackCalls.incrementAndGet()
                 listOf(address)
             }),
@@ -26,14 +30,14 @@ class ResilientDnsTest {
 
     @Test fun publicDnsFallbackOnSystemFailureOnlyWhenEnabled() {
         val resolver = ResilientDns(
-            systemDns = Dns { throw UnknownHostException("system failed") },
-            encryptedFallbacks = listOf(Dns { listOf(address) }),
+            systemDns = dns { throw UnknownHostException("system failed") },
+            encryptedFallbacks = listOf(dns { listOf(address) }),
             allowFallback = { true }
         )
         assertEquals(listOf(address), resolver.lookup("api.github.com"))
         val disabled = ResilientDns(
-            systemDns = Dns { throw UnknownHostException("system failed") },
-            encryptedFallbacks = listOf(Dns { listOf(address) }),
+            systemDns = dns { throw UnknownHostException("system failed") },
+            encryptedFallbacks = listOf(dns { listOf(address) }),
             allowFallback = { false }
         )
         assertThrows(UnknownHostException::class.java) { disabled.lookup("example.org") }
@@ -42,8 +46,8 @@ class ResilientDnsTest {
     @Test fun internalNamesNeverGoToExternalResolver() {
         val fallbackCalls = AtomicInteger()
         val resolver = ResilientDns(
-            systemDns = Dns { throw UnknownHostException(it) },
-            encryptedFallbacks = listOf(Dns {
+            systemDns = dns { throw UnknownHostException(it) },
+            encryptedFallbacks = listOf(dns {
                 fallbackCalls.incrementAndGet()
                 listOf(address)
             }),
@@ -59,10 +63,10 @@ class ResilientDnsTest {
     @Test fun fallsThroughFromFirstFailedProviderToSecond() {
         val count = AtomicInteger()
         val resolver = ResilientDns(
-            systemDns = Dns { throw UnknownHostException(it) },
+            systemDns = dns { throw UnknownHostException(it) },
             encryptedFallbacks = listOf(
-                Dns { count.incrementAndGet(); throw UnknownHostException("first") },
-                Dns { count.incrementAndGet(); listOf(address) }
+                dns { count.incrementAndGet(); throw UnknownHostException("first") },
+                dns { count.incrementAndGet(); listOf(address) }
             ),
             allowFallback = { true }
         )
@@ -72,8 +76,8 @@ class ResilientDnsTest {
 
     @Test fun exhaustedFallbackKeepsOriginalError() {
         val resolver = ResilientDns(
-            systemDns = Dns { throw UnknownHostException("original") },
-            encryptedFallbacks = listOf(Dns { throw UnknownHostException("fallback") }),
+            systemDns = dns { throw UnknownHostException("original") },
+            encryptedFallbacks = listOf(dns { throw UnknownHostException("fallback") }),
             allowFallback = { true }
         )
         val error = assertThrows(UnknownHostException::class.java) {
