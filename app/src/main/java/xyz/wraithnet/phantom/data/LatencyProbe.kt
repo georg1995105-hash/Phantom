@@ -82,7 +82,7 @@ object LatencyProbe {
     suspend fun measure(context: Context, server: ServerProfile): Long = withContext(Dispatchers.IO) {
         val timeout = timeoutMs(context)
         if (mode(context) == TCP) {
-            if (server.scheme.lowercase() in setOf("hysteria", "hysteria2", "hy2")) {
+            if (server.scheme.lowercase() in setOf("hysteria", "hysteria2", "hy2", "tuic")) {
                 // UDP servers cannot be tested honestly with a TCP handshake.
                 return@withContext -1L
             }
