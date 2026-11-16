@@ -1,0 +1,169 @@
+package xyz.wraithnet.phantom.data
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Build
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okhttp3.Dns
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.dnsoverhttps.DnsOverHttps
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.io.InputStream
+import java.net.ConnectException
+import java.net.InetAddress
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLException
+
+/** Reusable HTTP stack for subscriptions, periodic refresh and APK updates. */
+object PhantomHttp {
+    const val DNS_FALLBACK_KEY = "http_dns_fallback"
+    private val lock = Any()
+    @Volatile private var shared: OkHttpClient? = null
+
+    private fun ip(vararg bytes: Int): InetAddress =
+        InetAddress.getByAddress(bytes.map { it.toByte() }.toByteArray())
+
+    private fun createClient(context: Context): OkHttpClient {
+        val bootstrap = OkHttpClient.Builder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
+            .build()
+
+        // Two independent, TLS-validated DoH providers with literal bootstrap
+        // addresses; name resolution doesn't need the already-broken system DNS.
+        val cloudflare = DnsOverHttps.Builder()
+            .client(bootstrap)
+            .url("https://cloudflare-dns.com/dns-query".toHttpUrl())
+            .bootstrapDnsHosts(ip(1, 1, 1, 1), ip(1, 0, 0, 1))
+            .build()
+        val google = DnsOverHttps.Builder()
+            .client(bootstrap)
+            .url("https://dns.google/dns-query".toHttpUrl())
+            .bootstrapDnsHosts(ip(8, 8, 8, 8), ip(8, 8, 4, 4))
+            .build()
+
+        val app = context.applicationContext
+        val dns = ResilientDns(
+            systemDns = Dns.SYSTEM,
+            encryptedFallbacks = listOf(cloudflare, google),
+            allowFallback = {
+                app.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+                    .getBoolean(DNS_FALLBACK_KEY, true) && !hasStrictPrivateDns(app)
+            }
+        )
+
+        return OkHttpClient.Builder()
+            .dns(dns)
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .followRedirects(true)
+            .followSslRedirects(false) // Never downgrade HTTPS to plaintext HTTP.
+            .build()
+    }
+
+    private fun client(context: Context): OkHttpClient =
+        shared ?: synchronized(lock) {
+            shared ?: createClient(context).also { shared = it }
+        }
+
+    private fun hasStrictPrivateDns(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        return runCatching {
+            val active = cm.activeNetwork ?: return@runCatching false
+            !cm.getLinkProperties(active)?.privateDnsServerName.isNullOrBlank()
+        }.getOrDefault(false)
+    }
+
+    private fun hasValidatedNetwork(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return true
+        return runCatching {
+            val active = cm.activeNetwork ?: return@runCatching false
+            cm.getNetworkCapabilities(active)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        }.getOrDefault(true)
+    }
+
+    /** No credentials are logged; raw URLs may contain subscriber secrets. */
+    fun describe(error: IOException, validatedNetwork: Boolean): String = when (error) {
+        is UnknownHostException -> if (!validatedNetwork)
+            "Нет доступа к интернету или DNS. Проверьте Wi-Fi, мобильную сеть и частный DNS Android."
+            else "Не удалось определить адрес сервера. Проверьте частный DNS и доступность домена."
+        is SocketTimeoutException -> "Сервер не ответил вовремя. Проверьте сеть и повторите попытку."
+        is ConnectException, is SocketException ->
+            "Не удалось установить соединение. Возможно, сеть ограничивает доступ к серверу."
+        is SSLException ->
+            "Ошибка проверки защищённого соединения HTTPS. Проверьте дату, сеть и сертификат."
+        else -> "Ошибка сети. Проверьте подключение и повторите попытку."
+    }
+
+    private fun retryable(error: IOException): Boolean =
+        error is UnknownHostException || error is SocketTimeoutException ||
+            error is ConnectException || error is SocketException
+
+    class Failure(message: String, cause: IOException) : IOException(message, cause)
+
+    suspend fun <T> get(
+        context: Context,
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        callTimeoutMs: Long = 45_000L,
+        read: (Response) -> T,
+    ): T = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(url).get().apply {
+            headers.forEach { (name, value) -> header(name, value) }
+        }.build()
+        for (attempt in 0..1) {
+            val call = client(context).newCall(request)
+            if (callTimeoutMs > 0L) call.timeout().timeout(callTimeoutMs, TimeUnit.MILLISECONDS)
+            val response = try {
+                call.execute()
+            } catch (e: IOException) {
+                if (attempt == 0 && retryable(e)) {
+                    delay(450)
+                    continue
+                }
+                throw Failure(describe(e, hasValidatedNetwork(context)), e)
+            }
+            response.use {
+                if (!it.isSuccessful) throw IOException("Сервер ответил HTTP " + it.code)
+                if (request.url.isHttps && !it.request.url.isHttps) {
+                    throw IOException("Небезопасная переадресация HTTPS отклонена")
+                }
+                return@withContext read(it)
+            }
+        }
+        error("Повторные попытки соединения исчерпаны")
+    }
+
+    /** Strict bound prevents huge subscription/release JSON from exhausting memory. */
+    fun readUtf8Limited(input: InputStream, maxBytes: Int): String {
+        require(maxBytes > 0)
+        val result = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count == -1) break
+            if (count == 0) continue
+            require(result.size().toLong() + count <= maxBytes) {
+                "Ответ сервера слишком большой"
+            }
+            result.write(buffer, 0, count)
+        }
+        return result.toString(Charsets.UTF_8.name())
+    }
+}
