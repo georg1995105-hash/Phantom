@@ -7,6 +7,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Bundle
+import android.os.Build
+import androidx.compose.ui.graphics.toArgb
+import xyz.wraithnet.phantom.ui.theme.themeScheme
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -104,7 +107,14 @@ class MainActivity : ComponentActivity() {
             }
             val lightBars = theme == PhantomThemeMode.LIGHT ||
                 (theme == PhantomThemeMode.AUTO && !isSystemInDarkTheme())
+            val palette = themeScheme(theme, isSystemInDarkTheme())
             SideEffect {
+                if (Build.VERSION.SDK_INT >= 29) {
+                    // Blend the Android navigation area into the theme, without hiding Back/Home.
+                    window.isNavigationBarContrastEnforced = false
+                }
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = palette.background.toArgb()
                 WindowInsetsControllerCompat(window, window.decorView).apply {
                     isAppearanceLightStatusBars = lightBars
                     isAppearanceLightNavigationBars = lightBars

@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.PhantomRelease
 import xyz.wraithnet.phantom.data.PhantomUpdates
+import xyz.wraithnet.phantom.data.ReleaseNotes
 import java.io.File
 
 /** Updates are checked automatically and installed only with explicit consent. */
@@ -73,6 +74,16 @@ fun PhantomUpdateSection() {
             Text(it, fontSize = 12.sp,
                 color = if (it.startsWith("Не удалось") || it.startsWith("Ошибка"))
                     MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        release?.notes?.let { notes ->
+            val summary = ReleaseNotes.summary(notes)
+            if (summary.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Что изменилось", fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                Spacer(Modifier.height(3.dp))
+                Text(summary, fontSize = 11.sp, lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         if (downloading) {
             Spacer(Modifier.height(10.dp))

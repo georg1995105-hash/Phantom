@@ -2,6 +2,13 @@ package xyz.wraithnet.phantom.ui.settings
 
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -21,7 +28,11 @@ import kotlinx.coroutines.withContext
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.service.PhantomVpnService
 
-private data class SelectableApp(val packageName: String, val title: String)
+private data class SelectableApp(
+    val packageName: String,
+    val title: String,
+    val icon: ImageBitmap?,
+)
 
 @Composable
 fun AppRoutingScreen(onBack: () -> Unit) {
@@ -42,7 +53,11 @@ fun AppRoutingScreen(onBack: () -> Unit) {
             activities.mapNotNull { result ->
                 val pkg = result.activityInfo?.packageName ?: return@mapNotNull null
                 if (pkg == context.packageName) return@mapNotNull null
-                SelectableApp(pkg, result.loadLabel(pm).toString().ifBlank { pkg })
+                SelectableApp(
+                    pkg,
+                    result.loadLabel(pm).toString().ifBlank { pkg },
+                    runCatching { result.loadIcon(pm).toBitmap(96, 96).asImageBitmap() }.getOrNull()
+                )
             }.distinctBy { it.packageName }.sortedBy { it.title.lowercase() }
         }
         loading = false
@@ -132,6 +147,18 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                                     else selected - app.packageName
                             })
                         Spacer(Modifier.width(8.dp))
+                        if (app.icon != null) {
+                            Image(bitmap = app.icon, contentDescription = null,
+                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
+                        } else {
+                            Box(Modifier.size(38.dp)
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center) {
+                                Text(app.title.take(1).uppercase())
+                            }
+                        }
+                        Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
                             Text(app.title, maxLines = 1)
                             Text(app.packageName, maxLines = 1,
