@@ -909,8 +909,8 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     var mode by remember {
         mutableStateOf(runCatching {
-            PhantomThemeMode.valueOf(prefs.getString("theme", "GRAPHITE") ?: "GRAPHITE")
-        }.getOrDefault(PhantomThemeMode.GRAPHITE))
+            PhantomThemeMode.valueOf(prefs.getString("theme", "AUTO") ?: "AUTO")
+        }.getOrDefault(PhantomThemeMode.AUTO))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
@@ -951,17 +951,22 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT).forEach { option ->
-                        FilterChip(
-                            selected = mode == option,
-                            onClick = { mode = option; onThemeChange(option) },
-                            label = { Text(option.title) },
-                            modifier = Modifier.weight(1f),
-                            leadingIcon = if (mode == option) {
-                                { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }
-                            } else null
-                        )
+                listOf(
+                    listOf(PhantomThemeMode.AUTO, PhantomThemeMode.LIGHT),
+                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT)
+                ).forEach { line ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        line.forEach { option ->
+                            FilterChip(
+                                selected = mode == option,
+                                onClick = { mode = option; onThemeChange(option) },
+                                label = { Text(option.title) },
+                                modifier = Modifier.weight(1f),
+                                leadingIcon = if (mode == option) {
+                                    { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                        }
                     }
                 }
             }

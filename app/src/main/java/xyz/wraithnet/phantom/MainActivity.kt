@@ -76,10 +76,10 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(
                     runCatching {
                         PhantomThemeMode.valueOf(
-                            preferences.getString("theme", PhantomThemeMode.GRAPHITE.name)
-                                ?: PhantomThemeMode.GRAPHITE.name
+                            preferences.getString("theme", PhantomThemeMode.AUTO.name)
+                                ?: PhantomThemeMode.AUTO.name
                         )
-                    }.getOrDefault(PhantomThemeMode.GRAPHITE)
+                    }.getOrDefault(PhantomThemeMode.AUTO)
                 )
             }
             PhantomTheme(mode = theme) {
