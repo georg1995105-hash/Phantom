@@ -74,6 +74,10 @@ import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
+import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
+import xyz.wraithnet.phantom.ui.theme.themeScheme
+import xyz.wraithnet.phantom.service.PhantomQuickTileService
+import androidx.compose.foundation.isSystemInDarkTheme
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -941,11 +945,21 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
         }.getOrDefault(PhantomThemeMode.AUTO))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
+    var showThemeGallery by remember { mutableStateOf(false) }
+    var tileMessage by remember { mutableStateOf<String?>(null) }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
     var showPing by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
+    if (showThemeGallery) {
+        ThemeGalleryScreen(
+            selected = mode,
+            onChoose = { chosen -> mode = chosen; onThemeChange(chosen) },
+            onBack = { showThemeGallery = false }
+        )
+        return
+    }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
     if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
@@ -979,22 +993,32 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
-                listOf(
-                    listOf(PhantomThemeMode.AUTO, PhantomThemeMode.LIGHT),
-                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT)
-                ).forEach { line ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        line.forEach { option ->
-                            FilterChip(
-                                selected = mode == option,
-                                onClick = { mode = option; onThemeChange(option) },
-                                label = { Text(option.title) },
-                                modifier = Modifier.weight(1f),
-                                leadingIcon = if (mode == option) {
-                                    { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }
-                                } else null
-                            )
+                val previewColors = themeScheme(mode, isSystemInDarkTheme())
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showThemeGallery = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                            listOf(previewColors.background, previewColors.surface,
+                                previewColors.primary).forEach { color ->
+                                Box(Modifier.size(19.dp).clip(CircleShape)
+                                    .background(color).border(1.dp,
+                                        MaterialTheme.colorScheme.outline.copy(alpha = .35f), CircleShape))
+                            }
                         }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Тема оформления", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Text(mode.title, fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1003,6 +1027,34 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            PhantomQuickTileService.offerToAdd(context) { tileMessage = it }
+                        }.padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(22.dp),
+                            tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Кнопка в шторке Android", fontSize = 15.sp)
+                            Text("Подключать и отключать VPN из быстрых настроек",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    tileMessage?.let { text ->
+                        Text(text,
+                            Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Card(shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().clickable { showApps = true }

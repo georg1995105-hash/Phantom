@@ -2,6 +2,7 @@ package xyz.wraithnet.phantom.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -64,16 +65,17 @@ private val LightColors = lightColorScheme(
     error = Color(0xFFB3261E),
 )
 
+fun themeScheme(mode: PhantomThemeMode, systemDark: Boolean): ColorScheme = when (mode) {
+    PhantomThemeMode.AUTO -> if (systemDark) GraphiteColors else LightColors
+    PhantomThemeMode.LIGHT -> LightColors
+    PhantomThemeMode.GRAPHITE -> GraphiteColors
+    PhantomThemeMode.NIGHT -> NightColors
+}
+
 @Composable
 fun PhantomTheme(
     mode: PhantomThemeMode = PhantomThemeMode.AUTO,
     content: @Composable () -> Unit,
 ) {
-    val colors = when (mode) {
-        PhantomThemeMode.AUTO -> if (isSystemInDarkTheme()) GraphiteColors else LightColors
-        PhantomThemeMode.LIGHT -> LightColors
-        PhantomThemeMode.GRAPHITE -> GraphiteColors
-        PhantomThemeMode.NIGHT -> NightColors
-    }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = themeScheme(mode, isSystemInDarkTheme()), content = content)
 }
