@@ -84,6 +84,8 @@ class PhantomVpnService : VpnService() {
                 .setMtu(1400)
                 .addAddress("10.111.0.2", 30)
                 .addRoute("0.0.0.0", 0)
+                .addAddress("fd00:1111::2", 64)
+                .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
                 .addDisallowedApplication(packageName)
                 .establish() ?: error("Android не создал VPN-интерфейс")
