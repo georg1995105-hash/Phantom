@@ -60,6 +60,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
+import xyz.wraithnet.phantom.BuildConfig
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
@@ -1121,7 +1122,7 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         Column(Modifier.weight(1f)) {
                             Text("Phantom", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                             Spacer(Modifier.height(3.dp))
-                            Text("Android · Xray", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Text("Xray core " + BuildConfig.XRAY_CORE_VERSION + " · arm64-v8a", color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp)
                         }
                         Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
