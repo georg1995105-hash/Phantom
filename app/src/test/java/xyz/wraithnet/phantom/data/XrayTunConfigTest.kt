@@ -25,4 +25,26 @@ class XrayTunConfigTest {
         assertEquals("tun", root.getJSONObject("routing").getJSONArray("rules")
             .getJSONObject(0).getJSONArray("inboundTag").getString(0))
     }
+    @Test fun outboundStatisticsEnabledForShareLinks() {
+        val server = ServerProfile(id = "vless", name = "Demo", scheme = "vless",
+            raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=xhttp")
+        val root = JSONObject(XrayConfigBuilder.build(server))
+        assertTrue(root.has("stats"))
+        val system = root.getJSONObject("policy").getJSONObject("system")
+        assertTrue(system.getBoolean("statsOutboundUplink"))
+        assertTrue(system.getBoolean("statsOutboundDownlink"))
+    }
+
+    @Test fun providerPolicyPreservedWhenEnablingOutboundStatistics() {
+        val raw = """{"policy":{"levels":{"0":{"handshake":19}},
+            "system":{"statsInboundUplink":false}},
+            "outbounds":[{"tag":"proxy","protocol":"freedom"}]}"""
+        val root = JSONObject(XrayConfigBuilder.build(
+            ServerProfile(id = "json", name = "Demo", scheme = "xray", raw = raw)))
+        val policy = root.getJSONObject("policy")
+        assertEquals(19, policy.getJSONObject("levels").getJSONObject("0").getInt("handshake"))
+        assertFalse(policy.getJSONObject("system").getBoolean("statsInboundUplink"))
+        assertTrue(policy.getJSONObject("system").getBoolean("statsOutboundDownlink"))
+    }
+
 }
