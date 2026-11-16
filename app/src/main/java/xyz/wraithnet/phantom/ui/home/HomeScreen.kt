@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -564,86 +565,130 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
         }.getOrDefault(PhantomThemeMode.GRAPHITE))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
+    val version = remember {
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
+            .getOrNull() ?: "—"
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onBack) { Icon(Icons.Default.ArrowBack, "Назад") }
-                Text("Настройки", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth().statusBarsPadding()
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, "Назад", Modifier.size(24.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+                Text("Настройки", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold)
             }
         }
     ) { inner ->
         LazyColumn(
             Modifier.fillMaxSize().padding(inner).navigationBarsPadding(),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             item {
-                Text("Оформление", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                Card(shape = panelShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT).forEach { m ->
-                        Row(Modifier.fillMaxWidth().clickable {
-                            mode = m
-                            onThemeChange(m)
-                        }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(m.title, Modifier.weight(1f))
-                            RadioButton(selected = mode == m, onClick = { mode = m; onThemeChange(m) })
-                        }
+                Text("ОФОРМЛЕНИЕ", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT).forEach { option ->
+                        FilterChip(
+                            selected = mode == option,
+                            onClick = { mode = option; onThemeChange(option) },
+                            label = { Text(option.title) },
+                            modifier = Modifier.weight(1f),
+                            leadingIcon = if (mode == option) {
+                                { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }
+                            } else null
+                        )
                     }
                 }
             }
             item {
-                Text("Стабильность подключения", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                Card(shape = panelShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Держать VPN активным")
-                            Spacer(Modifier.height(4.dp))
-                            Text("Не давать процессору засыпать при подключении. Увеличивает расход батареи.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text("ПОДКЛЮЧЕНИЕ", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().clickable {
+                        keepActive = !keepActive
+                        prefs.edit().putBoolean("keep_active", keepActive).apply()
+                        if (prefs.getBoolean("vpn_running", false)) {
+                            context.startService(Intent(context, PhantomVpnService::class.java)
+                                .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                         }
-                        Switch(checked = keepActive, onCheckedChange = { next ->
-                            keepActive = next
-                            prefs.edit().putBoolean("keep_active", next).apply()
+                    }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Работа при выключенном экране",
+                                fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.height(3.dp))
+                            Text("Удерживает процессор активным. Повышает расход батареи.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp, lineHeight = 16.sp)
+                        }
+                        Spacer(Modifier.width(7.dp))
+                        Switch(checked = keepActive, onCheckedChange = { enabled ->
+                            keepActive = enabled
+                            prefs.edit().putBoolean("keep_active", enabled).apply()
                             if (prefs.getBoolean("vpn_running", false)) {
                                 context.startService(Intent(context, PhantomVpnService::class.java)
                                     .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                             }
                         })
                     }
-                    HorizontalDivider()
-                    Column(Modifier.fillMaxWidth().clickable {
-                        context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
-                    }.padding(16.dp)) {
-                        Text("Всегда включённый VPN")
-                        Spacer(Modifier.height(4.dp))
-                        Text("Открыть настройки Android, чтобы включить системное Always-on VPN",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
+                    Row(Modifier.fillMaxWidth().clickable {
+                        runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
+                    }.heightIn(min = 58.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Всегда включённый VPN", fontSize = 15.sp)
+                            Text("Системная функция Android",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    HorizontalDivider()
-                    Column(Modifier.fillMaxWidth().clickable {
-                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    }.padding(16.dp)) {
-                        Text("Ограничения батареи")
-                        Spacer(Modifier.height(4.dp))
-                        Text("Проверьте, не ограничивает ли Android работу Phantom в фоне",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
+                    Row(Modifier.fillMaxWidth().clickable {
+                        runCatching {
+                            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                        }
+                    }.heightIn(min = 58.dp).padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Ограничения батареи", fontSize = 15.sp)
+                            Text("Разрешения фоновой работы",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             item {
-                Text("О приложении", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
-                Spacer(Modifier.height(8.dp))
-                Card(shape = panelShape, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Phantom 0.2.0", fontWeight = FontWeight.Medium)
-                        Spacer(Modifier.height(4.dp))
-                        Text("Xray • Android", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                Text("ПРИЛОЖЕНИЕ", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Phantom", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.height(3.dp))
+                            Text("Android · Xray", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp)
+                        }
+                        Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
