@@ -138,11 +138,17 @@ fun HomeScreen(
             scope.launch { snackbar.showSnackbar("Вставьте ссылку подписки") }
             return
         }
+        val source = raw.trim()
+        if (subscriptions.any { it.source.trim() == source }) {
+            val warning = "Такая подписка или ссылка уже добавлена"
+            if (importMode != null) importError = warning
+            else scope.launch { snackbar.showSnackbar(warning) }
+            return
+        }
         importBusy = true
         importError = null
         scope.launch {
             try {
-                val source = raw.trim()
                 val remote = source.startsWith("https://") || source.startsWith("http://")
                 val downloaded = if (remote) SubscriptionFetcher.download(source, store.deviceId()) else null
                 val parsed = SubscriptionParser.parse(downloaded?.body ?: source, customTitle ?: downloaded?.title)
