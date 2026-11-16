@@ -2,21 +2,30 @@ package xyz.wraithnet.phantom.data
 
 import java.util.Locale
 
-/** Device-wide network counters, NOT Xray/VPN tunnel statistics. */
-data class TrafficSnapshot(val elapsedMs: Long, val rxBytes: Long, val txBytes: Long)
-
 data class TrafficRate(val downloadBytesPerSecond: Long, val uploadBytesPerSecond: Long)
 
+/** Decode delta counters returned by pinned AndroidLibXrayLite QueryAllOutboundTrafficStats. */
 object TrafficRates {
-    fun between(before: TrafficSnapshot, after: TrafficSnapshot): TrafficRate? {
-        val elapsed = after.elapsedMs - before.elapsedMs
-        val rx = after.rxBytes - before.rxBytes
-        val tx = after.txBytes - before.txBytes
-        if (elapsed <= 0 || before.rxBytes < 0 || before.txBytes < 0 ||
-            after.rxBytes < 0 || after.txBytes < 0 || rx < 0 || tx < 0) return null
+    fun fromXrayReport(report: String, elapsedMs: Long): TrafficRate? {
+        if (elapsedMs <= 0L) return null
+        var upload = 0L
+        var download = 0L
+        for (entry in report.split(';')) {
+            if (entry.isBlank()) continue
+            val parts = entry.split(',')
+            if (parts.size != 3) return null
+            val value = parts[2].toLongOrNull() ?: return null
+            if (value < 0L) return null
+            if (parts[0] == "block") continue
+            when (parts[1]) {
+                "uplink" -> upload = (upload + value).takeIf { it >= upload } ?: Long.MAX_VALUE
+                "downlink" -> download = (download + value).takeIf { it >= download } ?: Long.MAX_VALUE
+                else -> return null
+            }
+        }
         return TrafficRate(
-            (rx.toDouble() * 1000.0 / elapsed).toLong(),
-            (tx.toDouble() * 1000.0 / elapsed).toLong()
+            (download.toDouble() * 1000.0 / elapsedMs).toLong(),
+            (upload.toDouble() * 1000.0 / elapsedMs).toLong()
         )
     }
 
