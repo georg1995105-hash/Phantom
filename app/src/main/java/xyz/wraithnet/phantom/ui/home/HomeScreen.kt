@@ -72,6 +72,7 @@ import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
+import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -914,8 +915,10 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
+    var showLog by remember { mutableStateOf(false) }
     var showPing by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
+    if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
     if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     val version = remember {
@@ -1109,6 +1112,26 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                             Text("Метод проверки и тайм-аут",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
+                Text("ДИАГНОСТИКА", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().clickable { showLog = true }
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Журнал VPN", fontSize = 15.sp)
+                            Text("Последние подключения и причины ошибок",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         }
                         Icon(Icons.Default.ChevronRight, null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant)

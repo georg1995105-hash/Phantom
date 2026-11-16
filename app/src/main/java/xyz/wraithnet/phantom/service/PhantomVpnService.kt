@@ -24,6 +24,7 @@ import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
+import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 
 class PhantomVpnService : VpnService() {
@@ -160,6 +161,7 @@ class PhantomVpnService : VpnService() {
     }
 
     private fun setState(next: String, error: String = "") {
+        VpnEventLog.record(applicationContext, next, error)
         state = next
         sendStatus(next, error)
     }
