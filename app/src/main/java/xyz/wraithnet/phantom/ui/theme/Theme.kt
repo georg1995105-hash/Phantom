@@ -11,19 +11,19 @@ enum class PhantomThemeMode(val title: String) {
 }
 
 private val GraphiteColors = darkColorScheme(
-    primary = Color(0xFFB9C1CC),
-    onPrimary = Color(0xFF17191D),
-    primaryContainer = Color(0xFF343A42),
-    onPrimaryContainer = Color(0xFFE6EAF0),
-    secondary = Color(0xFF8E99A7),
-    onSecondary = Color(0xFF17191D),
-    background = Color(0xFF0E1012),
-    onBackground = Color(0xFFE3E6EA),
-    surface = Color(0xFF181B1F),
-    onSurface = Color(0xFFE3E6EA),
-    surfaceVariant = Color(0xFF252A2F),
-    onSurfaceVariant = Color(0xFFADB5BF),
-    outline = Color(0xFF4A515A),
+    primary = Color(0xFFAFC4EA),
+    onPrimary = Color(0xFF10151F),
+    primaryContainer = Color(0xFF25334A),
+    onPrimaryContainer = Color(0xFFEAF2FF),
+    secondary = Color(0xFF97ACC7),
+    onSecondary = Color(0xFF10151F),
+    background = Color(0xFF0D1119),
+    onBackground = Color(0xFFE8EDF6),
+    surface = Color(0xFF191E28),
+    onSurface = Color(0xFFE8EDF6),
+    surfaceVariant = Color(0xFF232A36),
+    onSurfaceVariant = Color(0xFF9EAABF),
+    outline = Color(0xFF414D60),
 )
 
 private val NightColors = darkColorScheme(
