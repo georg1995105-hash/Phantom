@@ -24,11 +24,8 @@ object LatencyProbe {
         Thread(runnable, "phantom-proxy-ping").apply { isDaemon = true }
     }
 
-    fun mode(context: Context): String {
-        val value = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-            .getString("ping_mode", TCP)
-        return if (value == PROXY) PROXY else TCP
-    }
+    // Always use the fast, bounded TCP check. Previous PROXY preferences no longer override it.
+    fun mode(context: Context): String = TCP
 
     fun timeoutMs(context: Context): Int =
         context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)

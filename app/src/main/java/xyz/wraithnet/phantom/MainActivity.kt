@@ -25,6 +25,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -37,6 +38,8 @@ class MainActivity : ComponentActivity() {
     private var pendingProfile: String? = null
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
+    private val downloadRate = mutableLongStateOf(-1L)
+    private val uploadRate = mutableLongStateOf(-1L)
     private val refreshVersion = mutableIntStateOf(0)
     private val externalImport = mutableStateOf<String?>(null)
 
@@ -54,9 +57,18 @@ class MainActivity : ComponentActivity() {
 
     private val vpnReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == PhantomVpnService.ACTION_TRAFFIC) {
+                downloadRate.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_DOWNLOAD_BPS, -1L)
+                uploadRate.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_UPLOAD_BPS, -1L)
+                return
+            }
             vpnStatus.value = intent?.getStringExtra(PhantomVpnService.EXTRA_STATUS)
                 ?: PhantomVpnService.STATUS_ERROR
             vpnError.value = intent?.getStringExtra(PhantomVpnService.EXTRA_ERROR).orEmpty()
+            if (vpnStatus.value != PhantomVpnService.STATUS_CONNECTED) {
+                downloadRate.longValue = -1L
+                uploadRate.longValue = -1L
+            }
         }
     }
 
@@ -71,8 +83,9 @@ class MainActivity : ComponentActivity() {
             "phantom-subscription-refresh", ExistingPeriodicWorkPolicy.KEEP, refreshWork
         )
         ContextCompat.registerReceiver(
-            this, vpnReceiver, IntentFilter(PhantomVpnService.ACTION_STATUS),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
+            this, vpnReceiver, IntentFilter(PhantomVpnService.ACTION_STATUS).apply {
+                addAction(PhantomVpnService.ACTION_TRAFFIC)
+            }, ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         setContent {
             val preferences = remember { getSharedPreferences("phantom_preferences", MODE_PRIVATE) }
@@ -101,6 +114,8 @@ class MainActivity : ComponentActivity() {
                     onExternalImportConsumed = { externalImport.value = null },
                     vpnStatus = vpnStatus.value,
                     vpnError = vpnError.value,
+                    downloadRate = downloadRate.longValue,
+                    uploadRate = uploadRate.longValue,
                     onStartVpn = ::requestVpn,
                     onStopVpn = ::stopVpnService,
                     onThemeChange = { next ->
@@ -144,9 +159,26 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         refreshVersion.intValue++
-        if (getSharedPreferences("phantom_preferences", MODE_PRIVATE).getBoolean("vpn_running", false)) {
-            startService(Intent(this, PhantomVpnService::class.java).setAction(PhantomVpnService.ACTION_QUERY))
+        val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
+        prefs.edit().putBoolean("ui_visible", true).apply()
+        if (prefs.getBoolean("vpn_running", false)) {
+            startService(Intent(this, PhantomVpnService::class.java)
+                .setAction(PhantomVpnService.ACTION_QUERY))
+            startService(Intent(this, PhantomVpnService::class.java)
+                .setAction(PhantomVpnService.ACTION_TRAFFIC_ON))
         }
+    }
+
+    override fun onPause() {
+        val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
+        prefs.edit().putBoolean("ui_visible", false).apply()
+        if (prefs.getBoolean("vpn_running", false)) {
+            runCatching {
+                startService(Intent(this, PhantomVpnService::class.java)
+                    .setAction(PhantomVpnService.ACTION_TRAFFIC_OFF))
+            }
+        }
+        super.onPause()
     }
 
     private fun requestVpn(profile: String) {

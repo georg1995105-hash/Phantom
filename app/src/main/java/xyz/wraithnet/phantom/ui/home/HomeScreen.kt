@@ -65,6 +65,7 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
 import xyz.wraithnet.phantom.data.CountryFlags
@@ -72,7 +73,6 @@ import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
-import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.ui.theme.themeScheme
@@ -96,6 +96,8 @@ fun HomeScreen(
     onExternalImportConsumed: () -> Unit = {},
     vpnStatus: String = "disconnected",
     vpnError: String = "",
+    downloadRate: Long = -1L,
+    uploadRate: Long = -1L,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
     onThemeChange: (PhantomThemeMode) -> Unit = {},
@@ -116,16 +118,13 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
-    var editSubId by remember { mutableStateOf<String?>(null) }
     var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    var showRoutingDirect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
-
     fun persist(list: List<Subscription>) {
         subscriptions = list
         store.write(list)
@@ -336,10 +335,6 @@ fun HomeScreen(
 
     BackHandler(enabled = showSettings) { showSettings = false }
 
-    if (showRoutingDirect) {
-        AppRoutingScreen(onBack = { showRoutingDirect = false })
-        return
-    }
     if (showSettings) {
         PhantomSettings(onBack = { showSettings = false }, onThemeChange = onThemeChange)
         return
@@ -386,8 +381,10 @@ fun HomeScreen(
                                 showImportMenu = false
                                 scanLauncher.launch(
                                     ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                        .setPrompt("Наведите камеру на QR-код")
-                                        .setOrientationLocked(false)
+                                        .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                                        .setPrompt("Поместите QR-код в рамку")
+                                        .setOrientationLocked(true)
+                                        .setBeepEnabled(false)
                                 )
                             }
                         )
@@ -510,9 +507,34 @@ fun HomeScreen(
                             Text("Причина ошибки", fontSize = 12.sp)
                         }
                     } else if (selected != null) {
-                        Spacer(Modifier.height(3.dp))
-                        Text(displayServerName(selected), fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Spacer(Modifier.height(5.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(CountryFlags.flag(selected), fontSize = 19.sp)
+                            Spacer(Modifier.width(7.dp))
+                            Text(displayServerName(selected), fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
+                    if (connected) {
+                        Spacer(Modifier.height(14.dp))
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text("↓ " + TrafficRates.label(downloadRate),
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Загрузка", fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("↑ " + TrafficRates.label(uploadRate),
+                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("Отдача", fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text("Скорость VPN · Xray", fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -704,22 +726,6 @@ fun HomeScreen(
                     Text(sub.title, fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-                    funActionRow("Настройки подписки", Icons.Default.Settings) {
-                        editSubId = sub.id
-                        activeSubMenu = null
-                    }
-                    funActionRow("Маршрутизация приложений", Icons.Default.Route) {
-                        activeSubMenu = null
-                        showRoutingDirect = true
-                    }
-                    funActionRow("Обновить подписку", Icons.Default.Refresh) {
-                        activeSubMenu = null
-                        scope.launch { refresh(sub) }
-                    }
-                    funActionRow("Проверить задержку", Icons.Default.Speed) {
-                        activeSubMenu = null
-                        probeSubscription(sub)
-                    }
                     funActionRow(
                         if (pinnedSubId == sub.id) "Открепить" else "Закрепить",
                         Icons.Default.PushPin
@@ -733,53 +739,6 @@ fun HomeScreen(
                         activeSubMenu = null
                         deleteId = sub.id
                     }
-                }
-            }
-        }
-    }
-
-    editSubId?.let { id ->
-        val sub = subscriptions.firstOrNull { it.id == id }
-        if (sub != null) {
-            var editedName by remember(id) { mutableStateOf(sub.title) }
-            var interval by remember(id) {
-                mutableStateOf((sub.updateIntervalSeconds / 3600L).coerceIn(1L, 24L).toString())
-            }
-            ModalBottomSheet(
-                onDismissRequest = { editSubId = null },
-                containerColor = MaterialTheme.colorScheme.surface,
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
-            ) {
-                Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
-                    .padding(horizontal = 22.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Настройки подписки",
-                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    OutlinedTextField(editedName, { editedName = it },
-                        label = { Text("Название") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(interval, { interval = it },
-                        label = { Text("Интервал обновления, часы (1–24)") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth())
-                    Button(
-                        enabled = editedName.isNotBlank() &&
-                            (interval.toIntOrNull() ?: 0) in 1..24,
-                        onClick = {
-                            persist(subscriptions.map {
-                                if (it.id == id) it.copy(
-                                    title = editedName.trim(),
-                                    updateIntervalSeconds = interval.toLong() * 3600L,
-                                    customTitle = editedName.trim(),
-                                    customIntervalSeconds = interval.toLong() * 3600L
-                                ) else it
-                            })
-                            editSubId = null
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("Сохранить") }
                 }
             }
         }
@@ -950,7 +909,6 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
-    var showPing by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
     if (showThemeGallery) {
         ThemeGalleryScreen(
@@ -961,7 +919,6 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
         return
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
-    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     val version = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
@@ -1061,8 +1018,8 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         .padding(horizontal = 16.dp, vertical = 16.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Маршрутизация приложений", fontSize = 15.sp)
-                            Text("Кому использовать VPN, а кому — нет",
+                            Text("Какие приложения используют VPN", fontSize = 15.sp)
+                            Text("Выбрать приложения для VPN или исключить их",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         }
                         Icon(Icons.Default.ChevronRight, null,
@@ -1181,26 +1138,24 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                 }
             }
             item {
-                Text("ПРОВЕРКА СЕРВЕРОВ", fontSize = 11.sp,
+                Text("ПРИЛОЖЕНИЕ", fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
                 Card(shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(
-                        Modifier.fillMaxWidth().clickable { showPing = true }
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Пинг", fontSize = 15.sp)
-                            Text("Метод проверки и тайм-аут",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Phantom", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.height(3.dp))
+                            Text("Xray core " + BuildConfig.XRAY_CORE_VERSION + " · arm64-v8a", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp)
                         }
-                        Icon(Icons.Default.ChevronRight, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    PhantomUpdateSection()
                 }
             }
             item {
@@ -1221,27 +1176,6 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         Icon(Icons.Default.ChevronRight, null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                }
-            }
-            item {
-                Text("ПРИЛОЖЕНИЕ", fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(10.dp))
-                Card(shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Phantom", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            Spacer(Modifier.height(3.dp))
-                            Text("Xray core " + BuildConfig.XRAY_CORE_VERSION + " · arm64-v8a", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp)
-                        }
-                        Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    PhantomUpdateSection()
                 }
             }
         }

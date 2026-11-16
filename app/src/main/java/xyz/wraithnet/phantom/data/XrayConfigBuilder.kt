@@ -23,7 +23,7 @@ object XrayConfigBuilder {
             else -> error("Неподдерживаемый Xray-протокол")
         }.put("tag", "proxy")
 
-        return JSONObject()
+        return enableTrafficStats(JSONObject()
             .put("log", JSONObject().put("loglevel", "warning"))
             .put("inbounds", JSONArray().put(
                 JSONObject()
@@ -46,7 +46,7 @@ object XrayConfigBuilder {
                     .put("type", "field")
                     .put("network", "tcp,udp")
                     .put("outboundTag", "proxy"))))
-            .put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8")))
+            .put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8"))))
             .toString()
     }
 
@@ -88,7 +88,18 @@ object XrayConfigBuilder {
             stream.put("finalmask", mask.put("quicParams", quic))
         }
         if (!root.has("log")) root.put("log", JSONObject().put("loglevel", "warning"))
-        return root.toString()
+        return enableTrafficStats(root).toString()
+    }
+
+    /** Preserve provider routing and policies while enabling outbound byte counters. */
+    private fun enableTrafficStats(root: JSONObject): JSONObject {
+        if (!root.has("stats")) root.put("stats", JSONObject())
+        val policy = root.optJSONObject("policy") ?: JSONObject()
+        val system = policy.optJSONObject("system") ?: JSONObject()
+        system.put("statsOutboundUplink", true)
+        system.put("statsOutboundDownlink", true)
+        root.put("policy", policy.put("system", system))
+        return root
     }
 
     /** Native Xray 26.x Hysteria2 transport with QUIC keepalive and Salamander. */
