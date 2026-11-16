@@ -37,7 +37,7 @@ object SubscriptionFetcher {
             require(body.isNotBlank()) { "Сервер вернул пустую подписку" }
             DownloadedSubscription(
                 body = body,
-                title = decodeHeader(connection.getHeaderField("profile-title")),
+                title = SubscriptionHeaders.decodeTitle(connection.getHeaderField("profile-title")),
                 updateIntervalSeconds = connection.getHeaderField("profile-update-interval")?.toLongOrNull()?.times(3600),
                 uploadBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "upload"),
                 downloadBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "download"),
@@ -47,16 +47,6 @@ object SubscriptionFetcher {
         } finally {
             connection.disconnect()
         }
-    }
-
-    private fun decodeHeader(value: String?): String? = value?.trim()?.let { raw ->
-        if (raw.isBlank()) return@let null
-        val payload = raw.removePrefix("base64:").removePrefix("BASE64:")
-        if (payload == raw && !raw.matches(Regex("[A-Za-z0-9+/=_-]+"))) return@let raw
-        runCatching {
-            android.util.Base64.decode(payload, android.util.Base64.DEFAULT)
-                .toString(Charsets.UTF_8)
-        }.getOrDefault(raw).takeIf { it.isNotBlank() }
     }
 
     private fun parseUserInfo(value: String?, key: String): Long? = value

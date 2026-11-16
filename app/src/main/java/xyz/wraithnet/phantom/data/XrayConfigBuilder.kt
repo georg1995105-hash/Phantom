@@ -4,7 +4,6 @@ import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
-import java.net.URLDecoder
 
 /** Builds an Xray TUN configuration from one Xray-compatible share link. */
 object XrayConfigBuilder {
@@ -135,7 +134,7 @@ object XrayConfigBuilder {
     private fun vless(raw: String): JSONObject {
         val uri = URI(raw)
         val query = query(uri)
-        val user = requireNotNull(uri.userInfo?.let(::decode)) { "В VLESS-ссылке отсутствует UUID" }
+        val user = requireNotNull(uri.rawUserInfo?.let(::decode)) { "В VLESS-ссылке отсутствует UUID" }
         val outbound = JSONObject()
             .put("protocol", "vless")
             .put("settings", JSONObject().put("vnext", JSONArray().put(JSONObject()
@@ -152,7 +151,7 @@ object XrayConfigBuilder {
 
     private fun vmess(raw: String): JSONObject {
         val encoded = raw.substringAfter("vmess://").substringBefore('#')
-        val json = JSONObject(String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8))
+        val json = JSONObject(ShareLinkCodec.base64Text(encoded))
         val query = mapOf(
             "type" to json.optString("net", "tcp"),
             "security" to json.optString("tls"),
@@ -183,26 +182,20 @@ object XrayConfigBuilder {
             .put("settings", JSONObject().put("servers", JSONArray().put(JSONObject()
                 .put("address", uri.host)
                 .put("port", port(uri))
-                .put("password", decode(uri.userInfo ?: "")),
+                .put("password", decode(uri.rawUserInfo ?: "")),
             )))
         return addStream(outbound, query)
     }
 
     private fun shadowsocks(raw: String): JSONObject {
-        val encoded = raw.substringAfter("ss://").substringBefore('#')
-        val decoded = runCatching { String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8) }.getOrDefault(encoded)
-        val at = decoded.lastIndexOf('@')
-        val credentials = if (at >= 0) decoded.substring(0, at) else ""
-        val hostPort = if (at >= 0) decoded.substring(at + 1) else ""
-        val method = credentials.substringBefore(':')
-        val password = credentials.substringAfter(':', "")
-        val host = hostPort.substringBefore(':')
-        val port = hostPort.substringAfter(':').toIntOrNull() ?: 443
+        val credentials = ShareLinkCodec.shadowsocks(raw)
         return JSONObject()
             .put("protocol", "shadowsocks")
             .put("settings", JSONObject().put("servers", JSONArray().put(JSONObject()
-                .put("address", host).put("port", port).put("method", method).put("password", password),
-            )))
+                .put("address", credentials.host)
+                .put("port", credentials.port)
+                .put("method", credentials.method)
+                .put("password", credentials.password))))
     }
 
     private fun addStream(outbound: JSONObject, query: Map<String, String>): JSONObject {
@@ -255,5 +248,5 @@ object XrayConfigBuilder {
         }
 
     private fun port(uri: URI): Int = uri.port.takeIf { it > 0 } ?: 443
-    private fun decode(value: String): String = URLDecoder.decode(value, "UTF-8")
+    private fun decode(value: String): String = ShareLinkCodec.percentDecode(value)
 }
