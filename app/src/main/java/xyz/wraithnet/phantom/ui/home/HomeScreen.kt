@@ -72,7 +72,13 @@ import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 
 @Composable
-fun HomeScreen(onThemeChange: (PhantomThemeMode) -> Unit = {}) {
+fun HomeScreen(
+    vpnStatus: String = "disconnected",
+    vpnError: String = "",
+    onStartVpn: (String) -> Unit = {},
+    onStopVpn: () -> Unit = {},
+    onThemeChange: (PhantomThemeMode) -> Unit = {},
+) {
     val context = LocalContext.current
     val store = remember { SubscriptionStore(context) }
     val snackbar = remember { SnackbarHostState() }
@@ -83,7 +89,6 @@ fun HomeScreen(onThemeChange: (PhantomThemeMode) -> Unit = {}) {
     var serverDialog by remember { mutableStateOf(false) }
     var menuDialog by remember { mutableStateOf(false) }
     var settingsScreen by remember { mutableStateOf(false) }
-    var connected by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
 
     fun pasteText(): String {
@@ -146,15 +151,20 @@ fun HomeScreen(onThemeChange: (PhantomThemeMode) -> Unit = {}) {
                     IconButton(onClick = { menuDialog = true }) { Icon(Icons.Default.Add, "Добавить", tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(32.dp)) }
                 }
                 Spacer(Modifier.height(28.dp))
-                PowerButton(connected, loading) {
+                PowerButton(vpnStatus == "connected", loading) {
                     if (selected == null) scope.launch { snackbar.showSnackbar("Сначала добавьте подписку") }
-                    else {
-                        connected = !connected
-                        scope.launch { snackbar.showSnackbar(if (connected) "Подготовка подключения…" else "VPN отключён") }
-                    }
+                    else if (vpnStatus == "connected") onStopVpn()
+                    else onStartVpn(selected!!.raw)
                 }
                 Spacer(Modifier.height(14.dp))
-                Text(if (loading) "Загрузка подписки…" else if (connected) "Подключение…" else "Отключено", color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                val stateText = when {
+                    loading -> "Загрузка подписки…"
+                    vpnStatus == "connected" -> "Подключено"
+                    vpnStatus == "error" -> vpnError.ifBlank { "Ошибка подключения" }
+                    vpnStatus == "starting" -> "Подключение…"
+                    else -> "Отключено"
+                }
+                Text(stateText, color = if (vpnStatus == "connected") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 ServerSelector(selected) { if (subscriptions.any { it.servers.isNotEmpty() }) serverDialog = true }
                 Spacer(Modifier.height(16.dp))
