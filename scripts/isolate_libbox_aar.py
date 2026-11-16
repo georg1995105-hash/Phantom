@@ -142,6 +142,27 @@ class Elf:
         return bytes(self.d)
 
 
+def rebuild_gnu_hash_with_lief(data):
+    # New libbox.so has GNU-only DT_GNU_HASH; a symbol rename requires
+    # rebuilding the hash and potentially reordering the dynamic symbol table.
+    # LIEF performs this relocation safely instead of editing buckets by hand.
+    import lief
+    binary = lief.ELF.parse(data)
+    if binary is None or not binary.use_gnu_hash:
+        raise ValueError("LIEF could not parse GNU-hashed ELF")
+    result = bytes(binary.write_to_bytes())
+    verified = lief.ELF.parse(result)
+    if verified is None:
+        raise ValueError("LIEF output is not a readable ELF")
+    symbols = {sym.name for sym in verified.dynamic_symbols}
+    for name in ("Java_sb_Seq_init", "Java_sb_Seq_setContext"):
+        if name not in symbols:
+            raise ValueError("Missing patched JNI symbol: " + name)
+        if verified.gnu_hash and not verified.gnu_hash.check(name):
+            raise ValueError("Rebuilt GNU hash does not resolve " + name)
+    return result
+
+
 def patch_classes(data):
     with zipfile.ZipFile(io.BytesIO(data)) as jar:
         entries = [(x.filename, jar.read(x.filename)) for x in jar.infolist()]
@@ -172,7 +193,11 @@ def main(source, target):
                 raise ValueError("Expected JNI symbol not found in " + name)
             for old, new in NATIVE_REPLACEMENTS:
                 data = data.replace(old, new)
-            data = Elf(data).rebuild_symbols()
+            elf = Elf(data)
+            if DT_HASH in elf.tags():
+                data = elf.rebuild_symbols()
+            else:
+                data = rebuild_gnu_hash_with_lief(data)
             # This libbox release already uses a unique libbox.so filename.
             # Rename only libgojni.so when found in older upstream releases.
             name = name.replace("/libgojni.so", "/libsbjni.so")
