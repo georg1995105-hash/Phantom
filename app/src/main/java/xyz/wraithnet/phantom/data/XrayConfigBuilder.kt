@@ -62,7 +62,32 @@ object XrayConfigBuilder {
             .put("settings", JSONObject().put("mtu", 1500))
             .put("sniffing", JSONObject().put("enabled", true)
                 .put("destOverride", JSONArray().put("http").put("tls").put("quic")))
+        // Preserve inbound-based routing rules when migrating local SOCKS/HTTP
+        // inbounds to Android's single TUN inbound.
+        val oldInbounds = root.optJSONArray("inbounds")
+        val oldTags = (0 until (oldInbounds?.length() ?: 0)).mapNotNull { index ->
+            oldInbounds?.optJSONObject(index)?.optString("tag")?.takeIf { it.isNotBlank() }
+        }.toSet()
+        root.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
+            for (i in 0 until rules.length()) {
+                val rule = rules.optJSONObject(i) ?: continue
+                val tags = rule.optJSONArray("inboundTag") ?: continue
+                if ((0 until tags.length()).any { tags.optString(it) in oldTags }) {
+                    rule.put("inboundTag", JSONArray().put("tun"))
+                }
+            }
+        }
         root.put("inbounds", JSONArray().put(tun))
+        // Keep UDP QUIC sessions alive on idle mobile networks.
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            if (outbound.optString("protocol") != "hysteria") continue
+            val stream = outbound.optJSONObject("streamSettings") ?: continue
+            val mask = stream.optJSONObject("finalmask") ?: JSONObject()
+            val quic = mask.optJSONObject("quicParams") ?: JSONObject()
+            if (!quic.has("keepAlivePeriod")) quic.put("keepAlivePeriod", 15)
+            stream.put("finalmask", mask.put("quicParams", quic))
+        }
         if (!root.has("log")) root.put("log", JSONObject().put("loglevel", "warning"))
         return root.toString()
     }

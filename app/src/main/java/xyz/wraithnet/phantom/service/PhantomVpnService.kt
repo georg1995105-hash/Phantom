@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
+import java.io.File
 import go.Seq
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -89,7 +90,7 @@ class PhantomVpnService : VpnService() {
             vpnInterface = tun
 
             Seq.setContext(applicationContext)
-            Libv2ray.initCoreEnv("", "phantom-$packageName")
+            Libv2ray.initCoreEnv(stageCoreAssets(), "phantom-$packageName")
             val active = Libv2ray.newCoreController(callback)
             controller = active
             active.startLoop(config, tun.fd)
@@ -112,6 +113,21 @@ class PhantomVpnService : VpnService() {
             setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
             updateNotification("Ошибка подключения")
         }
+    }
+
+    private fun stageCoreAssets(): String {
+        val directory = File(filesDir, "xray-assets").apply { mkdirs() }
+        listOf("geoip.dat", "geosite.dat").forEach { name ->
+            val destination = File(directory, name)
+            if (!destination.exists() || destination.length() < 1024) {
+                val temporary = File(directory, "$name.tmp")
+                assets.open(name).use { input ->
+                    temporary.outputStream().use { output -> input.copyTo(output) }
+                }
+                require(temporary.renameTo(destination)) { "Не удалось подготовить базу $name" }
+            }
+        }
+        return directory.absolutePath
     }
 
     private fun stopLocked(report: Boolean = true) {
