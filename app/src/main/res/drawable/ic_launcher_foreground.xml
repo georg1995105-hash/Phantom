@@ -4,12 +4,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Shield outline -->
+    <!-- Abstract phantom mark: no shield and no lettering -->
     <path
-        android:fillColor="#5B7FFF"
-        android:pathData="M54,22 L82,32 L82,54 Q82,76 54,90 Q26,76 26,54 L26,32 Z" />
-    <!-- Inner cutout (stylized P) -->
+        android:fillColor="#DCE5FF"
+        android:pathData="M28,68 C28,44 38,28 54,28 C70,28 80,44 80,68 L80,80 L71,73 L63,80 L54,73 L45,80 L37,73 L28,80 Z" />
     <path
-        android:fillColor="#0F1420"
-        android:pathData="M48,42 L60,42 Q66,42 66,50 Q66,58 60,58 L54,58 L54,68 L48,68 Z M54,48 L54,52 L58,52 Q60,52 60,50 Q60,48 58,48 Z" />
+        android:fillColor="#151A2B"
+        android:pathData="M42,52 C42,49 44,47 47,47 C50,47 52,49 52,52 C52,55 50,57 47,57 C44,57 42,55 42,52 Z" />
+    <path
+        android:fillColor="#151A2B"
+        android:pathData="M56,52 C56,49 58,47 61,47 C64,47 66,49 66,52 C66,55 64,57 61,57 C58,57 56,55 56,52 Z" />
+    <path
+        android:fillColor="#708BFF"
+        android:pathData="M51,65 C53,68 55,68 57,65 C56,70 52,70 51,65 Z" />
 </vector>
