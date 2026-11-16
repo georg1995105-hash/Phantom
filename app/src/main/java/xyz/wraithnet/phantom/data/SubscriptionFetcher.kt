@@ -33,7 +33,7 @@ object SubscriptionFetcher {
         try {
             val code = connection.responseCode
             require(code in 200..299) { "Сервер подписки вернул HTTP $code" }
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             require(body.isNotBlank()) { "Сервер вернул пустую подписку" }
             DownloadedSubscription(
                 body = body,
@@ -49,10 +49,14 @@ object SubscriptionFetcher {
         }
     }
 
-    private fun decodeHeader(value: String?): String? = value?.let {
-        runCatching { android.util.Base64.decode(it, android.util.Base64.DEFAULT).toString(Charsets.UTF_8) }
-            .getOrDefault(it)
-            .takeIf(String::isNotBlank)
+    private fun decodeHeader(value: String?): String? = value?.trim()?.let { raw ->
+        if (raw.isBlank()) return@let null
+        val payload = raw.removePrefix("base64:").removePrefix("BASE64:")
+        if (payload == raw && !raw.matches(Regex("[A-Za-z0-9+/=_-]+"))) return@let raw
+        runCatching {
+            android.util.Base64.decode(payload, android.util.Base64.DEFAULT)
+                .toString(Charsets.UTF_8)
+        }.getOrDefault(raw).takeIf { it.isNotBlank() }
     }
 
     private fun parseUserInfo(value: String?, key: String): Long? = value

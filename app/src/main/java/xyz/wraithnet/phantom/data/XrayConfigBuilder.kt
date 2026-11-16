@@ -9,6 +9,8 @@ import java.net.URLDecoder
 /** Builds an Xray TUN configuration from one Xray-compatible share link. */
 object XrayConfigBuilder {
     fun build(profile: ServerProfile): String {
+        val source = profile.raw.trim()
+        if (source.startsWith("{")) return buildJson(source)
         require(profile.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss")) {
             "${profile.scheme.uppercase()} работает через sing-box и пока не подключён"
         }
@@ -26,6 +28,7 @@ object XrayConfigBuilder {
             .put("inbounds", JSONArray().put(
                 JSONObject()
                     .put("tag", "tun")
+                    .put("port", 0)
                     .put("protocol", "tun")
                     .put("settings", JSONObject().put("mtu", 1500).put("userLevel", 8))
                     .put("sniffing", JSONObject()
@@ -45,6 +48,22 @@ object XrayConfigBuilder {
                     .put("outboundTag", "proxy"))))
             .put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8")))
             .toString()
+    }
+
+    /** Preserve complete Remnawave JSON; only replace local inbounds with TUN. */
+    private fun buildJson(raw: String): String {
+        val input = JSONObject(raw)
+        val root = if (input.has("outbounds")) input else JSONObject()
+            .put("outbounds", JSONArray().put(input))
+        val outbounds = root.optJSONArray("outbounds")
+        require(outbounds != null && outbounds.length() > 0) { "Нет исходящих соединений в Xray JSON" }
+        val tun = JSONObject().put("tag", "tun").put("port", 0).put("protocol", "tun")
+            .put("settings", JSONObject().put("mtu", 1500))
+            .put("sniffing", JSONObject().put("enabled", true)
+                .put("destOverride", JSONArray().put("http").put("tls").put("quic")))
+        root.put("inbounds", JSONArray().put(tun))
+        if (!root.has("log")) root.put("log", JSONObject().put("loglevel", "warning"))
+        return root.toString()
     }
 
     private fun vless(raw: String): JSONObject {
@@ -132,7 +151,14 @@ object XrayConfigBuilder {
             "http", "h2" -> stream.put("httpSettings", JSONObject()
                 .put("path", query["path"] ?: "/")
                 .put("host", JSONArray().put(query["host"] ?: "")))
-            "splithttp", "xhttp" -> stream.put("splithttpSettings", JSONObject()
+            "splithttp", "xhttp" -> {
+                stream.put("network", "xhttp")
+                val settings = JSONObject().put("path", query["path"] ?: "/")
+                    .put("host", query["host"] ?: "").put("mode", query["mode"] ?: "auto")
+                query["extra"]?.let { runCatching { JSONObject(it) }.getOrNull()?.let { ext -> settings.put("extra", ext) } }
+                stream.put("xhttpSettings", settings)
+            }
+            "httpupgrade" -> stream.put("httpupgradeSettings", JSONObject()
                 .put("path", query["path"] ?: "/")
                 .put("host", query["host"] ?: ""))
         }
@@ -148,6 +174,7 @@ object XrayConfigBuilder {
         .put("serverName", query["sni"] ?: query["serverName"] ?: "")
         .put("allowInsecure", query["allowInsecure"] == "1" || query["allowInsecure"] == "true")
         .put("alpn", JSONArray().apply { query["alpn"]?.split(',')?.forEach { put(it) } })
+        .put("fingerprint", query["fp"] ?: "chrome")
 
     private fun reality(query: Map<String, String>) = JSONObject()
         .put("serverName", query["sni"] ?: query["serverName"] ?: "")
