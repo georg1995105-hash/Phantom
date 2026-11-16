@@ -34,7 +34,8 @@ jobs:
 
       - name: Install SDK packages
         run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          yes | sdkmanager --licenses || true
+          yes | sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - name: Download libv2ray.aar (Xray core)
         run: |
