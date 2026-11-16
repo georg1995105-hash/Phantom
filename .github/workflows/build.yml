@@ -16,51 +16,7 @@ permissions:
   contents: write
 
 jobs:
-  ensure-keystore:
-    runs-on: ubuntu-latest
-    outputs:
-      ready: ${{ steps.check.outputs.ready }}
-    steps:
-      - name: Check if keystore secret exists
-        id: check
-        env:
-          SECRET: ${{ secrets.APP_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$SECRET" ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Generate keystore and upload to secrets (first run only)
-        if: steps.check.outputs.ready == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -e
-          PASS=$(openssl rand -hex 24)
-          keytool -genkeypair -v \
-            -keystore phantom.jks \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias phantom \
-            -storepass "$PASS" -keypass "$PASS" \
-            -dname "CN=PHANTOM VPN, OU=Dev, O=WraithNet, L=EU, ST=EU, C=EU"
-
-          B64=$(base64 -w0 phantom.jks)
-
-          # Upload secrets via GitHub CLI
-          echo "$B64"  | gh secret set APP_KEYSTORE_BASE64  --repo ${{ github.repository }}
-          echo "$PASS" | gh secret set APP_KEYSTORE_PASSWORD --repo ${{ github.repository }}
-          echo "phantom" | gh secret set APP_KEYSTORE_ALIAS   --repo ${{ github.repository }}
-          echo "$PASS" | gh secret set APP_KEY_PASSWORD     --repo ${{ github.repository }}
-
-          # Wipe local copy
-          shred -u phantom.jks || true
-          unset PASS B64
-          echo "Keystore generated and stored in repo secrets."
-
   build:
-    needs: ensure-keystore
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -94,11 +50,7 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > app/keystore.jks
           ls -lh app/keystore.jks
 
-      - name: Build release APK (arm64-v8a)
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
-          KEYSTORE_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.APP_KEY_PASSWORD }}
+      - name: Build release APK
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon :app:assembleRelease
