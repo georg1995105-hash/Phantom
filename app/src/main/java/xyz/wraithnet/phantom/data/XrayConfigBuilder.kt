@@ -50,7 +50,7 @@ object XrayConfigBuilder {
             .toString()
     }
 
-    /** Preserve complete Remnawave JSON; only replace local inbounds with TUN. */
+    /** Preserve complete Xray JSON from any provider, replacing local inbounds with TUN. */
     private fun buildJson(raw: String): String {
         val input = JSONObject(raw)
         val root = if (input.has("outbounds")) input else JSONObject()

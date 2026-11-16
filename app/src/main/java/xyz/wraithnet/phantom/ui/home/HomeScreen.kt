@@ -509,7 +509,7 @@ fun HomeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Подписок пока нет", style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(7.dp))
-                            Text("Добавьте ссылку Remnawave или профиль",
+                            Text("Ссылка подписки или отдельный ключ VPN",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -772,8 +772,8 @@ fun HomeScreen(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (manual) "Вставьте ссылку сервера, список ссылок или Xray JSON."
-                    else "Укажите ссылку подписки. Серверы и название загрузятся автоматически.",
+                    if (manual) "Поддерживаются VLESS, VMess, Trojan, Shadowsocks, Hysteria2 и Xray JSON."
+                    else "Вставьте URL подписки любого совместимого сервиса.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 OutlinedTextField(

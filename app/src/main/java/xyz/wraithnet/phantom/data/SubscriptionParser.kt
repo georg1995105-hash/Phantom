@@ -1,6 +1,5 @@
 package xyz.wraithnet.phantom.data
 
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -8,7 +7,7 @@ import java.util.UUID
 
 object SubscriptionParser {
     fun parse(input: String, title: String? = null): Subscription {
-        val normalized = input.trim()
+        val normalized = input.trim().removePrefix("\uFEFF")
         require(normalized.isNotEmpty()) { "Вставьте ссылку или конфигурацию" }
 
         val decoded = decodeIfBase64(normalized)
@@ -36,7 +35,7 @@ object SubscriptionParser {
 
     private fun parseLink(line: String, index: Int): ServerProfile? {
         val scheme = line.substringBefore(":", "").lowercase()
-        val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2", "tuic", "socks", "http")
+        val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")
         if (scheme !in supported) return null
         val uri = runCatching { URI(line) }.getOrNull()
         val fragment = uri?.rawFragment?.let(ShareLinkCodec::percentDecode)
@@ -91,9 +90,13 @@ object SubscriptionParser {
 
     private fun decodeIfBase64(value: String): String {
         if (value.startsWith("http://") || value.startsWith("https://") || value.contains("://")) return value
-        val compact = value.replace("\\s".toRegex(), "")
         return runCatching {
-            Base64.decode(compact, Base64.DEFAULT).toString(Charsets.UTF_8).trim()
+            val decoded = ShareLinkCodec.base64Text(value).trim().removePrefix("\uFEFF")
+            if (decoded.startsWith("{") || decoded.startsWith("[") ||
+                decoded.lineSequence().any {
+                    val scheme = it.trim().substringBefore("://", "").lowercase()
+                    scheme in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")
+                }) decoded else value
         }.getOrDefault(value)
     }
 
