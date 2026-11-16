@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="phantom_bg">#FF0F1420</color>
+    <color name="phantom_surface">#FF1A2033</color>
+    <color name="phantom_accent">#FF5B7FFF</color>
+    <color name="phantom_accent_dim">#FF3D4F99</color>
+</resources>
