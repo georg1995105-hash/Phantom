@@ -46,6 +46,7 @@ object ShareLinkCodec {
         val hostPort = percentDecode(split.substring(at + 1))
         val uri = URI("ss://$hostPort")
         val host = requireNotNull(uri.host) { "Не указан хост Shadowsocks" }
+            .removePrefix("[").removeSuffix("]")
         val port = uri.port
         require(port in 1..65535) { "Неверный порт Shadowsocks" }
         return Shadowsocks(method, password, host, port)
