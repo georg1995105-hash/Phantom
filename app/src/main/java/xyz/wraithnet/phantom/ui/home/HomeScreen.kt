@@ -422,45 +422,8 @@ fun HomeScreen(
                     Icon(Icons.Default.Settings, "Настройки", Modifier.size(24.dp))
                 }
                 Spacer(Modifier.weight(1f))
-                Box {
-                    IconButton(onClick = { showImportMenu = true }) {
-                        Icon(Icons.Default.Add, "Добавить подписку", Modifier.size(27.dp))
-                    }
-                    DropdownMenu(
-                        expanded = showImportMenu,
-                        onDismissRequest = { showImportMenu = false },
-                        modifier = Modifier.widthIn(min = 258.dp)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Добавить подписку") },
-                            leadingIcon = { Icon(Icons.Default.Link, null, Modifier.size(21.dp)) },
-                            onClick = { showImportMenu = false; importMode = "url" }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Вставить из буфера обмена") },
-                            leadingIcon = { Icon(Icons.Default.ContentPaste, null, Modifier.size(21.dp)) },
-                            onClick = { showImportMenu = false; add(pasteText()) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("QR-код") },
-                            leadingIcon = { Icon(Icons.Default.QrCodeScanner, null, Modifier.size(21.dp)) },
-                            onClick = {
-                                showImportMenu = false
-                                scanLauncher.launch(
-                                    ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                        .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
-                                        .setPrompt("Поместите QR-код в рамку")
-                                        .setOrientationLocked(true)
-                                        .setBeepEnabled(false)
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Ручной ввод") },
-                            leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(21.dp)) },
-                            onClick = { showImportMenu = false; importMode = "manual" }
-                        )
-                    }
+                IconButton(onClick = { showImportMenu = true }) {
+                    Icon(Icons.Default.Add, "Добавить конфигурацию", Modifier.size(27.dp))
                 }
             }
                 SnackbarHost(
@@ -779,6 +742,69 @@ fun HomeScreen(
 
         }
     }
+    if (showImportMenu) {
+        ModalBottomSheet(
+            onDismissRequest = { showImportMenu = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp)
+            ) {
+                Text("Добавить конфигурацию",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                funActionRow("Ссылка подписки", Icons.Default.Link) {
+                    showImportMenu = false; importMode = "url"
+                }
+                funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
+                    showImportMenu = false; add(pasteText())
+                }
+                funActionRow("Импортировать файл", Icons.Default.FileOpen) {
+                    showImportMenu = false
+                    importFileLauncher.launch(arrayOf("text/plain", "application/json", "*/*"))
+                }
+                funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
+                    showImportMenu = false
+                    scanLauncher.launch(
+                        ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            .setCaptureActivity(
+                                xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                            .setPrompt("Поместите QR-код в рамку")
+                            .setOrientationLocked(true)
+                            .setBeepEnabled(false)
+                    )
+                }
+                funActionRow("Ручной ввод", Icons.Default.Edit) {
+                    showImportMenu = false; importMode = "manual"
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+        }
+    }
+
+    exportWarning?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { exportWarning = null },
+            title = { Text("Экспорт конфигурации") },
+            text = { Text("Файл содержит приватные параметры подключения. " +
+                "Сохраняйте его только в надёжном месте и не отправляйте посторонним.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    exportWarning = null
+                    exportProfile = profile
+                    exportLauncher.launch("phantom-selected.txt")
+                }) { Text("Сохранить") }
+            },
+            dismissButton = {
+                TextButton(onClick = { exportWarning = null }) { Text("Отмена") }
+            }
+        )
+    }
+
     if (showErrorDetails && vpnError.isNotBlank()) {
         AlertDialog(
             onDismissRequest = { showErrorDetails = false },
@@ -809,6 +835,24 @@ fun HomeScreen(
                         pinnedSubId = if (pinnedSubId == sub.id) null else sub.id
                         prefs.edit().putString("pinned_sub_id", pinnedSubId).apply()
                         activeSubMenu = null
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    funActionRow("Импортировать конфигурацию", Icons.Default.FileOpen) {
+                        activeSubMenu = null
+                        importFileLauncher.launch(arrayOf("text/plain", "application/json", "*/*"))
+                    }
+                    funActionRow("Экспортировать выбранный сервер", Icons.Default.SaveAlt) {
+                        activeSubMenu = null
+                        val chosen = selected?.takeIf { candidate ->
+                            sub.servers.any { it.id == candidate.id }
+                        }
+                        if (chosen != null) {
+                            exportWarning = chosen
+                        } else {
+                            scope.launch {
+                                snackbar.showSnackbar("Выберите сервер этой подписки")
+                            }
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
