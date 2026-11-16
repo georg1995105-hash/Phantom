@@ -242,7 +242,9 @@ fun HomeScreen(
                 try {
                     val raw = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.use {
-                            InputStreamReader(it, Charsets.UTF_8).use(ConfigurationFiles::read)
+                            InputStreamReader(it, Charsets.UTF_8).use { reader ->
+                                ConfigurationFiles.read(reader)
+                            }
                         } ?: error("Не удалось открыть файл")
                     }
                     add(raw)
