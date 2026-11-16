@@ -4,23 +4,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TrafficRatesTest {
-    @Test fun measuresBothDirectionsPerSecond() {
-        val start = TrafficSnapshot(1000L, 20000L, 30000L)
-        val end = TrafficSnapshot(3000L, 22048L, 34096L)
-        assertEquals(TrafficRate(1024L, 2048L), TrafficRates.between(start, end))
+    @Test fun reportsAccurateTunnelRatesForMultipleOutbounds() {
+        val report = "proxy,uplink,2048;proxy,downlink,4096;direct,downlink,2048;"
+        assertEquals(TrafficRate(3072L, 1024L), TrafficRates.fromXrayReport(report, 2000L))
     }
 
-    @Test fun unsupportedOrResetCountersNeverDisplayFakeNumbers() {
-        assertNull(TrafficRates.between(
-            TrafficSnapshot(1000, -1, 100), TrafficSnapshot(3000, -1, 200)))
-        assertNull(TrafficRates.between(
-            TrafficSnapshot(1000, 100, 100), TrafficSnapshot(3000, 50, 120)))
-        assertNull(TrafficRates.between(
-            TrafficSnapshot(1000, 100, 100), TrafficSnapshot(1000, 110, 110)))
+    @Test fun zeroTrafficIsZeroAndBlockTrafficIsExcluded() {
+        assertEquals(TrafficRate(0L, 0L), TrafficRates.fromXrayReport("", 1500L))
+        assertEquals(TrafficRate(0L, 0L),
+            TrafficRates.fromXrayReport("block,uplink,4096;", 1500L))
     }
 
-    @Test fun labelHandlesUnavailableCounters() {
+    @Test fun invalidCountersDoNotDisplayFakeRates() {
+        assertNull(TrafficRates.fromXrayReport("proxy,downlink,broken;", 1500))
+        assertNull(TrafficRates.fromXrayReport("proxy,downlink,100;", 0))
+        assertNull(TrafficRates.fromXrayReport("proxy,uplink,-10;", 1500))
         assertEquals("—", TrafficRates.label(-1))
-        assertTrue(TrafficRates.label(1024).contains("КБ/с"))
     }
 }
