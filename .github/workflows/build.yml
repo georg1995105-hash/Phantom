@@ -64,7 +64,7 @@ jobs:
 
       - name: Verify release notes match APK version
         run: |
-          VERSION=$(sed -nE 's/.*versionName = "([^"]+)".*/\\1/p' app/build.gradle.kts | head -n 1)
+          VERSION=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test -n "$VERSION"
           grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
 
