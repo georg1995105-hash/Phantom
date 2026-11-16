@@ -21,7 +21,7 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
             val interval = old.updateIntervalSeconds.coerceAtLeast(900L) * 1000
             if (now - old.updatedAt < interval) continue
             try {
-                val downloaded = SubscriptionFetcher.download(old.source, store.deviceId())
+                val downloaded = SubscriptionFetcher.download(applicationContext, old.source, store.deviceId())
                 val parsed = SubscriptionParser.parse(downloaded.body,
                     old.customTitle ?: downloaded.title ?: old.title)
                 replacements[old.id] = parsed.copy(

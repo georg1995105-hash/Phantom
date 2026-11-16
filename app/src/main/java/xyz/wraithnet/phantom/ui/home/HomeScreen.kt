@@ -181,7 +181,7 @@ fun HomeScreen(
         scope.launch {
             try {
                 val remote = source.startsWith("https://") || source.startsWith("http://")
-                val downloaded = if (remote) SubscriptionFetcher.download(source, store.deviceId()) else null
+                val downloaded = if (remote) SubscriptionFetcher.download(context, source, store.deviceId()) else null
                 val parsed = SubscriptionParser.parse(downloaded?.body ?: source, customTitle ?: downloaded?.title)
                 val subscription = parsed.copy(
                     source = if (remote) source else parsed.source,
@@ -229,7 +229,7 @@ fun HomeScreen(
         lastAttempt[item.id] = System.currentTimeMillis()
         refreshing = refreshing + item.id
         try {
-            val remote = SubscriptionFetcher.download(item.source, store.deviceId())
+            val remote = SubscriptionFetcher.download(context, item.source, store.deviceId())
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
             val updated = parsed.copy(

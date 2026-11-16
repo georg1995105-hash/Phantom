@@ -12,8 +12,8 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.2.10"
+        versionCode = 13
+        versionName = "0.2.11"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
 
@@ -64,6 +64,8 @@ dependencies {
     // Xray core (libv2ray.aar downloaded by CI)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))
 
+    implementation("com.squareup.okhttp3:okhttp:4.12.1")
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("androidx.core:core-ktx:1.15.0")

@@ -1,10 +1,7 @@
 package xyz.wraithnet.phantom.data
 
+import android.content.Context
 import android.os.Build
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 
 data class DownloadedSubscription(
     val body: String,
@@ -17,36 +14,36 @@ data class DownloadedSubscription(
 )
 
 object SubscriptionFetcher {
-    suspend fun download(url: String, hwid: String): DownloadedSubscription = withContext(Dispatchers.IO) {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 20_000
-            readTimeout = 30_000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Happ/1.0")
-            setRequestProperty("x-hwid", hwid)
-            setRequestProperty("x-device-os", "Android")
-            setRequestProperty("x-device-model", Build.MODEL)
-            setRequestProperty("x-ver-os", Build.VERSION.RELEASE ?: "unknown")
-            setRequestProperty("Accept", "text/plain, application/json, */*")
-        }
-        try {
-            val code = connection.responseCode
-            require(code in 200..299) { "Сервер подписки вернул HTTP $code" }
-            val body = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            require(body.isNotBlank()) { "Сервер вернул пустую подписку" }
-            DownloadedSubscription(
-                body = body,
-                title = SubscriptionHeaders.decodeTitle(connection.getHeaderField("profile-title")),
-                updateIntervalSeconds = connection.getHeaderField("profile-update-interval")?.toLongOrNull()?.times(3600),
-                uploadBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "upload"),
-                downloadBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "download"),
-                totalBytes = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "total"),
-                expiresAt = parseUserInfo(connection.getHeaderField("subscription-userinfo"), "expire"),
-            )
-        } finally {
-            connection.disconnect()
-        }
+    suspend fun download(
+        context: Context,
+        url: String,
+        hwid: String,
+    ): DownloadedSubscription = PhantomHttp.get(
+        context = context,
+        url = url,
+        headers = mapOf(
+            "User-Agent" to "Happ/1.0",
+            "x-hwid" to hwid,
+            "x-device-os" to "Android",
+            "x-device-model" to Build.MODEL,
+            "x-ver-os" to (Build.VERSION.RELEASE ?: "unknown"),
+            "Accept" to "text/plain, application/json, */*",
+        ),
+        callTimeoutMs = 60_000L,
+    ) { response ->
+        val bytes = response.body?.byteStream() ?: error("Пустой ответ сервера подписки")
+        val body = bytes.use { PhantomHttp.readUtf8Limited(it, 3 * 1024 * 1024) }
+        require(body.isNotBlank()) { "Сервер вернул пустую подписку" }
+        DownloadedSubscription(
+            body = body,
+            title = SubscriptionHeaders.decodeTitle(response.header("profile-title")),
+            updateIntervalSeconds = response.header("profile-update-interval")
+                ?.toLongOrNull()?.times(3600),
+            uploadBytes = parseUserInfo(response.header("subscription-userinfo"), "upload"),
+            downloadBytes = parseUserInfo(response.header("subscription-userinfo"), "download"),
+            totalBytes = parseUserInfo(response.header("subscription-userinfo"), "total"),
+            expiresAt = parseUserInfo(response.header("subscription-userinfo"), "expire"),
+        )
     }
 
     private fun parseUserInfo(value: String?, key: String): Long? = value

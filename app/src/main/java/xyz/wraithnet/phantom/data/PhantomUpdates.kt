@@ -7,12 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.sync.Mutex
@@ -46,44 +42,42 @@ object PhantomUpdates {
         return m.groupValues.drop(1).map { it.toIntOrNull() ?: return null }
     }
 
-    suspend fun check(context: Context): PhantomRelease? = withContext(Dispatchers.IO) {
-        val installed = context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
-        val connection = (URL(API).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12000
-            readTimeout = 15000
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "PhantomVPN-Android")
-        }
-        try {
-            require(connection.responseCode == 200) {
-                "Не удалось получить версии приложения (HTTP " + connection.responseCode + ")"
+    suspend fun check(context: Context): PhantomRelease? = PhantomHttp.get(
+        context = context,
+        url = API,
+        headers = mapOf(
+            "Accept" to "application/vnd.github+json",
+            "User-Agent" to "PhantomVPN-Android",
+        ),
+    ) { response ->
+        val installed = context.packageManager
+            .getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
+        val stream = response.body?.byteStream() ?: error("GitHub не вернул данные обновлений")
+        val releases = JSONArray(stream.use {
+            PhantomHttp.readUtf8Limited(it, 2 * 1024 * 1024)
+        })
+        var best: PhantomRelease? = null
+        for (i in 0 until releases.length()) {
+            val item = releases.getJSONObject(i)
+            if (item.optBoolean("draft")) continue
+            val version = item.optString("tag_name").removePrefix("v")
+            if (!isNewer(version, installed)) continue
+            if (best != null && !isNewer(version, best.version)) continue
+            val assets = item.optJSONArray("assets") ?: continue
+            for (j in 0 until assets.length()) {
+                val asset = assets.optJSONObject(j) ?: continue
+                if (asset.optString("name") != ASSET || asset.optString("state") != "uploaded") continue
+                val url = asset.optString("browser_download_url")
+                val hash = asset.optString("digest").removePrefix("sha256:")
+                if (!url.startsWith(PREFIX) || !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue
+                best = PhantomRelease(
+                    version, url, hash.lowercase(Locale.ROOT),
+                    asset.optLong("size", 0L), item.optString("body").take(1500)
+                )
+                break
             }
-            val releases = JSONArray(connection.inputStream.bufferedReader().use { it.readText() })
-            var best: PhantomRelease? = null
-            for (i in 0 until releases.length()) {
-                val item = releases.getJSONObject(i)
-                if (item.optBoolean("draft")) continue
-                val version = item.optString("tag_name").removePrefix("v")
-                if (!isNewer(version, installed)) continue
-                if (best != null && !isNewer(version, best.version)) continue
-                val assets = item.optJSONArray("assets") ?: continue
-                for (j in 0 until assets.length()) {
-                    val asset = assets.optJSONObject(j) ?: continue
-                    if (asset.optString("name") != ASSET || asset.optString("state") != "uploaded") continue
-                    val url = asset.optString("browser_download_url")
-                    val hash = asset.optString("digest").removePrefix("sha256:")
-                    if (!url.startsWith(PREFIX) || !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue
-                    best = PhantomRelease(
-                        version, url, hash.lowercase(Locale.ROOT),
-                        asset.optLong("size", 0L), item.optString("body").take(1500)
-                    )
-                    break
-                }
-            }
-            best
-        } finally {
-            connection.disconnect()
         }
+        best
     }
 
     suspend fun download(
@@ -93,57 +87,62 @@ object PhantomUpdates {
     ): File {
         downloadMutex.lock()
         try {
-            return withContext(Dispatchers.IO) {
-        require(release.downloadUrl.startsWith(PREFIX) &&
-            release.sha256.matches(Regex("[a-f0-9]{64}"))) { "Источник обновления не прошёл проверку" }
-        val directory = File(context.cacheDir, "updates").apply { mkdirs() }
-        val target = File(directory, "phantom-" + release.version + ".apk")
-        val temp = File(directory, "phantom-" + release.version + ".part")
-        val conn = (URL(release.downloadUrl).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15000
-            readTimeout = 30000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "PhantomVPN-Android")
-        }
-        try {
-            require(conn.responseCode == 200) { "Ошибка загрузки: HTTP " + conn.responseCode }
-            val digest = MessageDigest.getInstance("SHA-256")
-            var count = 0L
-            temp.outputStream().use { output ->
-                conn.inputStream.use { input ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        output.write(buffer, 0, n)
-                        digest.update(buffer, 0, n)
-                        count += n
-                        require(count <= 250L * 1024 * 1024) { "Размер обновления превышает предел" }
-                        if (release.sizeBytes > 0L) {
-                            onProgress((100L * count / release.sizeBytes).toInt().coerceIn(0, 100))
+            require(release.downloadUrl.startsWith(PREFIX) &&
+                release.sha256.matches(Regex("[a-f0-9]{64}"))) {
+                "Источник обновления не прошёл проверку"
+            }
+            return PhantomHttp.get(
+                context = context,
+                url = release.downloadUrl,
+                headers = mapOf("User-Agent" to "PhantomVPN-Android"),
+                callTimeoutMs = 0L, // Large APKs: per-read timeout, no fixed total-time cutoff.
+            ) { response ->
+                val directory = File(context.cacheDir, "updates").apply { mkdirs() }
+                val target = File(directory, "phantom-" + release.version + ".apk")
+                val temp = File(directory, "phantom-" + release.version + ".part")
+                try {
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    var count = 0L
+                    val stream = response.body?.byteStream()
+                        ?: error("GitHub вернул пустой файл обновления")
+                    temp.outputStream().use { output ->
+                        stream.use { input ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buffer)
+                                if (n < 0) break
+                                output.write(buffer, 0, n)
+                                digest.update(buffer, 0, n)
+                                count += n
+                                require(count <= 250L * 1024 * 1024) {
+                                    "Размер обновления превышает предел"
+                                }
+                                if (release.sizeBytes > 0L) {
+                                    onProgress((100L * count / release.sizeBytes)
+                                        .toInt().coerceIn(0, 100))
+                                }
+                            }
                         }
                     }
+                    require(count > 1024L &&
+                        (release.sizeBytes <= 0L || count == release.sizeBytes)) {
+                        "Файл обновления загружен не полностью"
+                    }
+                    val actual = digest.digest().joinToString("") {
+                        (it.toInt() and 0xff).toString(16).padStart(2, '0')
+                    }
+                    require(actual.equals(release.sha256, ignoreCase = true)) {
+                        "Контрольная сумма APK не совпадает"
+                    }
+                    verifyApk(context, temp)
+                    if (target.exists()) target.delete()
+                    require(temp.renameTo(target)) { "Не удалось сохранить проверенный APK" }
+                    onProgress(100)
+                    target
+                } finally {
+                    if (temp.exists()) temp.delete()
                 }
             }
-            require(count > 1024 && (release.sizeBytes <= 0 || count == release.sizeBytes)) {
-                "Файл обновления загружен не полностью"
-            }
-            val actual = digest.digest().joinToString("") {
-                (it.toInt() and 0xff).toString(16).padStart(2, '0')
-            }
-            require(actual.equals(release.sha256, ignoreCase = true)) {
-                "Контрольная сумма APK не совпадает"
-            }
-            verifyApk(context, temp)
-            if (target.exists()) target.delete()
-            require(temp.renameTo(target)) { "Не удалось сохранить проверенный APK" }
-            onProgress(100)
-            target
-        } finally {
-            conn.disconnect()
-            if (temp.exists()) temp.delete()
-        }
-         }
         } finally {
             downloadMutex.unlock()
         }
