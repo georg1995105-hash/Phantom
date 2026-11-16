@@ -35,7 +35,7 @@ object SubscriptionParser {
 
     private fun parseLink(line: String, index: Int): ServerProfile? {
         val scheme = line.substringBefore(":", "").lowercase()
-        val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")
+        val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2", "tuic", "anytls")
         if (scheme !in supported) return null
         val uri = runCatching { URI(line) }.getOrNull()
         val fragment = uri?.rawFragment?.let(ShareLinkCodec::percentDecode)
@@ -95,7 +95,7 @@ object SubscriptionParser {
             if (decoded.startsWith("{") || decoded.startsWith("[") ||
                 decoded.lineSequence().any {
                     val scheme = it.trim().substringBefore("://", "").lowercase()
-                    scheme in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")
+                    scheme in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2", "tuic", "anytls")
                 }) decoded else value
         }.getOrDefault(value)
     }
