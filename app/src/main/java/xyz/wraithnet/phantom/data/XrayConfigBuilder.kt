@@ -30,7 +30,7 @@ object XrayConfigBuilder {
                     .put("tag", "tun")
                     .put("port", 0)
                     .put("protocol", "tun")
-                    .put("settings", JSONObject().put("mtu", 1500).put("userLevel", 8))
+                    .put("settings", JSONObject().put("name", "tun0").put("mtu", 1400).put("userLevel", 8))
                     .put("sniffing", JSONObject()
                         .put("enabled", true)
                         .put("destOverride", JSONArray().put("http").put("tls").put("quic")),
@@ -58,7 +58,7 @@ object XrayConfigBuilder {
         val outbounds = root.optJSONArray("outbounds")
         require(outbounds != null && outbounds.length() > 0) { "Нет исходящих соединений в Xray JSON" }
         val tun = JSONObject().put("tag", "tun").put("port", 0).put("protocol", "tun")
-            .put("settings", JSONObject().put("mtu", 1500))
+            .put("settings", JSONObject().put("name", "tun0").put("mtu", 1400))
             .put("sniffing", JSONObject().put("enabled", true)
                 .put("destOverride", JSONArray().put("http").put("tls").put("quic")))
         // Preserve inbound-based routing rules when migrating local SOCKS/HTTP

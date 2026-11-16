@@ -98,7 +98,7 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && 'v0.2.1' || inputs.release_tag }}
-          name: PHANTOM VPN 0.2.1
+          tag_name: ${{ github.event_name == 'push' && 'v0.2.2' || inputs.release_tag }}
+          name: PHANTOM VPN 0.2.2
           files: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
           prerelease: true
