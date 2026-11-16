@@ -45,6 +45,7 @@ class PhantomVpnService : VpnService() {
     private var trafficJob: Job? = null
     @Volatile private var running = false
     @Volatile private var state = STATUS_DISCONNECTED
+    @Volatile private var revokedByAndroid = false
 
     override fun onCreate() {
         super.onCreate()
@@ -92,6 +93,7 @@ class PhantomVpnService : VpnService() {
     }
 
     private fun startLocked(raw: String) {
+        if (revokedByAndroid) return
         stopLocked(false)
         setState(STATUS_STARTING)
         try {
@@ -128,6 +130,7 @@ class PhantomVpnService : VpnService() {
             ).any { endpoint -> runCatching { active.measureDelay(endpoint) > 0L }.getOrDefault(false) }
             require(verified) { "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер." }
 
+            check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
@@ -138,7 +141,8 @@ class PhantomVpnService : VpnService() {
             if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
         } catch (e: Exception) {
             stopLocked(false)
-            setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
+            if (revokedByAndroid) setState(STATUS_DISCONNECTED)
+            else setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
             updateNotification("Ошибка подключения")
         }
     }
@@ -267,7 +271,14 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onRevoke() {
-        ioScope.launch { mutex.withLock { stopLocked() }; stopSelf() }
+        // Android invokes this when another VPN (such as INCY) takes ownership.
+        // Publish the revoked state *before* super.onRevoke() stops the service:
+        // deferred coroutines can be cancelled by onDestroy before they run.
+        revokedByAndroid = true
+        running = false
+        prefs.edit().putBoolean("vpn_running", false)
+            .putLong("vpn_connected_since_elapsed", 0L).apply()
+        setState(STATUS_DISCONNECTED)
         super.onRevoke()
     }
 
@@ -278,6 +289,7 @@ class PhantomVpnService : VpnService() {
                 .putString("vpn_status", STATUS_DISCONNECTED)
                 .putLong("vpn_connected_since_elapsed", 0L).apply()
             PhantomQuickTileService.notifyStateChanged(applicationContext)
+            sendStatus(STATUS_DISCONNECTED)
         }
         trafficJob?.cancel()
         releaseWakeLock()
