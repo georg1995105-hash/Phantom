@@ -20,7 +20,11 @@ import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
  *
  * Never prints raw profiles: the share link includes authentication credentials.
  */
-internal class SingBoxBridge(private val vpn: VpnService) {
+internal class SingBoxBridge(
+    private val context: Context,
+    private val protectFd: (Int) -> Unit,
+) {
+    constructor(vpn: VpnService) : this(vpn, { fd -> vpn.protect(fd) })
     private var server: CommandServer? = null
 
     companion object {
@@ -55,7 +59,7 @@ internal class SingBoxBridge(private val vpn: VpnService) {
             when (method.name) {
                 "usePlatformAutoDetectInterfaceControl" -> true
                 "autoDetectInterfaceControl" -> {
-                    vpn.protect(args?.get(0) as Int)
+                    protectFd(args?.get(0) as Int)
                     null
                 }
                 "openTun" -> error("sing-box не создаёт второй VPN-интерфейс")
@@ -112,7 +116,7 @@ internal class SingBoxBridge(private val vpn: VpnService) {
 
     fun start(raw: String): Int {
         check(server == null) { "sing-box уже запущен" }
-        initialize(vpn)
+        initialize(context)
         val port = ServerSocket(0).use { it.localPort }
         val config = SingBoxBridgeConfig.fromShareLink(raw, port)
         val current = CommandServer(callbacks(), platform())
