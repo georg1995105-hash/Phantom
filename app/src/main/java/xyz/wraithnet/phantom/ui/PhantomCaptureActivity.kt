@@ -10,6 +10,8 @@ class PhantomCaptureActivity : CaptureActivity() {
     override fun initializeContent(): DecoratedBarcodeView {
         setContentView(R.layout.activity_phantom_capture)
         findViewById<View>(R.id.phantom_qr_close).setOnClickListener { finish() }
-        return findViewById(R.id.zxing_barcode_scanner)
+        return findViewById<DecoratedBarcodeView>(R.id.zxing_barcode_scanner).apply {
+            viewFinder.setLaserVisibility(false)
+        }
     }
 }
