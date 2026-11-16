@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,17 +31,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.AppRoutingTransfer
+import xyz.wraithnet.phantom.data.AppSelectionGroups
 import xyz.wraithnet.phantom.data.ConfigurationFiles
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import java.io.InputStreamReader
 
-private data class SelectableApp(val packageName: String, val title: String, val icon: ImageBitmap?)
+private data class SelectableApp(val packageName: String, val title: String, val system: Boolean)
 
 @Composable
 fun AppRoutingScreen(onBack: () -> Unit) {
@@ -54,10 +57,14 @@ fun AppRoutingScreen(onBack: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var apps by remember { mutableStateOf(emptyList<SelectableApp>()) }
-    val visible = remember(apps, search) {
-        apps.filter { search.isBlank() || it.title.contains(search, true) ||
-            it.packageName.contains(search, true) }
+    var showSystem by remember { mutableStateOf(false) }
+    val grouped = remember(apps, search, selected, showSystem) {
+        AppSelectionGroups.group(
+            apps.map { AppSelectionGroups.App(it.packageName, it.title, it.system) },
+            selected, search, showSystem
+        )
     }
+    val visible = grouped.selected + grouped.available
 
     fun gentleTap() = haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
 
@@ -116,15 +123,19 @@ fun AppRoutingScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
             val pm = context.packageManager
-            val query = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             @Suppress("DEPRECATION")
-            val found = pm.queryIntentActivities(query, 0)
-            found.mapNotNull { item ->
-                val pkg = item.activityInfo?.packageName ?: return@mapNotNull null
+            val installed = pm.getInstalledApplications(0)
+            installed.mapNotNull { info ->
+                val pkg = info.packageName
                 if (pkg == context.packageName) return@mapNotNull null
-                SelectableApp(pkg, item.loadLabel(pm).toString().ifBlank { pkg },
-                    runCatching { item.loadIcon(pm).toBitmap(96, 96).asImageBitmap() }.getOrNull())
-            }.distinctBy { it.packageName }.sortedBy { it.title.lowercase() }
+                SelectableApp(
+                    packageName = pkg,
+                    title = runCatching { pm.getApplicationLabel(info).toString() }
+                        .getOrDefault(pkg).ifBlank { pkg },
+                    system = info.flags and (ApplicationInfo.FLAG_SYSTEM or
+                        ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,
+                )
+            }.distinctBy { it.packageName }
         }
         loading = false
     }
@@ -242,52 +253,122 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                     }
                 }
                 if (mode != AppRouting.ALL) {
-                    OutlinedTextField(value = search, onValueChange = { search = it },
+                    OutlinedTextField(
+                        value = search, onValueChange = { search = it },
                         label = { Text("Поиск приложений") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth())
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showSystem = !showSystem }
+                            .padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Показывать системные приложения",
+                                style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                if (showSystem) "Можно выбрать и системные службы"
+                                else "Скрыто: " + grouped.hiddenSystem,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = showSystem, onCheckedChange = { showSystem = it })
+                    }
                     Text("Выбрано: " + selected.size,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!showSystem) Text(
+                        "Выбранные системные приложения всегда видны сверху.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
             if (mode != AppRouting.ALL) {
                 if (loading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-                items(visible, key = { it.packageName }) { app ->
-                    Row(Modifier.fillMaxWidth().clickable {
-                        selected = if (app.packageName in selected) selected - app.packageName
-                            else selected + app.packageName
-                        gentleTap()
-                    }.heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = app.packageName in selected,
-                            onCheckedChange = { checked ->
-                                selected = if (checked) selected + app.packageName
-                                    else selected - app.packageName
-                                gentleTap()
-                            })
-                        Spacer(Modifier.width(8.dp))
-                        if (app.icon != null) {
-                            Image(bitmap = app.icon, contentDescription = null,
-                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
-                        } else {
-                            Box(Modifier.size(38.dp).clip(RoundedCornerShape(9.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentAlignment = Alignment.Center) {
-                                Text(app.title.take(1).uppercase())
-                            }
-                        }
-                        Spacer(Modifier.width(11.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(app.title, maxLines = 1)
-                            Text(app.packageName, maxLines = 1,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!loading && grouped.selected.isNotEmpty()) {
+                    item {
+                        Text("ВЫБРАННЫЕ · " + grouped.selected.size,
+                            fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                    }
+                    items(grouped.selected, key = { it.packageName }) { app ->
+                        RoutingAppRow(app, true) {
+                            selected = selected - app.packageName
+                            gentleTap()
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .18f))
+                }
+                if (!loading) {
+                    item {
+                        Text("ОСТАЛЬНЫЕ ПРИЛОЖЕНИЯ · " + grouped.available.size,
+                            fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 13.dp, bottom = 4.dp))
+                    }
+                    items(grouped.available, key = { it.packageName }) { app ->
+                        RoutingAppRow(app, false) {
+                            selected = selected + app.packageName
+                            gentleTap()
+                        }
+                    }
+                    if (grouped.available.isEmpty() && grouped.selected.isEmpty()) {
+                        item { Text("По вашему запросу приложения не найдены",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                 }
             }
         }
     }
+}
+
+
+@Composable
+private fun RoutingAppRow(
+    app: AppSelectionGroups.App,
+    selected: Boolean,
+    onToggle: () -> Unit
+) {
+    val context = LocalContext.current
+    var icon by remember(app.packageName) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(app.packageName) {
+        icon = withContext(Dispatchers.IO) {
+            runCatching {
+                context.packageManager.getApplicationIcon(app.packageName)
+                    .toBitmap(96, 96).asImageBitmap()
+            }.getOrNull()
+        }
+    }
+    Row(Modifier.fillMaxWidth().clickable(onClick = onToggle)
+        .heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = selected, onCheckedChange = { onToggle() })
+        Spacer(Modifier.width(8.dp))
+        if (icon != null) {
+            Image(bitmap = icon!!, contentDescription = null,
+                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)))
+        } else {
+            Box(Modifier.size(38.dp).clip(RoundedCornerShape(9.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center) {
+                Text(app.title.take(1).uppercase())
+            }
+        }
+        Spacer(Modifier.width(11.dp))
+        Column(Modifier.weight(1f)) {
+            Text(app.title, maxLines = 1)
+            Text(
+                app.packageName + if (app.system) " · Система" else "",
+                maxLines = 1, style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .18f))
 }
 
 private fun <T> Set<T>.symmetricDifference(other: Set<T>): Set<T> =

@@ -16,9 +16,12 @@ object PhantomBackup {
 
     private val textKeys = setOf(
         "theme", "selected_server_id", "pinned_sub_id",
-        "fragment_lengths", "fragment_delays", "app_route_mode"
+        "fragment_lengths", "fragment_delays", "app_route_mode",
+        VpnDnsSettings.MODE_KEY, VpnDnsSettings.PRIMARY_KEY, VpnDnsSettings.SECONDARY_KEY
     )
-    private val booleanKeys = setOf("keep_active", "fragmentation_enabled")
+    private val booleanKeys = setOf(
+        "keep_active", "fragmentation_enabled", "connect_on_boot", PhantomHttp.DNS_FALLBACK_KEY
+    )
     private const val PACKAGE_KEY = "app_route_packages"
 
     data class Snapshot(
@@ -75,6 +78,12 @@ object PhantomBackup {
         if (settings.has("theme")) {
             require(settings.getString("theme") in setOf("AUTO","LIGHT","GRAPHITE","NIGHT","FOREST")) {
                 "Неизвестная тема оформления"
+            }
+        }
+        if (settings.has(VpnDnsSettings.MODE_KEY)) {
+            require(settings.getString(VpnDnsSettings.MODE_KEY) in
+                VpnDnsSettings.Mode.entries.map { it.name }) {
+                "Неизвестный режим DNS"
             }
         }
         if (settings.has("app_route_mode")) {

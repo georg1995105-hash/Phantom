@@ -80,6 +80,8 @@ import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.ComponentsScreen
 import xyz.wraithnet.phantom.ui.settings.BackupScreen
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
+import xyz.wraithnet.phantom.ui.settings.DnsSettingsScreen
+import xyz.wraithnet.phantom.service.VpnBootPolicy
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.ui.theme.themeScheme
@@ -966,12 +968,16 @@ private fun PhantomSettings(
         }.getOrDefault(PhantomThemeMode.AUTO))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
+    var bootConnect by remember { mutableStateOf(prefs.getBoolean(VpnBootPolicy.PREF_KEY, false)) }
+
     var showThemeGallery by remember { mutableStateOf(false) }
     var tileMessage by remember { mutableStateOf<String?>(null) }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
+    var showDns by remember { mutableStateOf(false) }
+
     var showComponents by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
     if (showThemeGallery) {
@@ -984,6 +990,8 @@ private fun PhantomSettings(
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
+    if (showDns) { DnsSettingsScreen(onBack = { showDns = false }); return }
+
     if (showBackup) {
         BackupScreen(
             onBack = { showBackup = false },
@@ -1186,13 +1194,49 @@ private fun PhantomSettings(
                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            bootConnect = !bootConnect
+                            prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, bootConnect).apply()
+                        }.padding(horizontal = 16.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Подключаться после перезагрузки", fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium)
+                            Text("Использовать последний сервер после включения телефона. " +
+                                "Сначала разрешите VPN в Android.",
+                                fontSize = 12.sp, lineHeight = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Switch(checked = bootConnect, onCheckedChange = { checked ->
+                            bootConnect = checked
+                            prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, checked).apply()
+                        })
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showDns = true }
+                            .padding(horizontal = 16.dp, vertical = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("DNS", fontSize = 15.sp)
+                            Text("Стандартный, Cloudflare, Google или свой",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
                     Row(Modifier.fillMaxWidth().clickable {
                         runCatching { context.startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
                     }.heightIn(min = 58.dp).padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Всегда включённый VPN", fontSize = 15.sp)
-                            Text("Системная функция Android",
+                            Text("Самый надёжный способ сохранять VPN после перезагрузки",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         }
                         Icon(Icons.Default.ChevronRight, null,
