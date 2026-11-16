@@ -12,7 +12,7 @@ class AppRoutingTransferTest {
     }
 
     @Test fun readsPlainListWithoutChangingMode() {
-        val data = AppRoutingTransfer.parse("com.example.alpha\\norg.example.beta")
+        val data = AppRoutingTransfer.parse("com.example.alpha\norg.example.beta")
         assertNull(data.mode)
         assertEquals(2, data.packages.size)
     }
