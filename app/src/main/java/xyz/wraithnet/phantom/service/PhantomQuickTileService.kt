@@ -3,6 +3,8 @@ package xyz.wraithnet.phantom.service
 import android.app.PendingIntent
 import android.app.StatusBarManager
 import android.content.ComponentName
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
@@ -18,13 +20,40 @@ import xyz.wraithnet.phantom.data.QuickTileProfileSelector
 
 /** Android Quick Settings tile. Never starts a tunnel without VPN permission. */
 class PhantomQuickTileService : TileService() {
+    private var listening = false
+    private val statusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == PhantomVpnService.ACTION_STATUS) renderState()
+        }
+    }
+
+    override fun onTileAdded() {
+        super.onTileAdded()
+        renderState()
+    }
+
     override fun onStartListening() {
         super.onStartListening()
+        if (!listening) {
+            ContextCompat.registerReceiver(this, statusReceiver,
+                IntentFilter(PhantomVpnService.ACTION_STATUS),
+                ContextCompat.RECEIVER_NOT_EXPORTED)
+            listening = true
+        }
         renderState()
+    }
+
+    override fun onStopListening() {
+        if (listening) {
+            runCatching { unregisterReceiver(statusReceiver) }
+            listening = false
+        }
+        super.onStopListening()
     }
 
     override fun onClick() {
         super.onClick()
+        renderState()
         if (isLocked) unlockAndRun { toggleVpn() }
         else toggleVpn()
     }
@@ -88,13 +117,19 @@ class PhantomQuickTileService : TileService() {
 
     private fun renderState() {
         val tile = qsTile ?: return
-        val running = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-            .getBoolean("vpn_running", false)
+        val prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+        val state = prefs.getString("vpn_status", PhantomVpnService.STATUS_DISCONNECTED)
+        val running = prefs.getBoolean("vpn_running", false) &&
+            state == PhantomVpnService.STATUS_CONNECTED
         tile.label = "Phantom VPN"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_phantom)
         tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         if (Build.VERSION.SDK_INT >= 29) {
-            tile.subtitle = if (running) "Подключено" else "Отключено"
+            tile.subtitle = when {
+                running -> "Подключено"
+                state == PhantomVpnService.STATUS_STARTING -> "Подключение…"
+                else -> "Отключено"
+            }
         }
         tile.updateTile()
     }

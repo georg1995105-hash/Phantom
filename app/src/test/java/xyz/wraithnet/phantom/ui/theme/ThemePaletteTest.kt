@@ -7,7 +7,7 @@ class ThemePaletteTest {
     @Test fun autoUsesSystemAppearance() {
         assertEquals(themeScheme(PhantomThemeMode.LIGHT, false).background,
             themeScheme(PhantomThemeMode.AUTO, false).background)
-        assertEquals(themeScheme(PhantomThemeMode.GRAPHITE, true).background,
+        assertNotEquals(themeScheme(PhantomThemeMode.GRAPHITE, true).background,
             themeScheme(PhantomThemeMode.AUTO, true).background)
     }
 
@@ -16,5 +16,11 @@ class ThemePaletteTest {
             themeScheme(PhantomThemeMode.GRAPHITE, true).background)
         assertNotEquals(themeScheme(PhantomThemeMode.GRAPHITE, true).background,
             themeScheme(PhantomThemeMode.NIGHT, true).background)
+        assertNotEquals(themeScheme(PhantomThemeMode.FOREST, true).background,
+            themeScheme(PhantomThemeMode.GRAPHITE, true).background)
+        assertNotEquals(themeScheme(PhantomThemeMode.AUTO, true).background,
+            themeScheme(PhantomThemeMode.NIGHT, true).background)
+        assertNotEquals(themeScheme(PhantomThemeMode.LIGHT, false).surface,
+            androidx.compose.ui.graphics.Color.White)
     }
 }

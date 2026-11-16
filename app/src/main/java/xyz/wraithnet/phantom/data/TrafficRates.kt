@@ -29,6 +29,26 @@ object TrafficRates {
         )
     }
 
+    /** Compact UI rates in decimal kilobits/second, like other Android VPN clients. */
+    fun labelBits(bytesPerSecond: Long): String {
+        if (bytesPerSecond < 0L) return "—"
+        val kbitsPerSecond = bytesPerSecond.toDouble() * 8.0 / 1000.0
+        if (kbitsPerSecond == 0.0) return "0 Кбит/с"
+        val value: Double
+        val unit: String
+        if (kbitsPerSecond >= 1_000_000.0) {
+            value = kbitsPerSecond / 1_000_000.0
+            unit = "Гбит/с"
+        } else if (kbitsPerSecond >= 1000.0) {
+            value = kbitsPerSecond / 1000.0
+            unit = "Мбит/с"
+        } else {
+            value = kbitsPerSecond
+            unit = "Кбит/с"
+        }
+        return String.format(Locale.getDefault(), "%.1f %s", value, unit)
+    }
+
     fun label(bytesPerSecond: Long): String {
         if (bytesPerSecond < 0L) return "—"
         val units = listOf("Б/с", "КБ/с", "МБ/с", "ГБ/с")

@@ -20,5 +20,8 @@ class TrafficRatesTest {
         assertNull(TrafficRates.fromXrayReport("proxy,downlink,100;", 0))
         assertNull(TrafficRates.fromXrayReport("proxy,uplink,-10;", 1500))
         assertEquals("—", TrafficRates.label(-1))
+        assertEquals("—", TrafficRates.labelBits(-1))
+        assertEquals("0 Кбит/с", TrafficRates.labelBits(0))
+        assertTrue(TrafficRates.labelBits(125_000).contains("Мбит/с"))
     }
 }

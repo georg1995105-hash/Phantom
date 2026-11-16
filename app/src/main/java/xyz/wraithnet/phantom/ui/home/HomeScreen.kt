@@ -3,11 +3,13 @@ package xyz.wraithnet.phantom.ui.home
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import org.json.JSONObject
 import org.json.JSONArray
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -98,6 +100,7 @@ fun HomeScreen(
     vpnError: String = "",
     downloadRate: Long = -1L,
     uploadRate: Long = -1L,
+    connectedSinceElapsed: Long = 0L,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
     onThemeChange: (PhantomThemeMode) -> Unit = {},
@@ -106,6 +109,12 @@ fun HomeScreen(
     val store = remember { SubscriptionStore(context) }
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(snackbar.currentSnackbarData) {
+        if (snackbar.currentSnackbarData != null) {
+            delay(1650L)
+            snackbar.currentSnackbarData?.dismiss()
+        }
+    }
     val scope = rememberCoroutineScope()
     var subscriptions by remember { mutableStateOf(store.read()) }
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
@@ -125,6 +134,18 @@ fun HomeScreen(
     var showSettings by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
+    var connectedSeconds by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(vpnStatus, connectedSinceElapsed) {
+        if (vpnStatus != "connected" || connectedSinceElapsed <= 0L) {
+            connectedSeconds = 0L
+        } else {
+            while (true) {
+                connectedSeconds =
+                    ((SystemClock.elapsedRealtime() - connectedSinceElapsed).coerceAtLeast(0L)) / 1000L
+                delay(1000L)
+            }
+        }
+    }
     fun persist(list: List<Subscription>) {
         subscriptions = list
         store.write(list)
@@ -343,17 +364,15 @@ fun HomeScreen(
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            Row(
+            Column {
+                Row(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { showSettings = true }) {
                     Icon(Icons.Default.Settings, "Настройки", Modifier.size(24.dp))
                 }
-                Spacer(Modifier.weight(1f))
-                Text("Phantom", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 Box {
                     IconButton(onClick = { showImportMenu = true }) {
@@ -396,6 +415,27 @@ fun HomeScreen(
                     }
                 }
             }
+                SnackbarHost(
+                    hostState = snackbar,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 3.dp),
+                    snackbar = { data ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurface,
+                            shape = RoundedCornerShape(13.dp),
+                            border = BorderStroke(1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = .4f)),
+                            shadowElevation = 2.dp
+                        ) {
+                            Text(data.visuals.message,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                fontSize = 13.sp,
+                                maxLines = 2,
+                                textAlign = TextAlign.Center)
+                        }
+                    }
+                )
+            }
         }
     ) { inner ->
         LazyColumn(
@@ -403,6 +443,31 @@ fun HomeScreen(
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item(key = "connection-metrics") {
+                val isConnected = vpnStatus == "connected"
+                val left = if (isConnected) TrafficRates.labelBits(uploadRate) else "0 Кбит/с"
+                val right = if (isConnected) TrafficRates.labelBits(downloadRate) else "0 Кбит/с"
+                val timer = String.format(Locale.ROOT, "%02d:%02d:%02d",
+                    connectedSeconds / 3600L, (connectedSeconds / 60L) % 60L,
+                    connectedSeconds % 60L)
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                        Text("↑ " + left, color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Text(timer, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onBackground)
+                    }
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                        Text("↓ " + right, color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
+                }
+            }
             if (availableUpdate != null && !otaDismissed) {
                 item(key = "ota-update") {
                     val release = availableUpdate!!
@@ -515,27 +580,6 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                         }
                     }
-                    if (connected) {
-                        Spacer(Modifier.height(14.dp))
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 28.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column(horizontalAlignment = Alignment.Start) {
-                                Text("↓ " + TrafficRates.label(downloadRate),
-                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Загрузка", fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text("↑ " + TrafficRates.label(uploadRate),
-                                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("Отдача", fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        Spacer(Modifier.height(5.dp))
-                        Text("Скорость VPN · Xray", fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                 }
             }
             if (subscriptions.isEmpty()) {
@@ -583,6 +627,8 @@ fun HomeScreen(
             items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
                 Card(
                     shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = .45f)),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column {
@@ -1019,7 +1065,7 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Какие приложения используют VPN", fontSize = 15.sp)
-                            Text("Выбрать приложения для VPN или исключить их",
+                            Text("Выбрать, кому нужен VPN",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         }
                         Icon(Icons.Default.ChevronRight, null,

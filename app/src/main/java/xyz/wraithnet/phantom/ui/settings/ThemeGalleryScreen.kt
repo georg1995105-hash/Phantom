@@ -62,11 +62,11 @@ fun ThemeGalleryScreen(
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.AUTO, selected, systemDark, onChoose,
-                    "Автоматически подстраивается под оформление Android")
+                    "Собственная спокойная палитра для светлого и тёмного Android")
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.LIGHT, selected, systemDark, onChoose,
-                    "Светлый фон и спокойные синие акценты")
+                    "Мягкий серо-светлый фон без резкой белизны")
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.GRAPHITE, selected, systemDark, onChoose,
@@ -75,6 +75,10 @@ fun ThemeGalleryScreen(
             item {
                 ThemeOptionCard(PhantomThemeMode.NIGHT, selected, systemDark, onChoose,
                     "Глубокие тёмные оттенки с фиолетовым акцентом")
+            }
+            item {
+                ThemeOptionCard(PhantomThemeMode.FOREST, selected, systemDark, onChoose,
+                    "Тёмный хвойный фон и спокойные зелёные акценты")
             }
         }
     }

@@ -13,63 +13,102 @@ enum class PhantomThemeMode(val title: String) {
     LIGHT("Светлая"),
     GRAPHITE("Графит"),
     NIGHT("Ночная"),
+    FOREST("Тёмно-зелёная"),
 }
 
+// The AUTO palette intentionally differs from GRAPHITE and NIGHT on dark devices.
+// Theme preference names for all existing installations must remain unchanged.
+private val SystemDarkColors = darkColorScheme(
+    primary = Color(0xFF9DBED7),
+    onPrimary = Color(0xFF162D3D),
+    primaryContainer = Color(0xFF263D4D),
+    onPrimaryContainer = Color(0xFFE8F3F9),
+    secondary = Color(0xFF9CB6BB),
+    onSecondary = Color(0xFF142C30),
+    background = Color(0xFF101820),
+    onBackground = Color(0xFFE7EFF4),
+    surface = Color(0xFF1C2831),
+    onSurface = Color(0xFFE7EFF4),
+    surfaceVariant = Color(0xFF2C3D49),
+    onSurfaceVariant = Color(0xFFAEBDC9),
+    outline = Color(0xFF50616F),
+    error = Color(0xFFFFAFAF)
+)
+
 private val GraphiteColors = darkColorScheme(
-    primary = Color(0xFF9CB9ED),
-    onPrimary = Color(0xFF102034),
-    primaryContainer = Color(0xFF24344B),
-    onPrimaryContainer = Color(0xFFF1F5FF),
-    secondary = Color(0xFFA0B4D2),
-    onSecondary = Color(0xFF10151F),
-    background = Color(0xFF10151D),
-    onBackground = Color(0xFFEFF3FA),
-    surface = Color(0xFF1A222E),
-    onSurface = Color(0xFFEFF3FA),
-    surfaceVariant = Color(0xFF273241),
-    onSurfaceVariant = Color(0xFFA9B6CB),
-    outline = Color(0xFF435267),
-    error = Color(0xFFFFADB0),
+    primary = Color(0xFFA2B9D5),
+    onPrimary = Color(0xFF16283B),
+    primaryContainer = Color(0xFF283647),
+    onPrimaryContainer = Color(0xFFF1F5FB),
+    secondary = Color(0xFFB7BFCD),
+    onSecondary = Color(0xFF222A37),
+    background = Color(0xFF15181E),
+    onBackground = Color(0xFFF0F1F4),
+    surface = Color(0xFF242934),
+    onSurface = Color(0xFFF0F1F4),
+    surfaceVariant = Color(0xFF313947),
+    onSurfaceVariant = Color(0xFFBDC5D1),
+    outline = Color(0xFF596575),
+    error = Color(0xFFFFB1B1)
 )
 
 private val NightColors = darkColorScheme(
-    primary = Color(0xFF8DA2FF),
-    onPrimary = Color(0xFF111522),
-    primaryContainer = Color(0xFF29355F),
-    onPrimaryContainer = Color(0xFFE1E6FF),
-    secondary = Color(0xFF9FAACD),
-    onSecondary = Color(0xFF171A25),
-    background = Color(0xFF0B0E17),
-    onBackground = Color(0xFFE6E9F2),
-    surface = Color(0xFF151B2A),
-    onSurface = Color(0xFFE6E9F2),
-    surfaceVariant = Color(0xFF252C42),
-    onSurfaceVariant = Color(0xFFB0B8CC),
-    outline = Color(0xFF3A4466),
+    primary = Color(0xFFB0A5EA),
+    onPrimary = Color(0xFF211C40),
+    primaryContainer = Color(0xFF312C53),
+    onPrimaryContainer = Color(0xFFEDEAFF),
+    secondary = Color(0xFFABA4CD),
+    onSecondary = Color(0xFF292440),
+    background = Color(0xFF0C0E18),
+    onBackground = Color(0xFFEDECF5),
+    surface = Color(0xFF1A1D2C),
+    onSurface = Color(0xFFEDECF5),
+    surfaceVariant = Color(0xFF292C41),
+    onSurfaceVariant = Color(0xFFAFB3C9),
+    outline = Color(0xFF515672)
 )
 
+private val ForestColors = darkColorScheme(
+    primary = Color(0xFF82D8AF),
+    onPrimary = Color(0xFF0F3123),
+    primaryContainer = Color(0xFF264639),
+    onPrimaryContainer = Color(0xFFE0F6E9),
+    secondary = Color(0xFF9CC4AC),
+    onSecondary = Color(0xFF193A2A),
+    background = Color(0xFF0F1B18),
+    onBackground = Color(0xFFE2F0E9),
+    surface = Color(0xFF1B2C26),
+    onSurface = Color(0xFFE2F0E9),
+    surfaceVariant = Color(0xFF29443A),
+    onSurfaceVariant = Color(0xFFABCABD),
+    outline = Color(0xFF436B5B),
+    error = Color(0xFFFFB6AD)
+)
+
+// Warm gray, rather than pure white; no glaring white subscription sheets.
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF355D98),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFE4EDFA),
-    onPrimaryContainer = Color(0xFF203955),
-    secondary = Color(0xFF5E7089),
-    onSecondary = Color.White,
-    background = Color(0xFFF5F7FB),
-    onBackground = Color(0xFF182232),
-    surface = Color.White,
-    onSurface = Color(0xFF182232),
-    surfaceVariant = Color(0xFFEBF0F6),
-    onSurfaceVariant = Color(0xFF607187),
-    outline = Color(0xFFD0D8E3),
-    error = Color(0xFFB3261E),
+    primary = Color(0xFF486C94),
+    onPrimary = Color(0xFFF5F7FA),
+    primaryContainer = Color(0xFFDCE5ED),
+    onPrimaryContainer = Color(0xFF203649),
+    secondary = Color(0xFF647D8F),
+    onSecondary = Color(0xFFF5F7FA),
+    background = Color(0xFFE5E9EC),
+    onBackground = Color(0xFF263442),
+    surface = Color(0xFFEDF0F2),
+    onSurface = Color(0xFF263442),
+    surfaceVariant = Color(0xFFDCE3E8),
+    onSurfaceVariant = Color(0xFF596B79),
+    outline = Color(0xFFB7C4CF),
+    error = Color(0xFFAD4C43)
 )
 
 fun themeScheme(mode: PhantomThemeMode, systemDark: Boolean): ColorScheme = when (mode) {
-    PhantomThemeMode.AUTO -> if (systemDark) GraphiteColors else LightColors
+    PhantomThemeMode.AUTO -> if (systemDark) SystemDarkColors else LightColors
     PhantomThemeMode.LIGHT -> LightColors
     PhantomThemeMode.GRAPHITE -> GraphiteColors
     PhantomThemeMode.NIGHT -> NightColors
+    PhantomThemeMode.FOREST -> ForestColors
 }
 
 @Composable
