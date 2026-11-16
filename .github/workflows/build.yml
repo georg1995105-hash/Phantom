@@ -62,6 +62,12 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > app/keystore.jks
           ls -lh app/keystore.jks
 
+      - name: Verify release notes match APK version
+        run: |
+          VERSION=$(sed -nE 's/.*versionName = "([^"]+)".*/\\1/p' app/build.gradle.kts | head -n 1)
+          test -n "$VERSION"
+          grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
+
       - name: Build release APK
         run: |
           chmod +x gradlew
