@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Shield outline -->
+    <path
+        android:fillColor="#5B7FFF"
+        android:pathData="M54,22 L82,32 L82,54 Q82,76 54,90 Q26,76 26,54 L26,32 Z" />
+    <!-- Inner cutout (stylized P) -->
+    <path
+        android:fillColor="#0F1420"
+        android:pathData="M48,42 L60,42 Q66,42 66,50 Q66,58 60,58 L54,58 L54,68 L48,68 Z M54,48 L54,52 L58,52 Q60,52 60,50 Q60,48 58,48 Z" />
+</vector>
