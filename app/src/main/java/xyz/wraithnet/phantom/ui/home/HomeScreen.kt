@@ -37,7 +37,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,13 +70,8 @@ import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 
-private val Background = Color(0xFF0B0E17)
-private val Surface = Color(0xFF151B2A)
-private val Accent = Color(0xFF8298FF)
-private val Muted = Color(0xFF9BA6C0)
-
 @Composable
-fun HomeScreen() {
+fun HomeScreen(onThemeChange: (xyz.wraithnet.phantom.ui.theme.PhantomThemeMode) -> Unit = {}) {
     val context = LocalContext.current
     val store = remember { SubscriptionStore(context) }
     val snackbar = remember { SnackbarHostState() }
@@ -108,14 +103,14 @@ fun HomeScreen() {
     }
 
     Scaffold(
-        containerColor = Background,
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Brush.verticalGradient(listOf(Color(0xFF0B0E17), Color(0xFF171F34))))
+                .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.background, MaterialTheme.colorScheme.surface)))
         ) {
             Column(
                 modifier = Modifier
@@ -132,7 +127,7 @@ fun HomeScreen() {
                     IconButton(onClick = { settingsDialog = true }) {
                         Icon(Icons.Default.Settings, "Настройки", tint = Color.White, modifier = Modifier.size(28.dp))
                     }
-                    Text("Phantom", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
+                    Spacer(Modifier.width(48.dp))
                     IconButton(onClick = { menuDialog = true }) {
                         Icon(Icons.Default.Add, "Добавить", tint = Color.White, modifier = Modifier.size(32.dp))
                     }
@@ -150,7 +145,7 @@ fun HomeScreen() {
                 Spacer(Modifier.height(14.dp))
                 Text(
                     if (connected) "Подключение…" else "Отключено",
-                    color = if (connected) Accent else Muted,
+                    color = if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
@@ -161,7 +156,7 @@ fun HomeScreen() {
                 Spacer(Modifier.height(16.dp))
 
                 if (subscriptions.isEmpty()) {
-                    EmptyState(onPaste = { addSubscription(pasteText()) }, onAdd = { addDialog = true })
+                    EmptyState(modifier = Modifier.weight(1f), onPaste = { addSubscription(pasteText()) }, onAdd = { addDialog = true })
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.weight(1f)) {
                         items(subscriptions, key = { it.id }) { subscription ->
@@ -185,64 +180,64 @@ fun HomeScreen() {
     if (menuDialog) AddMenu(onPaste = { menuDialog = false; addSubscription(pasteText()) }, onManual = { menuDialog = false; addDialog = true }, onQr = { menuDialog = false; scope.launch { snackbar.showSnackbar("Сканер QR будет подключён следующим блоком") } }, onDismiss = { menuDialog = false })
     if (addDialog) ManualAddDialog(onAdd = ::addSubscription, onDismiss = { addDialog = false })
     if (serverDialog) ServerDialog(subscriptions.flatMap { it.servers }, selected, onSelect = { selected = it; serverDialog = false }, onDismiss = { serverDialog = false })
-    if (settingsDialog) SettingsDialog(onDismiss = { settingsDialog = false })
+    if (settingsDialog) SettingsDialog(onThemeChange = onThemeChange, onDismiss = { settingsDialog = false })
 }
 
 @Composable
 private fun PowerButton(connected: Boolean, onClick: () -> Unit) {
     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-        Box(Modifier.size(230.dp).border(1.dp, Accent.copy(alpha = .32f), CircleShape).padding(14.dp).border(1.dp, Accent.copy(alpha = .18f), CircleShape).padding(18.dp).clip(CircleShape).background(if (connected) Accent.copy(.32f) else Color(0xFF19223A)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.PowerSettingsNew, "Подключиться", tint = Accent, modifier = Modifier.size(78.dp))
+        Box(Modifier.size(230.dp).border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .32f), CircleShape).padding(14.dp).border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .18f), CircleShape).padding(18.dp).clip(CircleShape).background(if (connected) MaterialTheme.colorScheme.primary.copy(.32f) else MaterialTheme.colorScheme.surfaceVariant).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.PowerSettingsNew, "Подключиться", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(78.dp))
         }
     }
 }
 
 @Composable
 private fun ServerSelector(server: ServerProfile?, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp)) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(server?.countryFlag?.ifBlank { "◇" } ?: "◇", fontSize = 24.sp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(server?.name ?: "Сервер не выбран", color = Color.White, fontWeight = FontWeight.Medium)
-                Text(server?.scheme?.uppercase() ?: "Добавьте подписку", color = Muted, fontSize = 12.sp)
+                Text(server?.name ?: "Сервер не выбран", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+                Text(server?.scheme?.uppercase() ?: "Добавьте подписку", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             }
-            Icon(Icons.Default.ExpandMore, "Выбрать сервер", tint = Muted)
+            Icon(Icons.Default.ExpandMore, "Выбрать сервер", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun EmptyState(onPaste: () -> Unit, onAdd: () -> Unit) {
-    Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Подписок пока нет", color = Color.White, style = MaterialTheme.typography.titleLarge)
+private fun EmptyState(modifier: Modifier, onPaste: () -> Unit, onAdd: () -> Unit) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text("Подписок пока нет", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(8.dp))
-        Text("Добавьте ссылку подписки или сервер вручную", color = Muted, textAlign = TextAlign.Center)
+        Text("Добавьте ссылку подписки или сервер вручную", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onPaste, colors = ButtonDefaults.buttonColors(containerColor = Accent)) { Text("Вставить") }
-            Button(onClick = onAdd, colors = ButtonDefaults.buttonColors(containerColor = Surface)) { Text("Добавить") }
+            Button(onClick = onPaste, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Вставить") }
+            Button(onClick = onAdd, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) { Text("Добавить") }
         }
     }
 }
 
 @Composable
 private fun SubscriptionCard(item: Subscription, onRefresh: () -> Unit, onSelect: () -> Unit) {
-    Card(onClick = onSelect, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp)) {
+    Card(onClick = onSelect, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(item.title, color = Color.White, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = Muted) }
+                Text(item.title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Обновить", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            Text("${item.servers.size} серверов · обновлено сейчас", color = Muted, fontSize = 12.sp)
+            Text("${item.servers.size} серверов · обновлено сейчас", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
         }
     }
 }
 
 @Composable
 private fun ActionButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Button(onClick = onClick, modifier = modifier.height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = Surface)) {
-        Icon(icon, label, tint = Color.White); Spacer(Modifier.width(8.dp)); Text(label, color = Color.White)
+    Button(onClick = onClick, modifier = modifier.height(58.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Icon(icon, label, tint = Color.White); Spacer(Modifier.width(8.dp)); Text(label, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -258,7 +253,7 @@ private fun AddMenu(onPaste: () -> Unit, onManual: () -> Unit, onQr: () -> Unit,
 @Composable
 private fun MenuRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, label, tint = Accent); Spacer(Modifier.width(14.dp)); Text(label)
+        Icon(icon, label, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(14.dp)); Text(label)
     }
 }
 
@@ -280,7 +275,7 @@ private fun ServerDialog(servers: List<ServerProfile>, selected: ServerProfile?,
             Row(Modifier.fillMaxWidth().clickable { onSelect(server) }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(server.countryFlag.ifBlank { "◇" }, fontSize = 22.sp); Spacer(Modifier.width(10.dp)); Column {
                     Text(server.name, fontWeight = if (server.id == selected?.id) FontWeight.Bold else FontWeight.Normal)
-                    Text(server.scheme.uppercase(), color = Muted, fontSize = 11.sp)
+                    Text(server.scheme.uppercase(), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
             }
         }
@@ -288,12 +283,15 @@ private fun ServerDialog(servers: List<ServerProfile>, selected: ServerProfile?,
 }
 
 @Composable
-private fun SettingsDialog(onDismiss: () -> Unit) {
+private fun SettingsDialog(onThemeChange: (xyz.wraithnet.phantom.ui.theme.PhantomThemeMode) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Настройки") }, text = { Column {
-        Text("Интерфейс", color = Accent, fontWeight = FontWeight.SemiBold)
-        Text("Тёмная тема включена", modifier = Modifier.padding(vertical = 12.dp))
-        Divider()
-        Text("Туннель", color = Accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
-        Text("Маршрутизация и приложения будут доступны после подключения VPN-ядра.", color = Muted, modifier = Modifier.padding(top = 8.dp))
+        Text("Интерфейс", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+        Text("Тема оформления", modifier = Modifier.padding(top = 12.dp))
+        xyz.wraithnet.phantom.ui.theme.PhantomThemeMode.entries.forEach { mode ->
+            TextButton(onClick = { onThemeChange(mode) }, modifier = Modifier.fillMaxWidth()) { Text(mode.title, modifier = Modifier.fillMaxWidth()) }
+        }
+        HorizontalDivider()
+        Text("Туннель", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
+        Text("Маршрутизация и приложения будут доступны после подключения VPN-ядра.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
     } }, confirmButton = { TextButton(onClick = onDismiss) { Text("Готово") } })
 }
