@@ -50,6 +50,40 @@ object XrayConfigBuilder {
             .toString()
     }
 
+    /** Xray keeps the stable Android TUN; SOCKS5 forwards TCP and UDP into sing-box.
+     * This is a real transport bridge, not a substitute for an unavailable protocol.
+     */
+    fun buildSocksBridge(localPort: Int): String {
+        require(localPort in 1024..65535) { "Некорректный локальный SOCKS-порт" }
+        return enableTrafficStats(JSONObject()
+            .put("log", JSONObject().put("loglevel", "warning"))
+            .put("inbounds", JSONArray().put(JSONObject()
+                .put("tag", "tun")
+                .put("port", 0)
+                .put("protocol", "tun")
+                .put("settings", JSONObject()
+                    .put("name", "tun0").put("mtu", 1400).put("userLevel", 8))
+                .put("sniffing", JSONObject()
+                    .put("enabled", true)
+                    .put("destOverride", JSONArray().put("http").put("tls").put("quic")))))
+            .put("outbounds", JSONArray()
+                .put(JSONObject()
+                    .put("tag", "proxy")
+                    .put("protocol", "socks")
+                    .put("settings", JSONObject().put("servers", JSONArray().put(JSONObject()
+                        .put("address", "127.0.0.1").put("port", localPort)))))
+                .put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+                .put(JSONObject().put("tag", "block").put("protocol", "blackhole")))
+            .put("routing", JSONObject()
+                .put("domainStrategy", "AsIs")
+                .put("rules", JSONArray().put(JSONObject()
+                    .put("type", "field").put("network", "tcp,udp")
+                    .put("outboundTag", "proxy"))))
+            .put("dns", JSONObject().put("servers",
+                JSONArray().put("1.1.1.1").put("8.8.8.8"))))
+            .toString()
+    }
+
     /** Preserve complete Xray JSON from any provider, replacing local inbounds with TUN. */
     private fun buildJson(raw: String): String {
         val input = JSONObject(raw)
