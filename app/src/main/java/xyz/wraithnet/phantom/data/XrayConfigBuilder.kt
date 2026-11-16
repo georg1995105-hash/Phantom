@@ -77,6 +77,16 @@ object XrayConfigBuilder {
             }
         }
         root.put("inbounds", JSONArray().put(tun))
+        // Fail clearly on profiles created for removed transport networks.
+        // Do not rewrite third-party profiles: that could alter their security semantics.
+        for (i in 0 until outbounds.length()) {
+            val oldNetwork = outbounds.optJSONObject(i)?.optJSONObject("streamSettings")
+                ?.optString("network")?.lowercase() ?: continue
+            require(oldNetwork !in setOf("quic", "h2", "h3", "http")) {
+                "Этот Xray JSON использует удалённый транспорт $oldNetwork. " +
+                    "Нужна серверная конфигурация XHTTP/H3 или Hysteria2."
+            }
+        }
         // Keep UDP QUIC sessions alive on idle mobile networks.
         for (i in 0 until outbounds.length()) {
             val outbound = outbounds.optJSONObject(i) ?: continue
@@ -210,17 +220,33 @@ object XrayConfigBuilder {
     }
 
     private fun addStream(outbound: JSONObject, query: Map<String, String>): JSONObject {
-        val network = query["type"] ?: query["network"] ?: "tcp"
+        val requested = (query["type"] ?: query["network"] ?: "tcp").lowercase()
+        // Standalone QUIC/H2/H3 networks were removed from Xray. For QUIC-backed
+        // sessions use Hysteria2 or XHTTP with TLS ALPN h3 instead of generating
+        // configs that cannot possibly start.
+        require(requested !in setOf("quic", "h2", "h3", "http")) {
+            "Старый транспорт $requested удалён из Xray. Используйте XHTTP с ALPN h3 или Hysteria2."
+        }
+        val network = when (requested) {
+            "splithttp" -> "xhttp"
+            "kcp" -> "mkcp"
+            "websocket" -> "ws"
+            else -> requested
+        }
+        if (network == "xhttp" && query["alpn"]?.split(',')?.any {
+                it.trim().equals("h3", ignoreCase = true)
+            } == true) {
+            require((query["security"] ?: "none").equals("tls", ignoreCase = true)) {
+                "XHTTP через HTTP/3 требует TLS и ALPN h3"
+            }
+        }
         val stream = JSONObject().put("network", network)
-        when (network.lowercase()) {
+        when (network) {
             "ws" -> stream.put("wsSettings", JSONObject()
                 .put("path", query["path"] ?: "/")
                 .put("headers", JSONObject().put("Host", query["host"] ?: query["sni"] ?: "")))
             "grpc" -> stream.put("grpcSettings", JSONObject()
                 .put("serviceName", query["serviceName"] ?: query["path"] ?: ""))
-            "http", "h2" -> stream.put("httpSettings", JSONObject()
-                .put("path", query["path"] ?: "/")
-                .put("host", JSONArray().put(query["host"] ?: "")))
             "splithttp", "xhttp" -> {
                 stream.put("network", "xhttp")
                 val settings = JSONObject().put("path", query["path"] ?: "/")
@@ -231,6 +257,9 @@ object XrayConfigBuilder {
             "httpupgrade" -> stream.put("httpupgradeSettings", JSONObject()
                 .put("path", query["path"] ?: "/")
                 .put("host", query["host"] ?: ""))
+            "mkcp" -> stream.put("kcpSettings", JSONObject().apply {
+                query["seed"]?.takeIf { it.isNotBlank() }?.let { put("seed", it) }
+            })
         }
         when ((query["security"] ?: "").lowercase()) {
             "tls" -> stream.put("security", "tls").put("tlsSettings", tls(query))
