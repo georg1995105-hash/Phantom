@@ -37,6 +37,7 @@ import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
+import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
 import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.MainActivity
 
@@ -46,6 +47,7 @@ class PhantomVpnService : VpnService() {
     private lateinit var prefs: SharedPreferences
     private var vpnInterface: ParcelFileDescriptor? = null
     private var controller: CoreController? = null
+    private var singBoxBridge: SingBoxBridge? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var trafficJob: Job? = null
     private var handoverJob: Job? = null
@@ -194,9 +196,18 @@ class PhantomVpnService : VpnService() {
                 else raw.substringBefore(':').lowercase()
             val dns = VpnDnsSettings.load(this)
             check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
-            val config = dns.applyToXray(FragmentationOptions.load(this).apply(
-                XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
-            ))
+            val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
+            val baseConfig = if (SingBoxBridgeConfig.requiresSingBox(profile)) {
+                // sing-box handles the native TUIC/AnyTLS transport, while Xray
+                // keeps Android TUN and all existing per-app VPN routing.
+                val engine = SingBoxBridge(this)
+                val socksPort = engine.start(raw)
+                singBoxBridge = engine
+                XrayConfigBuilder.buildSocksBridge(socksPort)
+            } else {
+                XrayConfigBuilder.build(profile)
+            }
+            val config = dns.applyToXray(FragmentationOptions.load(this).apply(baseConfig))
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
@@ -251,6 +262,8 @@ class PhantomVpnService : VpnService() {
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
         controller = null
+        runCatching { singBoxBridge?.stop() }
+        singBoxBridge = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         prefs.edit().putBoolean("vpn_running", false)
@@ -400,6 +413,7 @@ class PhantomVpnService : VpnService() {
         trafficJob?.cancel()
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
+        runCatching { singBoxBridge?.stop() }
         runCatching { vpnInterface?.close() }
         ioScope.cancel()
         super.onDestroy()
