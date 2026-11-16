@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private val vpnError = mutableStateOf("")
     private val downloadRate = mutableLongStateOf(-1L)
     private val uploadRate = mutableLongStateOf(-1L)
+    private val connectedSinceElapsed = mutableLongStateOf(0L)
     private val refreshVersion = mutableIntStateOf(0)
     private val externalImport = mutableStateOf<String?>(null)
 
@@ -65,6 +66,8 @@ class MainActivity : ComponentActivity() {
             vpnStatus.value = intent?.getStringExtra(PhantomVpnService.EXTRA_STATUS)
                 ?: PhantomVpnService.STATUS_ERROR
             vpnError.value = intent?.getStringExtra(PhantomVpnService.EXTRA_ERROR).orEmpty()
+            connectedSinceElapsed.longValue = intent?.getLongExtra(
+                PhantomVpnService.EXTRA_CONNECTED_SINCE, 0L) ?: 0L
             if (vpnStatus.value != PhantomVpnService.STATUS_CONNECTED) {
                 downloadRate.longValue = -1L
                 uploadRate.longValue = -1L
@@ -116,6 +119,7 @@ class MainActivity : ComponentActivity() {
                     vpnError = vpnError.value,
                     downloadRate = downloadRate.longValue,
                     uploadRate = uploadRate.longValue,
+                    connectedSinceElapsed = connectedSinceElapsed.longValue,
                     onStartVpn = ::requestVpn,
                     onStopVpn = ::stopVpnService,
                     onThemeChange = { next ->
