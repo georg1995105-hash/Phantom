@@ -84,6 +84,23 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
 
+      - name: Enable emulator hardware acceleration
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: Run dual Go runtime JNI smoke test on Android
+        if: github.event_name == 'pull_request'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
+
       - name: Sign APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
