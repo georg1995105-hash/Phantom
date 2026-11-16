@@ -42,7 +42,7 @@ private val componentLicenses = listOf(
     ),
     LibraryLicense(
         "OkHttp / DNS-over-HTTPS", "Apache License 2.0",
-        "https://github.com/square/okhttp/blob/parent-4.12.0/LICENSE.txt"
+        "https://github.com/square/okhttp/blob/parent-4.12.1/LICENSE.txt"
     ),
     LibraryLicense(
         "AndroidX / Jetpack Compose / WorkManager", "Apache License 2.0",
