@@ -11,9 +11,13 @@ import android.net.VpnService
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.os.PowerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -25,6 +29,7 @@ import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
+import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 import xyz.wraithnet.phantom.R
@@ -37,6 +42,7 @@ class PhantomVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var controller: CoreController? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var trafficJob: Job? = null
     @Volatile private var running = false
     @Volatile private var state = STATUS_DISCONNECTED
 
@@ -118,6 +124,7 @@ class PhantomVpnService : VpnService() {
             configureWakeLock()
             setState(STATUS_CONNECTED)
             updateNotification("VPN подключён")
+            startTrafficReports()
         } catch (e: Exception) {
             stopLocked(false)
             setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
@@ -127,6 +134,8 @@ class PhantomVpnService : VpnService() {
 
     private fun stopLocked(report: Boolean = true) {
         running = false
+        trafficJob?.cancel()
+        trafficJob = null
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
         controller = null
@@ -136,6 +145,31 @@ class PhantomVpnService : VpnService() {
         if (report) {
             setState(STATUS_DISCONNECTED)
             updateNotification("VPN отключён")
+        }
+    }
+
+    /** Only the running Xray core is queried; no root access, server API or device-wide counters. */
+    private fun startTrafficReports() {
+        trafficJob?.cancel()
+        trafficJob = ioScope.launch {
+            var lastAt = SystemClock.elapsedRealtime()
+            while (isActive) {
+                delay(1500L)
+                mutex.withLock {
+                    if (!running) return@withLock
+                    val report = runCatching {
+                        controller?.queryAllOutboundTrafficStats().orEmpty()
+                    }.getOrDefault("")
+                    val now = SystemClock.elapsedRealtime()
+                    val rate = TrafficRates.fromXrayReport(report, now - lastAt)
+                    lastAt = now
+                    sendBroadcast(
+                        Intent(ACTION_TRAFFIC).setPackage(packageName)
+                            .putExtra(EXTRA_DOWNLOAD_BPS, rate?.downloadBytesPerSecond ?: -1L)
+                            .putExtra(EXTRA_UPLOAD_BPS, rate?.uploadBytesPerSecond ?: -1L)
+                    )
+                }
+            }
         }
     }
 
@@ -222,6 +256,7 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        trafficJob?.cancel()
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
         runCatching { vpnInterface?.close() }
@@ -238,6 +273,9 @@ class PhantomVpnService : VpnService() {
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
         const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
+        const val ACTION_TRAFFIC = "xyz.wraithnet.phantom.VPN_TRAFFIC"
+        const val EXTRA_DOWNLOAD_BPS = "download_bytes_per_second"
+        const val EXTRA_UPLOAD_BPS = "upload_bytes_per_second"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_STATUS = "status"
         const val EXTRA_ERROR = "error"
