@@ -60,6 +60,15 @@ class PhantomVpnService : VpnService() {
                 stopSelf()
             }
             ACTION_QUERY -> sendStatus(state)
+            ACTION_TRAFFIC_ON -> ioScope.launch {
+                mutex.withLock { if (running) startTrafficReports() }
+            }
+            ACTION_TRAFFIC_OFF -> ioScope.launch {
+                mutex.withLock {
+                    trafficJob?.cancel()
+                    trafficJob = null
+                }
+            }
             ACTION_RELOAD -> ioScope.launch { mutex.withLock {
                 startLocked(prefs.getString("vpn_last_profile", "").orEmpty())
             } }
@@ -124,7 +133,7 @@ class PhantomVpnService : VpnService() {
             configureWakeLock()
             setState(STATUS_CONNECTED)
             updateNotification("VPN подключён")
-            startTrafficReports()
+            if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
         } catch (e: Exception) {
             stopLocked(false)
             setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
@@ -274,6 +283,8 @@ class PhantomVpnService : VpnService() {
         const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
         const val ACTION_TRAFFIC = "xyz.wraithnet.phantom.VPN_TRAFFIC"
+        const val ACTION_TRAFFIC_ON = "xyz.wraithnet.phantom.TRAFFIC_ON"
+        const val ACTION_TRAFFIC_OFF = "xyz.wraithnet.phantom.TRAFFIC_OFF"
         const val EXTRA_DOWNLOAD_BPS = "download_bytes_per_second"
         const val EXTRA_UPLOAD_BPS = "upload_bytes_per_second"
         const val EXTRA_PROFILE = "profile"
