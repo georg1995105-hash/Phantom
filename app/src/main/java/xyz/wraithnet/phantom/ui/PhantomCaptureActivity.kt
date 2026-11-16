@@ -11,7 +11,9 @@ class PhantomCaptureActivity : CaptureActivity() {
         setContentView(R.layout.activity_phantom_capture)
         findViewById<View>(R.id.phantom_qr_close).setOnClickListener { finish() }
         return findViewById<DecoratedBarcodeView>(R.id.zxing_barcode_scanner).apply {
-            viewFinder.setLaserVisibility(false)
+            // ZXing still decodes; our branded overlay owns all guides and labels.
+            viewFinder.visibility = View.GONE
+            statusView.visibility = View.GONE
         }
     }
 }
