@@ -105,7 +105,7 @@ fun HomeScreen(
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
     val selected = subscriptions.flatMap { it.servers }.firstOrNull { it.id == selectedId }
         ?: subscriptions.firstOrNull()?.servers?.firstOrNull()
-    var expanded by remember { mutableStateOf(subscriptions.firstOrNull()?.id) }
+    var expandedIds by remember { mutableStateOf(subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
     var pingCompleted by remember { mutableIntStateOf(0) }
@@ -155,7 +155,7 @@ fun HomeScreen(
                     expiresAt = downloaded?.expiresAt
                 )
                 persist(subscriptions + subscription)
-                expanded = subscription.id
+                expandedIds = expandedIds + subscription.id
                 if (selectedId == null) selectedId = subscription.servers.firstOrNull()?.id
                 importMode = null
                 showImportMenu = false
@@ -524,6 +524,26 @@ fun HomeScreen(
                     }
                 }
             }
+            if (subscriptions.isNotEmpty()) {
+                item(key = "toggle-all-servers") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = {
+                            expandedIds = if (subscriptions.all { it.id in expandedIds })
+                                emptySet()
+                            else subscriptions.map { it.id }.toSet()
+                        }) {
+                            Icon(
+                                if (subscriptions.all { it.id in expandedIds }) Icons.Default.ExpandLess
+                                    else Icons.Default.ExpandMore,
+                                null, Modifier.size(17.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (subscriptions.all { it.id in expandedIds })
+                                "Скрыть все" else "Показать все", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
             items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
                 Card(
                     shape = RoundedCornerShape(20.dp),
@@ -535,15 +555,15 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(
-                                onClick = { expanded = if (expanded == item.id) null else item.id },
+                                onClick = { expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(if (expanded == item.id) Icons.Default.ExpandLess
+                                Icon(if (item.id in expandedIds) Icons.Default.ExpandLess
                                     else Icons.Default.ExpandMore, "Свернуть или развернуть",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Column(Modifier.weight(1f).padding(start = 5.dp).clickable {
-                                expanded = if (expanded == item.id) null else item.id
+                                expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id
                             }) {
                                 Text(item.title, style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -592,7 +612,7 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        if (expanded == item.id) {
+                        if (item.id in expandedIds) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .3f))
                             item.servers.forEach { server ->
                                 val supported = server.scheme.lowercase() in setOf(
