@@ -19,6 +19,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -81,6 +84,14 @@ class MainActivity : ComponentActivity() {
                         )
                     }.getOrDefault(PhantomThemeMode.AUTO)
                 )
+            }
+            val lightBars = theme == PhantomThemeMode.LIGHT ||
+                (theme == PhantomThemeMode.AUTO && !isSystemInDarkTheme())
+            SideEffect {
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = lightBars
+                    isAppearanceLightNavigationBars = lightBars
+                }
             }
             PhantomTheme(mode = theme) {
                 HomeScreen(
