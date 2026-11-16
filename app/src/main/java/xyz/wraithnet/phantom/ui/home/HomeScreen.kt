@@ -56,6 +56,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -118,6 +120,8 @@ fun HomeScreen(
     val store = remember { SubscriptionStore(context) }
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
+    val haptic = LocalHapticFeedback.current
+    fun softTap() = haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     LaunchedEffect(snackbar.currentSnackbarData) {
         if (snackbar.currentSnackbarData != null) {
             delay(1650L)
@@ -199,7 +203,8 @@ fun HomeScreen(
                 if (selectedId == null) selectedId = subscription.servers.firstOrNull()?.id
                 importMode = null
                 showImportMenu = false
-                snackbar.showSnackbar("Добавлено серверов: " + subscription.servers.size)
+                softTap()
+                snackbar.showSnackbar("Конфигурация добавлена")
             } catch (e: Exception) {
                 val message = e.message ?: "Не удалось добавить подписку"
                 if (importMode != null) importError = message
@@ -290,7 +295,10 @@ fun HomeScreen(
                 expiresAt = remote.expiresAt ?: item.expiresAt
             )
             persist(subscriptions.map { if (it.id == item.id) updated else it })
-            if (!quiet) snackbar.showSnackbar("Обновлено: " + updated.servers.size + " серверов")
+            if (!quiet) {
+                softTap()
+                snackbar.showSnackbar("Подписка обновлена")
+            }
         } catch (e: Exception) {
             if (!quiet) snackbar.showSnackbar(e.message ?: "Не удалось обновить подписку")
         } finally {
@@ -325,7 +333,7 @@ fun HomeScreen(
                 val checked = servers.count { (latencies[it.id] ?: -1L) > 0L }
                 snackbar.showSnackbar(
                     if (checked == 0) "Не получено ни одного результата проверки"
-                    else "Проверено: " + checked + " из " + servers.size + " серверов"
+                    else "Проверка пинга завершена"
                 )
             } catch (e: Exception) {
                 snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
@@ -361,6 +369,7 @@ fun HomeScreen(
     var otaFile by remember { mutableStateOf<File?>(null) }
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
+    var showOtaSheet by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
 
     // Auto-check on launch/foreground (max once per six hours); no settings detour.
@@ -375,6 +384,7 @@ fun HomeScreen(
                     otaDismissed = false
                 }
                 availableUpdate = result
+                if (result != null && !otaDismissed) showOtaSheet = true
                 otaError = null
             } catch (_: Exception) {
                 // Existing VPN functionality must not depend on the update service.
@@ -479,9 +489,9 @@ fun HomeScreen(
                                     MaterialTheme.colorScheme.surfaceVariant)))
                             .clickable(enabled = vpnStatus != "starting") {
                                 when {
-                                    connected -> onStopVpn()
+                                    connected -> { softTap(); onStopVpn() }
                                     selected == null -> scope.launch { snackbar.showSnackbar("Сначала добавьте подписку") }
-                                    else -> onStartVpn(selected.raw)
+                                    else -> { softTap(); onStartVpn(selected.raw) }
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -624,6 +634,7 @@ fun HomeScreen(
                                             else Color.Transparent)
                                         .clickable {
                                             if (supported) {
+                                                softTap()
                                                 selectedId = server.id
                                                 prefs.edit().putString("selected_server_id", server.id).apply()
                                                 if (vpnStatus == "connected") onStartVpn(server.raw)
@@ -662,72 +673,13 @@ fun HomeScreen(
                     }
                 }
             }
-            if (availableUpdate != null && !otaDismissed) {
-                item(key = "ota-update") {
-                    val release = availableUpdate!!
-                    Card(
-                        shape = RoundedCornerShape(17.dp),
-                        border = BorderStroke(1.dp,
-                            MaterialTheme.colorScheme.outline.copy(alpha = .38f)),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface
-                        )
-                    ) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.width(9.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Обновление " + release.version,
-                                        fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("Новая версия доступна",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                IconButton(onClick = { otaDismissed = true },
-                                    enabled = !otaDownload, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Close, "Скрыть", Modifier.size(18.dp))
-                                }
-                            }
-                            val details = ReleaseNotes.summary(release.notes)
-                            if (details.isNotBlank()) {
-                                Spacer(Modifier.height(7.dp))
-                                Text(details, fontSize = 11.sp, lineHeight = 15.sp,
-                                    maxLines = 4,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (otaDownload) {
-                                Spacer(Modifier.height(7.dp))
-                                LinearProgressIndicator(
-                                    progress = { otaProgress.toFloat() / 100f },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Text("Загрузка " + otaProgress + "%", fontSize = 11.sp)
-                            }
-                            otaError?.let { message ->
-                                Text(message, fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.error)
-                            }
-                            Spacer(Modifier.height(7.dp))
-                            OutlinedButton(onClick = ::startOtaInstall,
-                                enabled = !otaDownload,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)) {
-                                Text(if (otaFile?.exists() == true) "Установить"
-                                    else "Скачать обновление", fontSize = 13.sp)
-                            }
-                        }
-                    }
-                }
-            }
 
 
             }
             SnackbarHost(
                 hostState = snackbar,
-                modifier = Modifier.align(Alignment.TopCenter)
-                    .fillMaxWidth().padding(horizontal = 28.dp, vertical = 4.dp),
+                modifier = Modifier.align(Alignment.BottomCenter)
+                    .fillMaxWidth().padding(horizontal = 30.dp, vertical = 14.dp),
                 snackbar = { data ->
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -745,6 +697,59 @@ fun HomeScreen(
             )
         }
     }
+    if (showOtaSheet && availableUpdate != null && !showSettings &&
+        !showImportMenu && activeSubMenu == null && importMode == null) {
+        val release = availableUpdate!!
+        ModalBottomSheet(
+            onDismissRequest = { showOtaSheet = false; otaDismissed = true },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                .padding(horizontal = 22.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SystemUpdateAlt, null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(23.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Обновление " + release.version,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showOtaSheet = false; otaDismissed = true }) {
+                        Text("Позже")
+                    }
+                }
+                val notes = ReleaseNotes.summary(release.notes, 5)
+                if (notes.isNotBlank()) {
+                    Text("Что изменилось", fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold)
+                    Text(notes, fontSize = 12.sp, lineHeight = 19.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (otaDownload) {
+                    LinearProgressIndicator(
+                        progress = { otaProgress.toFloat() / 100f },
+                        modifier = Modifier.fillMaxWidth())
+                    Text("Загрузка " + otaProgress + "%", fontSize = 12.sp)
+                }
+                otaError?.let {
+                    Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+                Button(
+                    onClick = { softTap(); startOtaInstall() },
+                    enabled = !otaDownload,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(if (otaDownload) "Скачивание…" else if (otaFile?.exists() == true)
+                        "Установить" else "Скачать и установить")
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+
     if (showImportMenu) {
         ModalBottomSheet(
             onDismissRequest = { showImportMenu = false },

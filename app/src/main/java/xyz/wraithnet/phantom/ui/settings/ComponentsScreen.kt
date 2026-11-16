@@ -94,8 +94,16 @@ fun ComponentsScreen(onBack: () -> Unit) {
                             fontSize = 14.sp, lineHeight = 22.sp)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
                         Text("Транспорты и защита", fontWeight = FontWeight.Medium)
-                        Text("TCP, WebSocket, gRPC, HTTP/2, XHTTP, TLS и REALITY. " +
-                            "Доступность зависит от конкретной конфигурации и версии ядра.",
+                        Text("TCP, WebSocket, gRPC, HTTPUpgrade, mKCP, " +
+                            "XHTTP (HTTP/2 и HTTP/3 через QUIC), TLS и REALITY.",
+                            fontSize = 13.sp, lineHeight = 19.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
+                        Text("QUIC и современные UDP-транспорты",
+                            fontWeight = FontWeight.Medium)
+                        Text("Hysteria2 использует QUIC. XHTTP работает через HTTP/3 при TLS и ALPN h3. " +
+                            "MASQUE доступен через совместимый Xray JSON; работу конкретного сервера " +
+                            "нужно проверять подключением. Старый транспорт network=quic удалён из Xray.",
                             fontSize = 13.sp, lineHeight = 19.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

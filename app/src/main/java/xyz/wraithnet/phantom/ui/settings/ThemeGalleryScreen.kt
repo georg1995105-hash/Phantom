@@ -16,6 +16,8 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -92,6 +94,7 @@ private fun ThemeOptionCard(
     onChoose: (PhantomThemeMode) -> Unit,
     description: String,
 ) {
+    val haptic = LocalHapticFeedback.current
     val colors = themeScheme(option, systemDark)
     val active = option == selected
     val borderColor = if (active) MaterialTheme.colorScheme.primary
@@ -100,7 +103,10 @@ private fun ThemeOptionCard(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .border(if (active) 2.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
-            .clickable { onChoose(option) }
+            .clickable {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onChoose(option)
+            }
             .padding(12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
