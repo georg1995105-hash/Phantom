@@ -41,6 +41,10 @@ private val componentLicenses = listOf(
         "https://github.com/journeyapps/zxing-android-embedded/blob/master/COPYING"
     ),
     LibraryLicense(
+        "OkHttp / DNS-over-HTTPS", "Apache License 2.0",
+        "https://github.com/square/okhttp/blob/parent-4.12.0/LICENSE.txt"
+    ),
+    LibraryLicense(
         "AndroidX / Jetpack Compose / WorkManager", "Apache License 2.0",
         "https://github.com/androidx/androidx/blob/androidx-main/LICENSE.txt"
     )
