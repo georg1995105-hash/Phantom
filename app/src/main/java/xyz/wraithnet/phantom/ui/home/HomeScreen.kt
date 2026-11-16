@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
@@ -38,10 +39,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
+import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -74,6 +81,8 @@ fun HomeScreen(
         ?: subscriptions.firstOrNull()?.servers?.firstOrNull()
     var expanded by remember { mutableStateOf(subscriptions.firstOrNull()?.id) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
+    var probing by remember { mutableStateOf(setOf<String>()) }
+    val latencies = remember { mutableStateMapOf<String, Long>() }
     var showAdd by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
@@ -158,6 +167,36 @@ fun HomeScreen(
             if (!quiet) snackbar.showSnackbar(e.message ?: "Не удалось обновить подписку")
         } finally {
             refreshing = refreshing - item.id
+        }
+    }
+
+    fun probeSubscription(item: Subscription) {
+        if (item.id in probing) return
+        probing = probing + item.id
+        scope.launch {
+            try {
+                val supported = setOf("vless", "vmess", "trojan", "ss", "xray", "hysteria", "hysteria2", "hy2")
+                val servers = item.servers.filter { it.scheme.lowercase() in supported }
+                coroutineScope {
+                    val limit = Semaphore(3)
+                    servers.map { server ->
+                        async {
+                            val ping = limit.withPermit {
+                                runCatching { LatencyProbe.measure(context.applicationContext, server) }
+                                    .getOrNull() ?: -1L
+                            }
+                            server.id to ping
+                        }
+                    }.awaitAll().forEach { (serverId, delayMs) ->
+                        latencies[serverId] = delayMs
+                    }
+                }
+                snackbar.showSnackbar("Проверка серверов завершена")
+            } catch (e: Exception) {
+                snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
+            } finally {
+                probing = probing - item.id
+            }
         }
     }
 
@@ -288,6 +327,10 @@ fun HomeScreen(
                                 Text(item.servers.size.toString() + " серверов · " + timeLabel(item.updatedAt),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                             }
+                            IconButton(onClick = { probeSubscription(item) }, enabled = item.id !in probing) {
+                                if (item.id in probing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.Speed, "Проверить пинг серверов")
+                            }
                             IconButton(onClick = { scope.launch { refresh(item) } }, enabled = item.id !in refreshing) {
                                 if (item.id in refreshing) {
                                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -348,6 +391,13 @@ fun HomeScreen(
                                         Text(server.name, fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal, fontSize = 15.sp)
                                         Text(protocolLabel(server),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                                    }
+                                    latencies[server.id]?.let { ms ->
+                                        Text(if (ms >= 0) "$ms мс" else "—",
+                                            color = if (ms >= 0) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp)
+                                        Spacer(Modifier.width(8.dp))
                                     }
                                     if (chosen) Text("●", color = MaterialTheme.colorScheme.primary, fontSize = 15.sp)
                                     else if (!supported) Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant)
