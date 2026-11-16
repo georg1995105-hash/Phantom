@@ -38,7 +38,10 @@ class ResilientDns(
             if (!host.contains('.') || host.length > 253) return false
             if (host.endsWith(".local", true) || host.endsWith(".lan", true) ||
                 host.endsWith(".internal", true) || host.endsWith(".localhost", true) ||
-                host.endsWith(".test", true) || host.endsWith(".invalid", true)) return false
+                host.endsWith(".test", true) || host.endsWith(".invalid", true) ||
+                host.endsWith(".home", true) || host.endsWith(".arpa", true) ||
+                host.endsWith(".corp", true) || host.endsWith(".onion", true) ||
+                host.endsWith(".localdomain", true)) return false
             if (host.all { it.isDigit() || it == '.' || it == ':' } ) return false
             return host.matches(Regex("[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+"))
         }
