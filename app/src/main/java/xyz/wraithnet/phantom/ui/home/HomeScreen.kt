@@ -37,13 +37,6 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.activity.result.contract.ActivityResultContracts
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.InputStreamReader
-import xyz.wraithnet.phantom.data.ConfigurationFiles
-import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.SaveAlt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -85,6 +78,7 @@ import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.ComponentsScreen
+import xyz.wraithnet.phantom.ui.settings.BackupScreen
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
@@ -217,49 +211,6 @@ fun HomeScreen(
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
-    }
-
-    var exportWarning by remember { mutableStateOf<ServerProfile?>(null) }
-    var exportProfile by remember { mutableStateOf<ServerProfile?>(null) }
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain")
-    ) { uri ->
-        val profile = exportProfile
-        exportProfile = null
-        if (uri != null && profile != null) {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        context.contentResolver.openOutputStream(uri)?.use {
-                            it.write(profile.raw.toByteArray(Charsets.UTF_8))
-                        } ?: error("Не удалось сохранить файл")
-                    }
-                    snackbar.showSnackbar("Конфигурация сохранена")
-                } catch (e: Exception) {
-                    snackbar.showSnackbar(e.message ?: "Ошибка экспорта")
-                }
-            }
-        }
-    }
-    val importFileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                try {
-                    val raw = withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.use {
-                            InputStreamReader(it, Charsets.UTF_8).use { reader ->
-                                ConfigurationFiles.read(reader)
-                            }
-                        } ?: error("Не удалось открыть файл")
-                    }
-                    add(raw)
-                } catch (e: Exception) {
-                    snackbar.showSnackbar(e.message ?: "Не удалось импортировать файл")
-                }
-            }
-        }
     }
 
     LaunchedEffect(externalImport) {
@@ -419,7 +370,21 @@ fun HomeScreen(
     BackHandler(enabled = showSettings) { showSettings = false }
 
     if (showSettings) {
-        PhantomSettings(onBack = { showSettings = false }, onThemeChange = onThemeChange)
+        PhantomSettings(
+            onBack = { showSettings = false },
+            onThemeChange = onThemeChange,
+            onBackupRestored = {
+                subscriptions = store.read()
+                selectedId = prefs.getString("selected_server_id", null)
+                pinnedSubId = prefs.getString("pinned_sub_id", null)
+                expandedIds = subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()
+                runCatching {
+                    PhantomThemeMode.valueOf(prefs.getString("theme", "AUTO") ?: "AUTO")
+                }.getOrNull()?.let(onThemeChange)
+                showSettings = false
+                scope.launch { snackbar.showSnackbar("Резервная копия восстановлена") }
+            }
+        )
         return
     }
 
@@ -771,10 +736,6 @@ fun HomeScreen(
                 funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
                     showImportMenu = false; add(pasteText())
                 }
-                funActionRow("Импортировать файл", Icons.Default.FileOpen) {
-                    showImportMenu = false
-                    importFileLauncher.launch(arrayOf("text/plain", "application/json", "*/*"))
-                }
                 funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
                     showImportMenu = false
                     scanLauncher.launch(
@@ -794,27 +755,11 @@ fun HomeScreen(
         }
     }
 
-    exportWarning?.let { profile ->
-        AlertDialog(
-            onDismissRequest = { exportWarning = null },
-            title = { Text("Экспорт конфигурации") },
-            text = { Text("Файл содержит приватные параметры подключения. " +
-                "Сохраняйте его только в надёжном месте и не отправляйте посторонним.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    exportWarning = null
-                    exportProfile = profile
-                    exportLauncher.launch("phantom-selected.txt")
-                }) { Text("Сохранить") }
-            },
-            dismissButton = {
-                TextButton(onClick = { exportWarning = null }) { Text("Отмена") }
-            }
-        )
-    }
-
     if (showErrorDetails && vpnError.isNotBlank()) {
         AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
             onDismissRequest = { showErrorDetails = false },
             title = { Text("Ошибка подключения") },
             text = { Text(vpnError, fontSize = 13.sp) },
@@ -843,24 +788,6 @@ fun HomeScreen(
                         pinnedSubId = if (pinnedSubId == sub.id) null else sub.id
                         prefs.edit().putString("pinned_sub_id", pinnedSubId).apply()
                         activeSubMenu = null
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    funActionRow("Импортировать конфигурацию", Icons.Default.FileOpen) {
-                        activeSubMenu = null
-                        importFileLauncher.launch(arrayOf("text/plain", "application/json", "*/*"))
-                    }
-                    funActionRow("Экспортировать выбранный сервер", Icons.Default.SaveAlt) {
-                        activeSubMenu = null
-                        val chosen = selected?.takeIf { candidate ->
-                            sub.servers.any { it.id == candidate.id }
-                        }
-                        if (chosen != null) {
-                            exportWarning = chosen
-                        } else {
-                            scope.launch {
-                                snackbar.showSnackbar("Выберите сервер этой подписки")
-                            }
-                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
@@ -952,6 +879,9 @@ fun HomeScreen(
 
     deleteId?.let { id ->
         AlertDialog(
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(22.dp),
             onDismissRequest = { deleteId = null },
             title = { Text("Удалить подписку?") },
             text = { Text("Серверы этой подписки будут удалены с устройства.") },
@@ -1023,7 +953,11 @@ private fun dateLabel(seconds: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(seconds * 1000L))
 
 @Composable
-private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode) -> Unit) {
+private fun PhantomSettings(
+    onBack: () -> Unit,
+    onThemeChange: (PhantomThemeMode) -> Unit,
+    onBackupRestored: () -> Unit
+) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     var mode by remember {
@@ -1039,6 +973,7 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     var showLog by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
     var showComponents by remember { mutableStateOf(false) }
+    var showBackup by remember { mutableStateOf(false) }
     if (showThemeGallery) {
         ThemeGalleryScreen(
             selected = mode,
@@ -1049,6 +984,16 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
+    if (showBackup) {
+        BackupScreen(
+            onBack = { showBackup = false },
+            onRestored = {
+                showBackup = false
+                onBackupRestored()
+            }
+        )
+        return
+    }
     if (showComponents) {
         ComponentsScreen(onBack = { showComponents = false })
         return
@@ -1264,6 +1209,33 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                             Text("Ограничения батареи", fontSize = 15.sp)
                             Text("Разрешения фоновой работы",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
+                Text("ДАННЫЕ И ПЕРЕНОС", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showBackup = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Резервная копия", fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium)
+                            Text("Все подписки, настройки и приложения VPN",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Icon(Icons.Default.ChevronRight, null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant)

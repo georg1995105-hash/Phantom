@@ -103,12 +103,27 @@ private val LightColors = lightColorScheme(
     error = Color(0xFFAD4C43)
 )
 
-fun themeScheme(mode: PhantomThemeMode, systemDark: Boolean): ColorScheme = when (mode) {
-    PhantomThemeMode.AUTO -> if (systemDark) SystemDarkColors else LightColors
-    PhantomThemeMode.LIGHT -> LightColors
-    PhantomThemeMode.GRAPHITE -> GraphiteColors
-    PhantomThemeMode.NIGHT -> NightColors
-    PhantomThemeMode.FOREST -> ForestColors
+fun themeScheme(mode: PhantomThemeMode, systemDark: Boolean): ColorScheme {
+    val base = when (mode) {
+        PhantomThemeMode.AUTO -> if (systemDark) SystemDarkColors else LightColors
+        PhantomThemeMode.LIGHT -> LightColors
+        PhantomThemeMode.GRAPHITE -> GraphiteColors
+        PhantomThemeMode.NIGHT -> NightColors
+        PhantomThemeMode.FOREST -> ForestColors
+    }
+    // Material 3 dialogs and menus use surfaceContainerHigh by default.
+    // Override all container tokens so they cannot fall back to purple
+    // default M3 palette, especially in Forest, Auto and Graphite themes.
+    return base.copy(
+        surfaceDim = base.background,
+        surfaceBright = base.surfaceVariant,
+        surfaceContainerLowest = base.background,
+        surfaceContainerLow = base.surface,
+        surfaceContainer = base.surface,
+        surfaceContainerHigh = base.surface,
+        surfaceContainerHighest = base.surfaceVariant,
+        surfaceTint = base.primary
+    )
 }
 
 @Composable

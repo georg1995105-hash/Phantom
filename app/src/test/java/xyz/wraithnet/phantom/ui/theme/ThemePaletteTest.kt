@@ -11,6 +11,15 @@ class ThemePaletteTest {
             themeScheme(PhantomThemeMode.AUTO, true).background)
     }
 
+    @Test fun dialogsAndMenusFollowEveryPalette() {
+        for (mode in PhantomThemeMode.entries) {
+            val scheme = themeScheme(mode, true)
+            assertEquals(scheme.surface, scheme.surfaceContainer)
+            assertEquals(scheme.surface, scheme.surfaceContainerHigh)
+            assertEquals(scheme.surfaceVariant, scheme.surfaceContainerHighest)
+        }
+    }
+
     @Test fun previewCardsUseDifferentActualPalettes() {
         assertNotEquals(themeScheme(PhantomThemeMode.LIGHT, true).background,
             themeScheme(PhantomThemeMode.GRAPHITE, true).background)
