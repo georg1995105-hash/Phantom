@@ -15,6 +15,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Locale
+import kotlinx.coroutines.sync.Mutex
 
 data class PhantomRelease(
     val version: String,
@@ -29,6 +30,7 @@ object PhantomUpdates {
     private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=15"
     private const val ASSET = "phantom-arm64-v8a-release.apk"
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
+    private val downloadMutex = Mutex()
 
     fun isNewer(remote: String, installed: String): Boolean {
         val a = parts(remote) ?: return false
@@ -88,7 +90,10 @@ object PhantomUpdates {
         context: Context,
         release: PhantomRelease,
         onProgress: (Int) -> Unit,
-    ): File = withContext(Dispatchers.IO) {
+    ): File {
+        downloadMutex.lock()
+        try {
+            return withContext(Dispatchers.IO) {
         require(release.downloadUrl.startsWith(PREFIX) &&
             release.sha256.matches(Regex("[a-f0-9]{64}"))) { "Источник обновления не прошёл проверку" }
         val directory = File(context.cacheDir, "updates").apply { mkdirs() }
@@ -137,6 +142,10 @@ object PhantomUpdates {
         } finally {
             conn.disconnect()
             if (temp.exists()) temp.delete()
+        }
+         }
+        } finally {
+            downloadMutex.unlock()
         }
     }
 

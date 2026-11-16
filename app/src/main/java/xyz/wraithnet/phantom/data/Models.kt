@@ -21,6 +21,8 @@ data class Subscription(
     val downloadBytes: Long? = null,
     val totalBytes: Long? = null,
     val expiresAt: Long? = null,
+    val customTitle: String? = null,
+    val customIntervalSeconds: Long? = null,
 )
 
 data class SubscriptionInfo(

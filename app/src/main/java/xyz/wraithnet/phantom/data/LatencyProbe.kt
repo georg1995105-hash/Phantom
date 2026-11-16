@@ -62,6 +62,14 @@ object LatencyProbe {
                         ?.optJSONObject(0)?.optInt("port")
                     ?: return@runCatching null
                 if (address.isBlank() || port !in 1..65535) null else address to port
+            } else if (raw.startsWith("vmess://", ignoreCase = true)) {
+                val encoded = raw.substringAfter("://").substringBefore("#")
+                val vmess = JSONObject(ShareLinkCodec.base64Text(encoded))
+                val host = vmess.optString("add").takeIf { it.isNotBlank() }
+                    ?: return@runCatching null
+                val port = vmess.optString("port").toIntOrNull()
+                    ?.takeIf { it in 1..65535 } ?: return@runCatching null
+                host to port
             } else if (raw.startsWith("ss://")) {
                 val ss = ShareLinkCodec.shadowsocks(raw)
                 ss.host to ss.port

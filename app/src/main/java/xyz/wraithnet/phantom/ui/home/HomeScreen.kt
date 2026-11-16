@@ -154,6 +154,7 @@ fun HomeScreen(
                 val parsed = SubscriptionParser.parse(downloaded?.body ?: source, customTitle ?: downloaded?.title)
                 val subscription = parsed.copy(
                     source = if (remote) source else parsed.source,
+                    customTitle = customTitle?.takeIf { it.isNotBlank() },
                     updateIntervalSeconds = downloaded?.updateIntervalSeconds ?: 3600L,
                     uploadBytes = downloaded?.uploadBytes,
                     downloadBytes = downloaded?.downloadBytes,
@@ -197,13 +198,16 @@ fun HomeScreen(
         refreshing = refreshing + item.id
         try {
             val remote = SubscriptionFetcher.download(item.source, store.deviceId())
-            val parsed = SubscriptionParser.parse(remote.body, remote.title ?: item.title)
+            val parsed = SubscriptionParser.parse(remote.body,
+                item.customTitle ?: remote.title ?: item.title)
             val updated = parsed.copy(
                 id = item.id,
                 source = item.source,
                 updatedAt = System.currentTimeMillis(),
-                title = remote.title ?: item.title,
-                updateIntervalSeconds = remote.updateIntervalSeconds ?: item.updateIntervalSeconds,
+                title = item.customTitle ?: remote.title ?: item.title,
+                updateIntervalSeconds = item.customIntervalSeconds ?: remote.updateIntervalSeconds ?: item.updateIntervalSeconds,
+                customTitle = item.customTitle,
+                customIntervalSeconds = item.customIntervalSeconds,
                 uploadBytes = remote.uploadBytes ?: item.uploadBytes,
                 downloadBytes = remote.downloadBytes ?: item.downloadBytes,
                 totalBytes = remote.totalBytes ?: item.totalBytes,
@@ -763,7 +767,9 @@ fun HomeScreen(
                             persist(subscriptions.map {
                                 if (it.id == id) it.copy(
                                     title = editedName.trim(),
-                                    updateIntervalSeconds = interval.toLong() * 3600L
+                                    updateIntervalSeconds = interval.toLong() * 3600L,
+                                    customTitle = editedName.trim(),
+                                    customIntervalSeconds = interval.toLong() * 3600L
                                 ) else it
                             })
                             editSubId = null
