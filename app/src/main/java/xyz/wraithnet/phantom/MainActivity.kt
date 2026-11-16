@@ -50,9 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ContextCompat.registerReceiver(
-            this,
-            vpnReceiver,
-            IntentFilter(PhantomVpnService.ACTION_STATUS),
+            this, vpnReceiver, IntentFilter(PhantomVpnService.ACTION_STATUS),
             ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         setContent {
@@ -62,9 +60,9 @@ class MainActivity : ComponentActivity() {
                     runCatching {
                         PhantomThemeMode.valueOf(
                             preferences.getString("theme", PhantomThemeMode.GRAPHITE.name)
-                                ?: PhantomThemeMode.GRAPHITE.name,
+                                ?: PhantomThemeMode.GRAPHITE.name
                         )
-                    }.getOrDefault(PhantomThemeMode.GRAPHITE),
+                    }.getOrDefault(PhantomThemeMode.GRAPHITE)
                 )
             }
             PhantomTheme(mode = theme) {
@@ -73,19 +71,31 @@ class MainActivity : ComponentActivity() {
                     vpnError = vpnError.value,
                     onStartVpn = ::requestVpn,
                     onStopVpn = ::stopVpnService,
-                    onThemeChange = { selected ->
-                    theme = selected
-                    preferences.edit().putString("theme", selected.name).apply()
-                    },
+                    onThemeChange = { next ->
+                        theme = next
+                        preferences.edit().putString("theme", next.name).apply()
+                    }
                 )
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (getSharedPreferences("phantom_preferences", MODE_PRIVATE).getBoolean("vpn_running", false)) {
+            startService(Intent(this, PhantomVpnService::class.java).setAction(PhantomVpnService.ACTION_QUERY))
         }
     }
 
     private fun requestVpn(profile: String) {
         pendingProfile = profile
         val intent = VpnService.prepare(this)
-        if (intent == null) startVpnService(profile) else vpnPermission.launch(intent)
+        if (intent == null) {
+            startVpnService(profile)
+            pendingProfile = null
+        } else {
+            vpnPermission.launch(intent)
+        }
     }
 
     private fun startVpnService(profile: String) {
