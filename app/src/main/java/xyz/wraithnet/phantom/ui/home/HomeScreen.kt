@@ -67,6 +67,7 @@ import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
+import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
@@ -617,12 +618,7 @@ fun HomeScreen(
                                         .padding(horizontal = 16.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(server.countryFlag.ifBlank {
-                                        when {
-                                            server.name.contains("📶") -> "📶"
-                                            else -> "🌐"
-                                        }
-                                    }, fontSize = 23.sp)
+                                    Text(CountryFlags.flag(server), fontSize = 23.sp)
                                     Spacer(Modifier.width(11.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(displayServerName(server), fontSize = 15.sp,
