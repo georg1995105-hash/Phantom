@@ -177,7 +177,8 @@ def main(source, target):
             data = data.replace(b"go.", b"sb.")
         result.append((name, data))
     if native_count < 1:
-        raise ValueError("No gomobile native libraries found")
+        native_files = [n for n, _ in entries if n.endswith(".so") or n.endswith(".aar")]
+        raise ValueError("No gomobile libgojni.so found; archive native entries: " + repr(native_files[:25]))
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
         for name, data in result:
             z.writestr(name, data)
