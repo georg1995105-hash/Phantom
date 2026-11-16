@@ -53,7 +53,7 @@ object SingBoxBridgeConfig {
                     .put("congestion_control", query["congestion_control"] ?: "cubic")
                     .put("zero_rtt_handshake", query["zero_rtt_handshake"] == "1")
             }
-            "anytls" -> outbound.put("password", decodedUser.substringAfterLast(':'))
+            "anytls" -> outbound.put("password", decodedUser)
         }
 
         return JSONObject()
