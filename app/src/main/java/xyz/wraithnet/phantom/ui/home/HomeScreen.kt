@@ -37,6 +37,13 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.InputStreamReader
+import xyz.wraithnet.phantom.data.ConfigurationFiles
+import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -203,6 +210,47 @@ fun HomeScreen(
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
+    }
+
+    var exportWarning by remember { mutableStateOf<ServerProfile?>(null) }
+    var exportProfile by remember { mutableStateOf<ServerProfile?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val profile = exportProfile
+        exportProfile = null
+        if (uri != null && profile != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use {
+                            it.write(profile.raw.toByteArray(Charsets.UTF_8))
+                        } ?: error("Не удалось сохранить файл")
+                    }
+                    snackbar.showSnackbar("Конфигурация сохранена")
+                } catch (e: Exception) {
+                    snackbar.showSnackbar(e.message ?: "Ошибка экспорта")
+                }
+            }
+        }
+    }
+    val importFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val raw = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use {
+                            InputStreamReader(it, Charsets.UTF_8).use(ConfigurationFiles::read)
+                        } ?: error("Не удалось открыть файл")
+                    }
+                    add(raw)
+                } catch (e: Exception) {
+                    snackbar.showSnackbar(e.message ?: "Не удалось импортировать файл")
+                }
+            }
+        }
     }
 
     LaunchedEffect(externalImport) {
