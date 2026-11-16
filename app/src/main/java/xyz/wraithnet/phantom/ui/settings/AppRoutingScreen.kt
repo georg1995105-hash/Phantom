@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -143,7 +144,17 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                     IconButton(onClick = { menuOpen = true }) {
                         Icon(Icons.Default.MoreVert, "Импорт, экспорт и выбор приложений")
                     }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        modifier = Modifier.widthIn(min = 264.dp, max = 320.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 6.dp,
+                        border = BorderStroke(1.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = .35f))
+                    ) {
                         DropdownMenuItem(text = { Text("Выбрать все видимые") }, onClick = {
                             selected = selected + visible.map { it.packageName }
                             gentleTap(); menuOpen = false
@@ -157,23 +168,23 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                             gentleTap(); menuOpen = false
                         })
                         HorizontalDivider()
-                        DropdownMenuItem(text = { Text("Импорт из буфера обмена") }, onClick = {
+                        DropdownMenuItem(text = { Text("Импорт выбранных · буфер") }, onClick = {
                             menuOpen = false
                             restore(clipboard.primaryClip?.getItemAt(0)
                                 ?.coerceToText(context)?.toString().orEmpty())
                         })
-                        DropdownMenuItem(text = { Text("Экспорт в буфер обмена") }, onClick = {
+                        DropdownMenuItem(text = { Text("Экспорт выбранных · буфер") }, onClick = {
                             menuOpen = false
                             clipboard.setPrimaryClip(ClipData.newPlainText(
                                 "Phantom — приложения VPN", AppRoutingTransfer.export(mode, selected)))
                             gentleTap()
                             message = "Список скопирован"
                         })
-                        DropdownMenuItem(text = { Text("Импорт из файла") }, onClick = {
+                        DropdownMenuItem(text = { Text("Импорт выбранных · файл") }, onClick = {
                             menuOpen = false
                             importFile.launch(arrayOf("application/json", "text/plain", "*/*"))
                         })
-                        DropdownMenuItem(text = { Text("Экспорт в файл") }, onClick = {
+                        DropdownMenuItem(text = { Text("Экспорт выбранных · файл") }, onClick = {
                             menuOpen = false
                             exportFile.launch("phantom-apps.json")
                         })
