@@ -17,6 +17,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -44,6 +46,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
@@ -66,6 +70,7 @@ import java.util.Locale
 
 private val panelShape = RoundedCornerShape(18.dp)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     refreshVersion: Int = 0,
@@ -90,7 +95,10 @@ fun HomeScreen(
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
     val latencies = remember { mutableStateMapOf<String, Long>() }
-    var showAdd by remember { mutableStateOf(false) }
+    var showImportMenu by remember { mutableStateOf(false) }
+    var importMode by remember { mutableStateOf<String?>(null) }
+    var importBusy by remember { mutableStateOf(false) }
+    var importError by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
@@ -106,10 +114,13 @@ fun HomeScreen(
     }
 
     fun add(raw: String, customTitle: String? = null) {
+        if (importBusy) return
         if (raw.isBlank()) {
             scope.launch { snackbar.showSnackbar("Вставьте ссылку подписки") }
             return
         }
+        importBusy = true
+        importError = null
         scope.launch {
             try {
                 val source = raw.trim()
@@ -127,10 +138,15 @@ fun HomeScreen(
                 persist(subscriptions + subscription)
                 expanded = subscription.id
                 if (selectedId == null) selectedId = subscription.servers.firstOrNull()?.id
-                showAdd = false
-                snackbar.showSnackbar("Подписка добавлена: " + subscription.servers.size + " серверов")
+                importMode = null
+                showImportMenu = false
+                snackbar.showSnackbar("Добавлено серверов: " + subscription.servers.size)
             } catch (e: Exception) {
-                snackbar.showSnackbar(e.message ?: "Ошибка добавления подписки")
+                val message = e.message ?: "Не удалось добавить подписку"
+                if (importMode != null) importError = message
+                else snackbar.showSnackbar(message)
+            } finally {
+                importBusy = false
             }
         }
     }
@@ -198,7 +214,11 @@ fun HomeScreen(
                         latencies[serverId] = delayMs
                     }
                 }
-                snackbar.showSnackbar("Проверка серверов завершена")
+                val checked = servers.count { (latencies[it.id] ?: -1L) > 0L }
+                snackbar.showSnackbar(
+                    if (checked == 0) "Не получено ни одного результата проверки"
+                    else "Проверено: " + checked + " из " + servers.size + " серверов"
+                )
             } catch (e: Exception) {
                 snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
@@ -249,8 +269,43 @@ fun HomeScreen(
                 Spacer(Modifier.weight(1f))
                 Text("Phantom", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { showAdd = true }) {
-                    Icon(Icons.Default.Add, "Добавить подписку", Modifier.size(26.dp))
+                Box {
+                    IconButton(onClick = { showImportMenu = true }) {
+                        Icon(Icons.Default.Add, "Добавить подписку", Modifier.size(27.dp))
+                    }
+                    DropdownMenu(
+                        expanded = showImportMenu,
+                        onDismissRequest = { showImportMenu = false },
+                        modifier = Modifier.widthIn(min = 258.dp)
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Добавить подписку") },
+                            leadingIcon = { Icon(Icons.Default.Link, null, Modifier.size(21.dp)) },
+                            onClick = { showImportMenu = false; importMode = "url" }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Вставить из буфера обмена") },
+                            leadingIcon = { Icon(Icons.Default.ContentPaste, null, Modifier.size(21.dp)) },
+                            onClick = { showImportMenu = false; add(pasteText()) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("QR-код") },
+                            leadingIcon = { Icon(Icons.Default.QrCodeScanner, null, Modifier.size(21.dp)) },
+                            onClick = {
+                                showImportMenu = false
+                                scanLauncher.launch(
+                                    ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                        .setPrompt("Наведите камеру на QR-код")
+                                        .setOrientationLocked(false)
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Ручной ввод") },
+                            leadingIcon = { Icon(Icons.Default.Edit, null, Modifier.size(21.dp)) },
+                            onClick = { showImportMenu = false; importMode = "manual" }
+                        )
+                    }
                 }
             }
         }
@@ -325,7 +380,7 @@ fun HomeScreen(
                                     Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
                                     Spacer(Modifier.width(6.dp)); Text("Вставить")
                                 }
-                                Button(onClick = { showAdd = true }) { Text("Добавить") }
+                                Button(onClick = { importMode = "url" }) { Text("Добавить") }
                             }
                         }
                     }
@@ -471,36 +526,84 @@ fun HomeScreen(
         )
     }
 
-    if (showAdd) {
-        var value by remember { mutableStateOf("") }
-        var title by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAdd = false },
-            title = { Text("Добавить подписку") },
-            text = {
-                Column {
-                    OutlinedTextField(value, { value = it }, label = { Text("URL или конфигурация") }, minLines = 3)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(title, { title = it }, label = { Text("Название (необязательно)") })
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = {
-                        showAdd = false
-                        scanLauncher.launch(ScanOptions()
-                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            .setPrompt("Наведите камеру на QR-код подписки")
-                            .setOrientationLocked(false))
-                    }) {
-                        Icon(Icons.Default.QrCodeScanner, null); Spacer(Modifier.width(8.dp)); Text("Сканировать QR")
+    if (importMode != null) {
+        val manual = importMode == "manual"
+        var value by remember(importMode) { mutableStateOf("") }
+        var optionalName by remember(importMode) { mutableStateOf("") }
+        ModalBottomSheet(
+            onDismissRequest = { if (!importBusy) importMode = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
+                    .padding(start = 22.dp, end = 22.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(if (manual) "Ручной ввод" else "Добавить подписку",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (manual) "Вставьте ссылку сервера, список ссылок или Xray JSON."
+                    else "Укажите ссылку подписки. Серверы и название загрузятся автоматически.",
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it; importError = null },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = !manual,
+                    minLines = if (manual) 5 else 1,
+                    maxLines = if (manual) 10 else 1,
+                    label = { Text(if (manual) "Ссылка или конфигурация" else "Ссылка подписки") },
+                    placeholder = { Text(if (manual) "vless://…   или JSON"
+                        else "https://…") },
+                    keyboardOptions = KeyboardOptions(keyboardType =
+                        if (manual) KeyboardType.Text else KeyboardType.Uri)
+                )
+                importError?.let { error ->
+                    Text(error, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                }
+                if (manual) {
+                    OutlinedTextField(
+                        value = optionalName,
+                        onValueChange = { optionalName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Название (необязательно)") }
+                    )
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(
+                        onClick = { value = pasteText() },
+                        enabled = !importBusy
+                    ) {
+                        Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Вставить")
                     }
-                    TextButton(onClick = { value = pasteText() }) {
-                        Icon(Icons.Default.ContentPaste, null); Spacer(Modifier.width(8.dp)); Text("Вставить из буфера")
+                    Spacer(Modifier.weight(1f))
+                    Button(
+                        onClick = { add(value, optionalName.takeIf { it.isNotBlank() }) },
+                        enabled = value.isNotBlank() && !importBusy,
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        if (importBusy) {
+                            CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (importBusy) "Добавление…" else "Добавить")
                     }
                 }
-            },
-            confirmButton = { Button(onClick = { add(value, title.takeIf { it.isNotBlank() }) }, enabled = value.isNotBlank()) { Text("Добавить") } },
-            dismissButton = { TextButton(onClick = { showAdd = false }) { Text("Отмена") } }
-        )
+            }
+        }
     }
+
     deleteId?.let { id ->
         AlertDialog(
             onDismissRequest = { deleteId = null },
