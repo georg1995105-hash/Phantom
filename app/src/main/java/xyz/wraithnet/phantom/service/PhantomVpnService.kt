@@ -165,6 +165,7 @@ class PhantomVpnService : VpnService() {
 
     private fun setState(next: String, error: String = "") {
         VpnEventLog.record(applicationContext, next, error)
+        PhantomQuickTileService.notifyStateChanged(applicationContext)
         state = next
         sendStatus(next, error)
     }

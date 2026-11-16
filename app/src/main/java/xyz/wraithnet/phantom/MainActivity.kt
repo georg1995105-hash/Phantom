@@ -28,6 +28,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import xyz.wraithnet.phantom.service.PhantomVpnService
+import xyz.wraithnet.phantom.service.PhantomQuickTileService
 import xyz.wraithnet.phantom.ui.home.HomeScreen
 import xyz.wraithnet.phantom.ui.theme.PhantomTheme
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
@@ -109,12 +110,24 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        if (savedInstanceState == null &&
+            intent?.action == PhantomQuickTileService.ACTION_CONNECT_FROM_TILE) {
+            connectFromQuickTile()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         externalImport.value = extractImportedText(intent)
+        if (intent.action == PhantomQuickTileService.ACTION_CONNECT_FROM_TILE) {
+            connectFromQuickTile()
+        }
+    }
+
+    private fun connectFromQuickTile() {
+        val profile = PhantomQuickTileService.selectedProfile(this)
+        if (!profile.isNullOrBlank()) requestVpn(profile)
     }
 
     private fun extractImportedText(intent: Intent?): String? {
