@@ -165,12 +165,16 @@ def main(source, target):
     for name, data in entries:
         if name == "classes.jar":
             data = patch_classes(data)
-        if name.startswith("jni/") and name.endswith("/libgojni.so"):
+        if name.startswith("jni/") and (
+            name.endswith("/libgojni.so") or name.endswith("/libbox.so")
+        ):
             if b"Java_go_Seq_init" not in data:
-                raise ValueError("Expected JNI symbol not found")
+                raise ValueError("Expected JNI symbol not found in " + name)
             for old, new in NATIVE_REPLACEMENTS:
                 data = data.replace(old, new)
             data = Elf(data).rebuild_symbols()
+            # This libbox release already uses a unique libbox.so filename.
+            # Rename only libgojni.so when found in older upstream releases.
             name = name.replace("/libgojni.so", "/libsbjni.so")
             native_count += 1
         if name == "proguard.txt":
