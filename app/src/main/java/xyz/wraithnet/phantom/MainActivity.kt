@@ -7,6 +7,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Bundle
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
+import xyz.wraithnet.phantom.service.SubscriptionRefreshWorker
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -14,6 +21,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -25,6 +33,7 @@ class MainActivity : ComponentActivity() {
     private var pendingProfile: String? = null
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
+    private val refreshVersion = mutableIntStateOf(0)
 
     private val vpnPermission = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -49,6 +58,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val refreshWork = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(
+            1, TimeUnit.HOURS,
+        ).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "phantom-subscription-refresh", ExistingPeriodicWorkPolicy.KEEP, refreshWork
+        )
         ContextCompat.registerReceiver(
             this, vpnReceiver, IntentFilter(PhantomVpnService.ACTION_STATUS),
             ContextCompat.RECEIVER_NOT_EXPORTED,
@@ -67,6 +82,7 @@ class MainActivity : ComponentActivity() {
             }
             PhantomTheme(mode = theme) {
                 HomeScreen(
+                    refreshVersion = refreshVersion.intValue,
                     vpnStatus = vpnStatus.value,
                     vpnError = vpnError.value,
                     onStartVpn = ::requestVpn,
@@ -82,6 +98,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        refreshVersion.intValue++
         if (getSharedPreferences("phantom_preferences", MODE_PRIVATE).getBoolean("vpn_running", false)) {
             startService(Intent(this, PhantomVpnService::class.java).setAction(PhantomVpnService.ACTION_QUERY))
         }

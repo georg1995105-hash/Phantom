@@ -1,0 +1,47 @@
+package xyz.wraithnet.phantom.service
+
+import android.content.Context
+import androidx.work.CoroutineWorker
+import androidx.work.WorkerParameters
+import xyz.wraithnet.phantom.data.Subscription
+import xyz.wraithnet.phantom.data.SubscriptionFetcher
+import xyz.wraithnet.phantom.data.SubscriptionParser
+import xyz.wraithnet.phantom.data.SubscriptionStore
+
+/** Network-constrained periodic refresh, even when the UI is not open. */
+class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) :
+    CoroutineWorker(context, parameters) {
+    override suspend fun doWork(): Result {
+        val store = SubscriptionStore(applicationContext)
+        val now = System.currentTimeMillis()
+        val replacements = mutableMapOf<String, Subscription>()
+        var failure = false
+        for (old in store.read()) {
+            if (!old.source.startsWith("http")) continue
+            val interval = old.updateIntervalSeconds.coerceAtLeast(900L) * 1000
+            if (now - old.updatedAt < interval) continue
+            try {
+                val downloaded = SubscriptionFetcher.download(old.source, store.deviceId())
+                val parsed = SubscriptionParser.parse(downloaded.body, downloaded.title ?: old.title)
+                replacements[old.id] = parsed.copy(
+                    id = old.id,
+                    source = old.source,
+                    title = downloaded.title ?: old.title,
+                    updatedAt = System.currentTimeMillis(),
+                    updateIntervalSeconds = downloaded.updateIntervalSeconds ?: old.updateIntervalSeconds,
+                    uploadBytes = downloaded.uploadBytes ?: old.uploadBytes,
+                    downloadBytes = downloaded.downloadBytes ?: old.downloadBytes,
+                    totalBytes = downloaded.totalBytes ?: old.totalBytes,
+                    expiresAt = downloaded.expiresAt ?: old.expiresAt,
+                )
+            } catch (_: Exception) {
+                failure = true
+            }
+        }
+        if (replacements.isNotEmpty()) {
+            val current = store.read()
+            store.write(current.map { replacements[it.id] ?: it })
+        }
+        return if (failure) Result.retry() else Result.success()
+    }
+}

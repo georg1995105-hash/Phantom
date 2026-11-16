@@ -50,6 +50,7 @@ private val panelShape = RoundedCornerShape(18.dp)
 
 @Composable
 fun HomeScreen(
+    refreshVersion: Int = 0,
     vpnStatus: String = "disconnected",
     vpnError: String = "",
     onStartVpn: (String) -> Unit = {},
@@ -141,6 +142,11 @@ fun HomeScreen(
         } finally {
             refreshing = refreshing - item.id
         }
+    }
+
+    LaunchedEffect(refreshVersion) {
+        val stored = store.read()
+        if (stored != subscriptions) subscriptions = stored
     }
 
     // Refresh stale subscriptions while the UI exists; manual refresh is always available.
