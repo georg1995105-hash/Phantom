@@ -19,6 +19,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
+import androidx.compose.runtime.SideEffect
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -59,7 +62,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        externalImport.value = intent?.dataString
+        externalImport.value = extractImportedText(intent)
         val refreshWork = PeriodicWorkRequestBuilder<SubscriptionRefreshWorker>(
             1, TimeUnit.HOURS,
         ).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
@@ -76,11 +79,19 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(
                     runCatching {
                         PhantomThemeMode.valueOf(
-                            preferences.getString("theme", PhantomThemeMode.GRAPHITE.name)
-                                ?: PhantomThemeMode.GRAPHITE.name
+                            preferences.getString("theme", PhantomThemeMode.AUTO.name)
+                                ?: PhantomThemeMode.AUTO.name
                         )
-                    }.getOrDefault(PhantomThemeMode.GRAPHITE)
+                    }.getOrDefault(PhantomThemeMode.AUTO)
                 )
+            }
+            val lightBars = theme == PhantomThemeMode.LIGHT ||
+                (theme == PhantomThemeMode.AUTO && !isSystemInDarkTheme())
+            SideEffect {
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = lightBars
+                    isAppearanceLightNavigationBars = lightBars
+                }
             }
             PhantomTheme(mode = theme) {
                 HomeScreen(
@@ -103,7 +114,18 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        externalImport.value = intent.dataString
+        externalImport.value = extractImportedText(intent)
+    }
+
+    private fun extractImportedText(intent: Intent?): String? {
+        if (intent == null) return null
+        val raw = when (intent.action) {
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            Intent.ACTION_VIEW -> intent.dataString
+            else -> null
+        }?.trim().orEmpty()
+        if (raw.isBlank() || raw.length > 500_000) return null
+        return raw
     }
 
     override fun onResume() {

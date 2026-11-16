@@ -1,6 +1,6 @@
 package xyz.wraithnet.phantom.data
 
-/** Decodes Remnawave profile-title, including the base64: prefix used by Happ. */
+/** Decodes the optional standard profile-title response header, plain or base64 encoded. */
 object SubscriptionHeaders {
     fun decodeTitle(value: String?): String? {
         val raw = value?.trim()?.takeIf { it.isNotBlank() } ?: return null

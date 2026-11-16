@@ -27,9 +27,13 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
@@ -56,10 +60,20 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
+import xyz.wraithnet.phantom.BuildConfig
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.PhantomUpdates
+import xyz.wraithnet.phantom.data.PhantomRelease
+import xyz.wraithnet.phantom.data.CountryFlags
+import xyz.wraithnet.phantom.data.FragmentationOptions
+import java.io.File
+import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
+import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
+import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
+import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -91,15 +105,20 @@ fun HomeScreen(
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
     val selected = subscriptions.flatMap { it.servers }.firstOrNull { it.id == selectedId }
         ?: subscriptions.firstOrNull()?.servers?.firstOrNull()
-    var expanded by remember { mutableStateOf(subscriptions.firstOrNull()?.id) }
+    var expandedIds by remember { mutableStateOf(subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
+    var pingCompleted by remember { mutableIntStateOf(0) }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
+    var activeSubMenu by remember { mutableStateOf<String?>(null) }
+    var editSubId by remember { mutableStateOf<String?>(null) }
+    var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
+    var showRoutingDirect by remember { mutableStateOf(false) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
 
@@ -119,16 +138,23 @@ fun HomeScreen(
             scope.launch { snackbar.showSnackbar("Вставьте ссылку подписки") }
             return
         }
+        val source = raw.trim()
+        if (subscriptions.any { it.source.trim() == source }) {
+            val warning = "Такая подписка или ссылка уже добавлена"
+            if (importMode != null) importError = warning
+            else scope.launch { snackbar.showSnackbar(warning) }
+            return
+        }
         importBusy = true
         importError = null
         scope.launch {
             try {
-                val source = raw.trim()
                 val remote = source.startsWith("https://") || source.startsWith("http://")
                 val downloaded = if (remote) SubscriptionFetcher.download(source, store.deviceId()) else null
                 val parsed = SubscriptionParser.parse(downloaded?.body ?: source, customTitle ?: downloaded?.title)
                 val subscription = parsed.copy(
                     source = if (remote) source else parsed.source,
+                    customTitle = customTitle?.takeIf { it.isNotBlank() },
                     updateIntervalSeconds = downloaded?.updateIntervalSeconds ?: 3600L,
                     uploadBytes = downloaded?.uploadBytes,
                     downloadBytes = downloaded?.downloadBytes,
@@ -136,7 +162,7 @@ fun HomeScreen(
                     expiresAt = downloaded?.expiresAt
                 )
                 persist(subscriptions + subscription)
-                expanded = subscription.id
+                expandedIds = expandedIds + subscription.id
                 if (selectedId == null) selectedId = subscription.servers.firstOrNull()?.id
                 importMode = null
                 showImportMenu = false
@@ -172,13 +198,16 @@ fun HomeScreen(
         refreshing = refreshing + item.id
         try {
             val remote = SubscriptionFetcher.download(item.source, store.deviceId())
-            val parsed = SubscriptionParser.parse(remote.body, remote.title ?: item.title)
+            val parsed = SubscriptionParser.parse(remote.body,
+                item.customTitle ?: remote.title ?: item.title)
             val updated = parsed.copy(
                 id = item.id,
                 source = item.source,
                 updatedAt = System.currentTimeMillis(),
-                title = remote.title ?: item.title,
-                updateIntervalSeconds = remote.updateIntervalSeconds ?: item.updateIntervalSeconds,
+                title = item.customTitle ?: remote.title ?: item.title,
+                updateIntervalSeconds = item.customIntervalSeconds ?: remote.updateIntervalSeconds ?: item.updateIntervalSeconds,
+                customTitle = item.customTitle,
+                customIntervalSeconds = item.customIntervalSeconds,
                 uploadBytes = remote.uploadBytes ?: item.uploadBytes,
                 downloadBytes = remote.downloadBytes ?: item.downloadBytes,
                 totalBytes = remote.totalBytes ?: item.totalBytes,
@@ -196,6 +225,7 @@ fun HomeScreen(
     fun probeSubscription(item: Subscription) {
         if (item.id in probing) return
         probing = probing + item.id
+        pingCompleted = 0
         scope.launch {
             try {
                 val supported = setOf("vless", "vmess", "trojan", "ss", "xray", "hysteria", "hysteria2", "hy2")
@@ -208,6 +238,8 @@ fun HomeScreen(
                                 runCatching { LatencyProbe.measure(context.applicationContext, server) }
                                     .getOrNull() ?: -1L
                             }
+                            latencies[server.id] = ping
+                            pingCompleted++
                             server.id to ping
                         }
                     }.awaitAll().forEach { (serverId, delayMs) ->
@@ -247,8 +279,63 @@ fun HomeScreen(
         }
     }
 
+    var availableUpdate by remember { mutableStateOf<PhantomRelease?>(null) }
+    var otaDownload by remember { mutableStateOf(false) }
+    var otaProgress by remember { mutableIntStateOf(0) }
+    var otaFile by remember { mutableStateOf<File?>(null) }
+    var otaError by remember { mutableStateOf<String?>(null) }
+    var otaDismissed by remember { mutableStateOf(false) }
+    var lastOtaCheck by remember { mutableLongStateOf(0L) }
+
+    // Auto-check on launch/foreground (max once per six hours); no settings detour.
+    LaunchedEffect(refreshVersion) {
+        val now = System.currentTimeMillis()
+        if (now - lastOtaCheck >= 6L * 60 * 60 * 1000L) {
+            lastOtaCheck = now
+            try {
+                val result = PhantomUpdates.check(context)
+                if (result?.version != availableUpdate?.version) {
+                    otaFile = null
+                    otaDismissed = false
+                }
+                availableUpdate = result
+                otaError = null
+            } catch (_: Exception) {
+                // Existing VPN functionality must not depend on the update service.
+            }
+        }
+    }
+
+    fun startOtaInstall() {
+        if (otaDownload) return
+        val release = availableUpdate ?: return
+        otaError = null
+        scope.launch {
+            try {
+                val file = otaFile?.takeIf { it.exists() } ?: run {
+                    otaDownload = true
+                    otaProgress = 0
+                    PhantomUpdates.download(context, release) { otaProgress = it }
+                        .also { otaFile = it }
+                }
+                val launched = PhantomUpdates.openInstaller(context, file)
+                if (!launched) {
+                    otaError = "Разрешите установку из Phantom и нажмите «Установить» ещё раз"
+                }
+            } catch (e: Exception) {
+                otaError = e.message ?: "Не удалось установить обновление"
+            } finally {
+                otaDownload = false
+            }
+        }
+    }
+
     BackHandler(enabled = showSettings) { showSettings = false }
 
+    if (showRoutingDirect) {
+        AppRoutingScreen(onBack = { showRoutingDirect = false })
+        return
+    }
     if (showSettings) {
         PhantomSettings(onBack = { showSettings = false }, onThemeChange = onThemeChange)
         return
@@ -315,6 +402,67 @@ fun HomeScreen(
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (availableUpdate != null && !otaDismissed) {
+                item(key = "ota-update") {
+                    val release = availableUpdate!!
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .58f)
+                        )
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(22.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(9.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("Доступно обновление " + release.version,
+                                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("Официальный выпуск Phantom VPN",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(
+                                    onClick = { otaDismissed = true },
+                                    enabled = !otaDownload,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, "Скрыть уведомление", Modifier.size(18.dp))
+                                }
+                            }
+                            if (otaDownload) {
+                                Spacer(Modifier.height(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { otaProgress.toFloat() / 100f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text("Загрузка: " + otaProgress + "%", fontSize = 12.sp)
+                            }
+                            otaError?.let { message ->
+                                Spacer(Modifier.height(6.dp))
+                                Text(message, fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.error)
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Button(
+                                onClick = ::startOtaInstall,
+                                enabled = !otaDownload,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (otaDownload) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (otaDownload) "Скачивание…"
+                                    else if (otaFile?.exists() == true) "Установить обновление"
+                                    else "Обновить сейчас")
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 Column(
                     Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp),
@@ -372,7 +520,7 @@ fun HomeScreen(
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Подписок пока нет", style = MaterialTheme.typography.titleMedium)
                             Spacer(Modifier.height(7.dp))
-                            Text("Добавьте ссылку Remnawave или профиль",
+                            Text("Ссылка подписки или отдельный ключ VPN",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -386,8 +534,27 @@ fun HomeScreen(
                     }
                 }
             }
-            items(subscriptions, key = { it.id }) { item ->
-                var menuExpanded by remember(item.id) { mutableStateOf(false) }
+            if (subscriptions.isNotEmpty()) {
+                item(key = "toggle-all-servers") {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = {
+                            expandedIds = if (subscriptions.all { it.id in expandedIds })
+                                emptySet()
+                            else subscriptions.map { it.id }.toSet()
+                        }) {
+                            Icon(
+                                if (subscriptions.all { it.id in expandedIds }) Icons.Default.ExpandLess
+                                    else Icons.Default.ExpandMore,
+                                null, Modifier.size(17.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (subscriptions.all { it.id in expandedIds })
+                                "Скрыть все" else "Показать все", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+            items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -398,41 +565,34 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(
-                                onClick = { expanded = if (expanded == item.id) null else item.id },
+                                onClick = { expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(if (expanded == item.id) Icons.Default.ExpandLess
+                                Icon(if (item.id in expandedIds) Icons.Default.ExpandLess
                                     else Icons.Default.ExpandMore, "Свернуть или развернуть",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Column(Modifier.weight(1f).padding(start = 5.dp).clickable {
-                                expanded = if (expanded == item.id) null else item.id
+                                expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id
                             }) {
                                 Text(item.title, style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold, maxLines = 1)
                                 Text(item.servers.size.toString() + " серверов · " + timeLabel(item.updatedAt),
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = { probeSubscription(item) },
-                                enabled = item.id !in probing, modifier = Modifier.size(36.dp)) {
-                                if (item.id in probing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Speed, "Проверить пинг", Modifier.size(21.dp))
-                            }
                             IconButton(onClick = { scope.launch { refresh(item) } },
                                 enabled = item.id !in refreshing, modifier = Modifier.size(36.dp)) {
                                 if (item.id in refreshing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                                 else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
                             }
-                            Box {
-                                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Default.MoreVert, "Управление подпиской", Modifier.size(21.dp))
-                                }
-                                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                    DropdownMenuItem(
-                                        text = { Text("Удалить подписку") },
-                                        onClick = { menuExpanded = false; deleteId = item.id }
-                                    )
-                                }
+                            IconButton(onClick = { probeSubscription(item) },
+                                enabled = item.id !in probing, modifier = Modifier.size(36.dp)) {
+                                if (item.id in probing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.Speed, "Проверить пинг", Modifier.size(21.dp))
+                            }
+                            IconButton(onClick = { activeSubMenu = item.id }, modifier = Modifier.size(40.dp)) {
+                                Text("•••", fontSize = 16.sp, letterSpacing = 2.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         if (item.totalBytes != null || item.expiresAt != null) {
@@ -462,7 +622,7 @@ fun HomeScreen(
                                 )
                             }
                         }
-                        if (expanded == item.id) {
+                        if (item.id in expandedIds) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .3f))
                             item.servers.forEach { server ->
                                 val supported = server.scheme.lowercase() in setOf(
@@ -488,7 +648,7 @@ fun HomeScreen(
                                         .padding(horizontal = 16.dp, vertical = 9.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(server.countryFlag.ifBlank { "◇" }, fontSize = 24.sp)
+                                    Text(CountryFlags.flag(server), fontSize = 23.sp)
                                     Spacer(Modifier.width(11.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(displayServerName(server), fontSize = 15.sp,
@@ -526,6 +686,101 @@ fun HomeScreen(
         )
     }
 
+    activeSubMenu?.let { id ->
+        val sub = subscriptions.firstOrNull { it.id == id }
+        if (sub != null) {
+            ModalBottomSheet(
+                onDismissRequest = { activeSubMenu = null },
+                containerColor = MaterialTheme.colorScheme.surface,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 18.dp)) {
+                    Text(sub.title, fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                    funActionRow("Настройки подписки", Icons.Default.Settings) {
+                        editSubId = sub.id
+                        activeSubMenu = null
+                    }
+                    funActionRow("Маршрутизация приложений", Icons.Default.Route) {
+                        activeSubMenu = null
+                        showRoutingDirect = true
+                    }
+                    funActionRow("Обновить подписку", Icons.Default.Refresh) {
+                        activeSubMenu = null
+                        scope.launch { refresh(sub) }
+                    }
+                    funActionRow("Проверить задержку", Icons.Default.Speed) {
+                        activeSubMenu = null
+                        probeSubscription(sub)
+                    }
+                    funActionRow(
+                        if (pinnedSubId == sub.id) "Открепить" else "Закрепить",
+                        Icons.Default.PushPin
+                    ) {
+                        pinnedSubId = if (pinnedSubId == sub.id) null else sub.id
+                        prefs.edit().putString("pinned_sub_id", pinnedSubId).apply()
+                        activeSubMenu = null
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
+                        activeSubMenu = null
+                        deleteId = sub.id
+                    }
+                }
+            }
+        }
+    }
+
+    editSubId?.let { id ->
+        val sub = subscriptions.firstOrNull { it.id == id }
+        if (sub != null) {
+            var editedName by remember(id) { mutableStateOf(sub.title) }
+            var interval by remember(id) {
+                mutableStateOf((sub.updateIntervalSeconds / 3600L).coerceIn(1L, 24L).toString())
+            }
+            ModalBottomSheet(
+                onDismissRequest = { editSubId = null },
+                containerColor = MaterialTheme.colorScheme.surface,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().imePadding().navigationBarsPadding()
+                    .padding(horizontal = 22.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Настройки подписки",
+                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    OutlinedTextField(editedName, { editedName = it },
+                        label = { Text("Название") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(interval, { interval = it },
+                        label = { Text("Интервал обновления, часы (1–24)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth())
+                    Button(
+                        enabled = editedName.isNotBlank() &&
+                            (interval.toIntOrNull() ?: 0) in 1..24,
+                        onClick = {
+                            persist(subscriptions.map {
+                                if (it.id == id) it.copy(
+                                    title = editedName.trim(),
+                                    updateIntervalSeconds = interval.toLong() * 3600L,
+                                    customTitle = editedName.trim(),
+                                    customIntervalSeconds = interval.toLong() * 3600L
+                                ) else it
+                            })
+                            editSubId = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Сохранить") }
+                }
+            }
+        }
+    }
+
     if (importMode != null) {
         val manual = importMode == "manual"
         var value by remember(importMode) { mutableStateOf("") }
@@ -545,8 +800,8 @@ fun HomeScreen(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (manual) "Вставьте ссылку сервера, список ссылок или Xray JSON."
-                    else "Укажите ссылку подписки. Серверы и название загрузятся автоматически.",
+                    if (manual) "Поддерживаются VLESS, VMess, Trojan, Shadowsocks, Hysteria2 и Xray JSON."
+                    else "Вставьте URL подписки любого совместимого сервиса.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 OutlinedTextField(
@@ -619,7 +874,25 @@ fun HomeScreen(
 }
 
 private fun displayServerName(server: ServerProfile): String =
-    server.name.trim().removePrefix(server.countryFlag).trim().ifBlank { server.name }
+    server.name.trim().removePrefix(server.countryFlag)
+        .removePrefix("🌐").removePrefix("📶").trim().ifBlank { server.name }
+
+
+@Composable
+private fun funActionRow(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit
+) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 55.dp)
+        .clickable(onClick = onClick).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, Modifier.size(21.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(18.dp))
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    }
+}
 
 private fun protocolLabel(server: ServerProfile): String {
     if (server.scheme.lowercase() !in setOf("xray", "json")) return when (server.scheme.lowercase()) {
@@ -664,10 +937,18 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     var mode by remember {
         mutableStateOf(runCatching {
-            PhantomThemeMode.valueOf(prefs.getString("theme", "GRAPHITE") ?: "GRAPHITE")
-        }.getOrDefault(PhantomThemeMode.GRAPHITE))
+            PhantomThemeMode.valueOf(prefs.getString("theme", "AUTO") ?: "AUTO")
+        }.getOrDefault(PhantomThemeMode.AUTO))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
+    var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
+    var fragmentMessage by remember { mutableStateOf<String?>(null) }
+    var showLog by remember { mutableStateOf(false) }
+    var showPing by remember { mutableStateOf(false) }
+    var showApps by remember { mutableStateOf(false) }
+    if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
+    if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     val version = remember {
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }
             .getOrNull() ?: "—"
@@ -698,17 +979,22 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT).forEach { option ->
-                        FilterChip(
-                            selected = mode == option,
-                            onClick = { mode = option; onThemeChange(option) },
-                            label = { Text(option.title) },
-                            modifier = Modifier.weight(1f),
-                            leadingIcon = if (mode == option) {
-                                { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }
-                            } else null
-                        )
+                listOf(
+                    listOf(PhantomThemeMode.AUTO, PhantomThemeMode.LIGHT),
+                    listOf(PhantomThemeMode.GRAPHITE, PhantomThemeMode.NIGHT)
+                ).forEach { line ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        line.forEach { option ->
+                            FilterChip(
+                                selected = mode == option,
+                                onClick = { mode = option; onThemeChange(option) },
+                                label = { Text(option.title) },
+                                modifier = Modifier.weight(1f),
+                                leadingIcon = if (mode == option) {
+                                    { Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp)) }
+                                } else null
+                            )
+                        }
                     }
                 }
             }
@@ -717,6 +1003,21 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().clickable { showApps = true }
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Маршрутизация приложений", fontSize = 15.sp)
+                            Text("Кому использовать VPN, а кому — нет",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Card(shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.fillMaxWidth().clickable {
@@ -745,6 +1046,57 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                                     .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                             }
                         })
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Фрагментация TLS", fontSize = 15.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text("Для TCP-соединений с TLS/REALITY. На Hysteria2 не действует.",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = fragment.enabled, onCheckedChange = { enabled ->
+                            val next = fragment.copy(enabled = enabled)
+                            if (next.isValid()) {
+                                fragment = next
+                                FragmentationOptions.save(context, next)
+                                fragmentMessage = "При следующем подключении изменения вступят в силу"
+                            } else {
+                                fragmentMessage = "Исправьте значения фрагментации"
+                            }
+                        })
+                    }
+                    if (fragment.enabled) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(
+                                value = fragment.lengths,
+                                onValueChange = { fragment = fragment.copy(lengths = it) },
+                                label = { Text("Размер, байт") },
+                                placeholder = { Text("80-120") },
+                                singleLine = true, modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = fragment.delays,
+                                onValueChange = { fragment = fragment.copy(delays = it) },
+                                label = { Text("Задержка, мс") },
+                                placeholder = { Text("3-10") },
+                                singleLine = true, modifier = Modifier.weight(1f)
+                            )
+                        }
+                        TextButton(
+                            enabled = fragment.isValid(),
+                            onClick = {
+                                FragmentationOptions.save(context, fragment)
+                                fragmentMessage = "Настройки сохранены. Переподключите VPN."
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        ) { Text("Применить параметры") }
+                    }
+                    fragmentMessage?.let {
+                        Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .25f))
                     Row(Modifier.fillMaxWidth().clickable {
@@ -777,6 +1129,49 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                 }
             }
             item {
+                Text("ПРОВЕРКА СЕРВЕРОВ", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { showPing = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Пинг", fontSize = 15.sp)
+                            Text("Метод проверки и тайм-аут",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
+                Text("ДИАГНОСТИКА", fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                Card(shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Row(Modifier.fillMaxWidth().clickable { showLog = true }
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Журнал VPN", fontSize = 15.sp)
+                            Text("Последние подключения и причины ошибок",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Icon(Icons.Default.ChevronRight, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            item {
                 Text("ПРИЛОЖЕНИЕ", fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -788,11 +1183,13 @@ private fun PhantomSettings(onBack: () -> Unit, onThemeChange: (PhantomThemeMode
                         Column(Modifier.weight(1f)) {
                             Text("Phantom", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                             Spacer(Modifier.height(3.dp))
-                            Text("Android · Xray", color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Text("Xray core " + BuildConfig.XRAY_CORE_VERSION + " · arm64-v8a", color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 12.sp)
                         }
                         Text(version, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    PhantomUpdateSection()
                 }
             }
         }

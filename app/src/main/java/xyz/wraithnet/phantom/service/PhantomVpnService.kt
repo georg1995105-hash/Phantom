@@ -2,6 +2,7 @@ package xyz.wraithnet.phantom.service
 
 import android.app.Notification
 import android.app.NotificationChannel
+import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -22,7 +23,12 @@ import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
+import xyz.wraithnet.phantom.data.AppRouting
+import xyz.wraithnet.phantom.data.FragmentationOptions
+import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
+import xyz.wraithnet.phantom.R
+import xyz.wraithnet.phantom.MainActivity
 
 class PhantomVpnService : VpnService() {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -48,6 +54,9 @@ class PhantomVpnService : VpnService() {
                 stopSelf()
             }
             ACTION_QUERY -> sendStatus(state)
+            ACTION_RELOAD -> ioScope.launch { mutex.withLock {
+                startLocked(prefs.getString("vpn_last_profile", "").orEmpty())
+            } }
             ACTION_KEEP_ALIVE -> ioScope.launch {
                 mutex.withLock { configureWakeLock() }
             }
@@ -74,7 +83,9 @@ class PhantomVpnService : VpnService() {
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
-            val config = XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
+            val config = FragmentationOptions.load(this).apply(
+                XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
+            )
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
@@ -85,7 +96,7 @@ class PhantomVpnService : VpnService() {
                 .addAddress("fd00:1111::2", 64)
                 .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
-                .addDisallowedApplication(packageName)
+                .also { AppRouting.apply(this, it) }
                 .establish() ?: error("Android не создал VPN-интерфейс")
             vpnInterface = tun
 
@@ -153,6 +164,7 @@ class PhantomVpnService : VpnService() {
     }
 
     private fun setState(next: String, error: String = "") {
+        VpnEventLog.record(applicationContext, next, error)
         state = next
         sendStatus(next, error)
     }
@@ -170,10 +182,33 @@ class PhantomVpnService : VpnService() {
         )
     }
 
-    private fun notification(text: String): Notification =
-        Notification.Builder(this, CHANNEL_ID).setContentTitle("Phantom")
-            .setContentText(text).setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setOngoing(true).build()
+    private fun notification(message: String): Notification {
+        val open = PendingIntent.getActivity(
+            this, 10,
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val stop = PendingIntent.getService(
+            this, 11,
+            Intent(this, PhantomVpnService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("Phantom VPN")
+            .setContentText(message)
+            .setSmallIcon(R.drawable.ic_stat_phantom)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
+        if (running) {
+            builder.addAction(Notification.Action.Builder(
+                R.drawable.ic_stat_phantom, "Отключить", stop
+            ).build())
+        }
+        return builder.build()
+    }
 
     private fun updateNotification(text: String) {
         getSystemService(NotificationManager::class.java)
@@ -200,6 +235,7 @@ class PhantomVpnService : VpnService() {
         const val ACTION_STOP = "xyz.wraithnet.phantom.STOP_VPN"
         const val ACTION_QUERY = "xyz.wraithnet.phantom.QUERY_VPN"
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
+        const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
         const val EXTRA_PROFILE = "profile"
         const val EXTRA_STATUS = "status"
