@@ -17,6 +17,9 @@ import xyz.wraithnet.phantom.service.XrayEnvironment
 object LatencyProbe {
     const val TCP = "tcp"
     const val PROXY = "proxy"
+    private val tcpExecutor = Executors.newFixedThreadPool(4) { runnable ->
+        Thread(runnable, "phantom-tcp-ping").apply { isDaemon = true }
+    }
     private val proxyExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "phantom-proxy-ping").apply { isDaemon = true }
     }
@@ -79,11 +82,18 @@ object LatencyProbe {
                 return@withContext -1L
             }
             val (host, port) = endpoint(server) ?: return@withContext -1L
-            return@withContext runCatching {
+            // Bound the full DNS + socket handshake, not only connect().
+            val task = tcpExecutor.submit<Long> {
                 val begin = System.nanoTime()
                 Socket().use { it.connect(InetSocketAddress(host, port), timeout) }
                 TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin).coerceAtLeast(1L)
-            }.getOrDefault(-1L)
+            }
+            return@withContext try {
+                task.get(timeout.toLong() + 500L, TimeUnit.MILLISECONDS)
+            } catch (_: Exception) {
+                task.cancel(true)
+                -1L
+            }
         }
         val job = proxyExecutor.submit<Long> {
             XrayEnvironment.initialize(context)
