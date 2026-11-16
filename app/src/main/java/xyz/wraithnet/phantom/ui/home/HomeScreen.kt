@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.filled.X
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import com.journeyapps.barcodescanner.ScanContract
@@ -61,6 +63,8 @@ import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.PhantomUpdates
+import xyz.wraithnet.phantom.data.PhantomRelease
+import java.io.File
 import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.data.SubscriptionParser
@@ -250,22 +254,53 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        val lastCheck = prefs.getLong("ota_checked_at", 0L)
-        if (System.currentTimeMillis() - lastCheck >= 24L * 60 * 60 * 1000) {
+    var availableUpdate by remember { mutableStateOf<PhantomRelease?>(null) }
+    var otaDownload by remember { mutableStateOf(false) }
+    var otaProgress by remember { mutableIntStateOf(0) }
+    var otaFile by remember { mutableStateOf<File?>(null) }
+    var otaError by remember { mutableStateOf<String?>(null) }
+    var otaDismissed by remember { mutableStateOf(false) }
+    var lastOtaCheck by remember { mutableLongStateOf(0L) }
+
+    // Auto-check on launch/foreground (max once per six hours); no settings detour.
+    LaunchedEffect(refreshVersion) {
+        val now = System.currentTimeMillis()
+        if (now - lastOtaCheck >= 6L * 60 * 60 * 1000L) {
+            lastOtaCheck = now
             try {
-                val update = PhantomUpdates.check(context)
-                prefs.edit().putLong("ota_checked_at", System.currentTimeMillis()).apply()
-                if (update != null) {
-                    val result = snackbar.showSnackbar(
-                        "Доступна версия Phantom " + update.version,
-                        actionLabel = "Обновить",
-                        duration = SnackbarDuration.Long
-                    )
-                    if (result == SnackbarResult.ActionPerformed) showSettings = true
+                val result = PhantomUpdates.check(context)
+                if (result?.version != availableUpdate?.version) {
+                    otaFile = null
+                    otaDismissed = false
                 }
+                availableUpdate = result
+                otaError = null
             } catch (_: Exception) {
-                // Manual update check remains available in Settings.
+                // Existing VPN functionality must not depend on the update service.
+            }
+        }
+    }
+
+    fun startOtaInstall() {
+        if (otaDownload) return
+        val release = availableUpdate ?: return
+        otaError = null
+        scope.launch {
+            try {
+                val file = otaFile?.takeIf { it.exists() } ?: run {
+                    otaDownload = true
+                    otaProgress = 0
+                    PhantomUpdates.download(context, release) { otaProgress = it }
+                        .also { otaFile = it }
+                }
+                val launched = PhantomUpdates.openInstaller(context, file)
+                if (!launched) {
+                    otaError = "Разрешите установку из Phantom и нажмите «Установить» ещё раз"
+                }
+            } catch (e: Exception) {
+                otaError = e.message ?: "Не удалось установить обновление"
+            } finally {
+                otaDownload = false
             }
         }
     }
@@ -338,6 +373,67 @@ fun HomeScreen(
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (availableUpdate != null && !otaDismissed) {
+                item(key = "ota-update") {
+                    val release = availableUpdate!!
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .58f)
+                        )
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.SystemUpdateAlt, null, Modifier.size(22.dp),
+                                    tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(9.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("Доступно обновление " + release.version,
+                                        fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Text("Phantom VPN · проверенная версия",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(
+                                    onClick = { otaDismissed = true },
+                                    enabled = !otaDownload,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.X, "Скрыть уведомление", Modifier.size(18.dp))
+                                }
+                            }
+                            if (otaDownload) {
+                                Spacer(Modifier.height(8.dp))
+                                LinearProgressIndicator(
+                                    progress = { otaProgress.toFloat() / 100f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text("Загрузка: " + otaProgress + "%", fontSize = 12.sp)
+                            }
+                            otaError?.let { message ->
+                                Spacer(Modifier.height(6.dp))
+                                Text(message, fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.error)
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Button(
+                                onClick = ::startOtaInstall,
+                                enabled = !otaDownload,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (otaDownload) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(if (otaDownload) "Скачивание…"
+                                    else if (otaFile?.exists() == true) "Установить обновление"
+                                    else "Обновить сейчас")
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 Column(
                     Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp),
