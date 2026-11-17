@@ -80,6 +80,7 @@ internal class SingBoxBridge(
         }
         synchronized(this) { connection = serviceConnection }
         try {
+            retireStaleWorker()
             // This must run while the main PhantomVpnService is foreground.
             // A STARTED lease keeps the separate Go process alive across
             // Android bind/unbind, network changes and TUN establishment.
@@ -240,6 +241,24 @@ internal class SingBoxBridge(
         return !workerAlive(pid)
     }
 
+    /**
+     * A fresh VPN service instance can be created before its predecessor's
+     * onDestroy cleanup thread has finished. Never inherit a live Go runtime.
+     * Only the app's exact :singbox process is eligible for retirement.
+     */
+    private fun retireStaleWorker() {
+        val ownProcess = "${context.packageName}:singbox"
+        val stale = context.getSystemService(ActivityManager::class.java)
+            .runningAppProcesses.orEmpty()
+            .filter { it.processName == ownProcess && it.pid != Process.myPid() }
+        for (process in stale) {
+            Process.killProcess(process.pid)
+            check(waitForExit(process.pid, 1800)) {
+                "Предыдущий процесс sing-box ещё работает"
+            }
+        }
+    }
+
     fun stop() {
         check(Looper.myLooper() != Looper.getMainLooper()) {
             "Остановка sing-box должна выполняться в фоновом потоке"
@@ -289,7 +308,10 @@ internal class SingBoxBridge(
         }
         // If the worker crashed during STOP or Binder was lost, release the
         // started lease so Android cannot keep an orphan service alive.
-        if (hadStartedLease && (!sent || previousPid <= 0)) {
+        if (hadStartedLease && (!sent || previousPid <= 0) &&
+            (previousPid <= 0 || workerAlive(previousPid))
+        ) {
+            // Never stop a *newer* worker service on behalf of a stale session.
             runCatching { context.stopService(Intent(context, SingBoxWorkerService::class.java)) }
         }
         if (previousPid > 0 && !waitForExit(previousPid, 1800)) {
