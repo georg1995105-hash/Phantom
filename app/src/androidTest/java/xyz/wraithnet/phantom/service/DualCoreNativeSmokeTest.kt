@@ -207,4 +207,28 @@ class DualCoreNativeSmokeTest {
         }
     }
 
+    @Test fun staleStopCannotKillReplacementWorker() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val link = "tuic://00000000-0000-0000-0000-000000000001:testPassword@" +
+            "127.0.0.1:25443?sni=example.org&alpn=h3"
+        val first = SingBoxBridge(context)
+        val second = SingBoxBridge(context)
+        try {
+            first.start(link)
+            val priorPid = first.workerPid
+            val secondPort = second.start(link)
+            assertNotEquals("Replacement inherited native worker", priorPid, second.workerPid)
+            // The stale controlling service may still be bound to the new
+            // :singbox process. Its late STOP must not terminate this session.
+            first.stop()
+            assertTrue("Stale STOP killed the replacement worker",
+                LocalSocks5Probe.check(secondPort).ready)
+            assertTrue("Replacement worker lost its session",
+                second.workerStatus().contains("движок запущен"))
+        } finally {
+            runCatching { first.stop() }
+            second.stop()
+        }
+    }
+
 }
