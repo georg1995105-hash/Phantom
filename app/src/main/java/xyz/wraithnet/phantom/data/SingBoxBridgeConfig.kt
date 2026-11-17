@@ -64,7 +64,9 @@ object SingBoxBridgeConfig {
                 .put("listen", "127.0.0.1")
                 .put("listen_port", localPort)))
             .put("outbounds", JSONArray().put(outbound))
-            .put("route", JSONObject().put("final", "proxy"))
+            .put("route", JSONObject()
+                .put("auto_detect_interface", true)
+                .put("final", "proxy"))
             .toString()
     }
 
