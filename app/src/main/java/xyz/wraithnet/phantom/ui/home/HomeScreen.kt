@@ -645,8 +645,9 @@ fun HomeScreen(
                                 val supported = ProtocolSupport.isSupported(server.scheme)
                                 val singleDirect = !item.source.startsWith("http", ignoreCase = true) &&
                                     item.servers.size == 1
-                                val chosen = selectedMatch?.first?.id == item.id &&
-                                    selectedMatch.second.id == server.id
+                                val chosen = selectedMatch?.let { (owner, profile) ->
+                                    owner.id == item.id && profile.id == server.id
+                                } == true
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .background(if (chosen)
@@ -864,7 +865,7 @@ fun HomeScreen(
                     val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
                         sub.source.startsWith("http://", ignoreCase = true)
                     funActionRow(when {
-                        isRemote -> "Копировать ссылку подписки"
+                        isRemote -> "Копировать подписку"
                         sub.servers.size == 1 -> "Копировать ключ"
                         else -> "Копировать конфигурацию"
                     }, Icons.Default.ContentCopy) {
