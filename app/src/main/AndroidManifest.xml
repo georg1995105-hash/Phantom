@@ -55,8 +55,6 @@
                 <data android:scheme="hy2" />
                 <data android:scheme="tuic" />
                 <data android:scheme="anytls" />
-                <data android:scheme="tuic" />
-                <data android:scheme="anytls" />
             </intent-filter>
         </activity>
         <activity
