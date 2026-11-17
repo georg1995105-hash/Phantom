@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.os.PowerManager
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,6 +45,8 @@ import xyz.wraithnet.phantom.MainActivity
 class PhantomVpnService : VpnService() {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
+    // Intent commands may launch on different IO threads; the latest tap wins.
+    private val commandEpoch = AtomicLong(0)
     private lateinit var prefs: SharedPreferences
     private var vpnInterface: ParcelFileDescriptor? = null
     private var controller: CoreController? = null
@@ -133,15 +136,17 @@ class PhantomVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                val epoch = commandEpoch.incrementAndGet()
                 prefs.edit().putBoolean("vpn_requested", false).apply()
                 handoverJob?.cancel()
                 ioScope.launch {
-                    mutex.withLock { stopLocked() }
-                    // A newer START may already have reached onStartCommand.
-                    // stopSelf() would destroy its VPN service indiscriminately.
-                    if (!prefs.getBoolean("vpn_requested", false)) {
-                        stopSelfResult(startId)
+                    mutex.withLock {
+                        if (epoch != commandEpoch.get()) return@withLock
+                        stopLocked()
                     }
+                    if (epoch == commandEpoch.get() &&
+                        !prefs.getBoolean("vpn_requested", false)
+                    ) stopSelfResult(startId)
                 }
             }
             ACTION_QUERY -> sendStatus(state)
@@ -154,17 +159,25 @@ class PhantomVpnService : VpnService() {
                     trafficJob = null
                 }
             }
-            ACTION_RELOAD -> ioScope.launch { mutex.withLock {
-                startLocked(prefs.getString("vpn_last_profile", "").orEmpty())
-            } }
+            ACTION_RELOAD -> {
+                val epoch = commandEpoch.incrementAndGet()
+                ioScope.launch { mutex.withLock {
+                    if (epoch == commandEpoch.get()) {
+                        startLocked(prefs.getString("vpn_last_profile", "").orEmpty(), epoch)
+                    }
+                } }
+            }
             ACTION_KEEP_ALIVE -> ioScope.launch {
                 mutex.withLock { configureWakeLock() }
             }
             ACTION_START -> {
                 val profile = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
                 if (profile.isNotBlank()) {
+                    val epoch = commandEpoch.incrementAndGet()
                     prefs.edit().putBoolean("vpn_requested", true).apply()
-                    ioScope.launch { mutex.withLock { startLocked(profile) } }
+                    ioScope.launch { mutex.withLock {
+                        if (epoch == commandEpoch.get()) startLocked(profile, epoch)
+                    } }
                 } else setState(STATUS_ERROR, "Сначала выберите сервер")
             }
             ACTION_BOOT_START -> {
@@ -191,7 +204,7 @@ class PhantomVpnService : VpnService() {
         return if (intent?.action == ACTION_STOP) START_NOT_STICKY else START_STICKY
     }
 
-    private fun startLocked(raw: String) {
+    private fun startLocked(raw: String, command: Long? = null) {
         if (revokedByAndroid) return
         val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
@@ -262,6 +275,9 @@ class PhantomVpnService : VpnService() {
                 "https://cp.cloudflare.com/generate_204",
                 "https://example.com/",
             )) {
+                check(command == null || command == commandEpoch.get()) {
+                    "Запрос подключения заменён новым действием"
+                }
                 val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
                 if (value > 0L) {
                     verifiedDelay = value
@@ -290,6 +306,9 @@ class PhantomVpnService : VpnService() {
             }
 
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
+            check(command == null || command == commandEpoch.get()) {
+                "Подключение заменено новым действием"
+            }
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
@@ -447,6 +466,7 @@ class PhantomVpnService : VpnService() {
         // Publish the revoked state *before* super.onRevoke() stops the service:
         // deferred coroutines can be cancelled by onDestroy before they run.
         revokedByAndroid = true
+        commandEpoch.incrementAndGet()
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
         running = false
