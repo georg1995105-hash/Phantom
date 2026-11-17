@@ -193,10 +193,11 @@ class SingBoxWorkerService : VpnService() {
         // callbacks. Never call native closeService() on Android's main thread.
         // End this dedicated process instead of leaving a half-closed runtime
         // to be reused by a subsequent TUIC connection.
-        val stillActive = activeSessionId != null
         executor.shutdownNow()
         super.onDestroy()
-        if (stillActive) Process.killProcess(Process.myPid())
+        // A destroyed worker process must never host another Go runtime,
+        // even if native startup failed before activeSessionId was published.
+        Process.killProcess(Process.myPid())
     }
 
     companion object {
