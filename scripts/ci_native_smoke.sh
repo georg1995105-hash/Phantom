@@ -2,9 +2,10 @@
 # Execute in a single shell. The emulator-runner action executes each YAML line
 # as a separate command, so a multi-line inline script cannot preserve 'set +e'.
 set -uo pipefail
-./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
+timeout --signal=TERM --kill-after=15s 360s ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
 rc=$?
 if [ "$rc" -ne 0 ]; then
+    echo "Android smoke test failed or exceeded the 360-second hard limit (exit=$rc)"
     echo "::group::PHANTOM ANDROID JNI DIAGNOSTICS"
     adb logcat -d -v threadtime | grep -E -A 100 -B 16 'PhantomNativeSmoke|FATAL EXCEPTION|Fatal signal|JNI DETECTED ERROR|UnsatisfiedLinkError|NoClassDefFoundError|No implementation found|AndroidRuntime|Abort message|A/libc|libbox.so|libgojni.so' | tail -n 650 || true
     echo "=== TEST RESULT XML ==="
