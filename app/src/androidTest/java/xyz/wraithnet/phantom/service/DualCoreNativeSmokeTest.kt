@@ -49,5 +49,21 @@ class DualCoreNativeSmokeTest {
         } finally {
             bridge.stop()
         }
+        // The same app must switch back to TUIC after a stop without retaining
+        // the previous worker's Go runtime or a stale local SOCKS listener.
+        val restarted = SingBoxBridge(context)
+        try {
+            Log.i("PhantomNativeSmoke", "BEFORE_SECOND_SINGBOX_START")
+            val secondPort = restarted.start(link)
+            assertTrue("Second sing-box process must be separate from Xray",
+                restarted.workerPid != android.os.Process.myPid())
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", secondPort), 1200)
+                assertTrue("Restarted sing-box listener not reachable", socket.isConnected)
+            }
+            Log.i("PhantomNativeSmoke", "SECOND_SOCKS_READY")
+        } finally {
+            restarted.stop()
+        }
     }
 }
