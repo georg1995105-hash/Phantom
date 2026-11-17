@@ -145,7 +145,6 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
-    var activeServerMenu by remember { mutableStateOf<Pair<String, String>?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -435,6 +434,11 @@ fun HomeScreen(
         return
     }
 
+    val standalone = subscriptions.filter { item ->
+        !item.source.startsWith("http://", true) &&
+            !item.source.startsWith("https://", true) && item.servers.size == 1
+    }
+    val regular = subscriptions.filterNot { sub -> standalone.any { it.id == sub.id } }
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -448,8 +452,37 @@ fun HomeScreen(
                     Icon(Icons.Default.Settings, "Настройки", Modifier.size(24.dp))
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { showImportMenu = true }) {
-                    Icon(Icons.Default.Add, "Добавить конфигурацию", Modifier.size(27.dp))
+                Text("Phantom VPN", color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(end = 16.dp))
+            }
+        },
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { softTap(); add(pasteText()) },
+                        enabled = !importBusy,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Вставить")
+                    }
+                    OutlinedButton(
+                        onClick = { softTap(); showImportMenu = true },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Добавить")
+                    }
                 }
             }
         }
@@ -560,7 +593,7 @@ fun HomeScreen(
                     }
                 }
             }
-            items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
+            items(regular.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.5.dp,
@@ -597,10 +630,14 @@ fun HomeScreen(
                                 Text("Обновлено " + timeLabel(item.updatedAt),
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = { scope.launch { refresh(item) } },
-                                enabled = item.id !in refreshing, modifier = Modifier.size(40.dp)) {
-                                if (item.id in refreshing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
+                            if (item.source.startsWith("https://", ignoreCase = true) ||
+                                item.source.startsWith("http://", ignoreCase = true)) {
+                                IconButton(onClick = { scope.launch { refresh(item) } },
+                                    enabled = item.id !in refreshing, modifier = Modifier.size(40.dp)) {
+                                    if (item.id in refreshing) CircularProgressIndicator(
+                                        Modifier.size(17.dp), strokeWidth = 2.dp)
+                                    else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
+                                }
                             }
                             IconButton(onClick = { probeSubscription(item) },
                                 enabled = item.id !in probing, modifier = Modifier.size(40.dp)) {
@@ -690,14 +727,7 @@ fun HomeScreen(
                                         else if (supported) Box(Modifier.size(16.dp)
                                             .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
                                     }
-                                    IconButton(
-                                        onClick = { activeServerMenu = item.id to server.id },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(Icons.Default.MoreVert, "Меню сервера",
-                                            Modifier.size(19.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
+
                                 }
                                 HorizontalDivider(Modifier.padding(start = 48.dp),
                                     color = MaterialTheme.colorScheme.outline.copy(alpha = .15f))
@@ -886,6 +916,9 @@ fun HomeScreen(
         }
     }
 
+    /* remote subscriptions have one menu in their header; no per-server menu */
+    /* activeServerMenu legacy handler removed */
+    /*
     activeServerMenu?.let { (subscriptionId, serverId) ->
         val server = subscriptions.firstOrNull { it.id == subscriptionId }
             ?.servers?.firstOrNull { it.id == serverId }
@@ -913,6 +946,7 @@ fun HomeScreen(
         }
     }
 
+    */
     if (importMode != null) {
         val manual = importMode == "manual"
         var value by remember(importMode) { mutableStateOf("") }
