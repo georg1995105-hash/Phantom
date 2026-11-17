@@ -18,7 +18,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.selection.SelectionContainer
 import xyz.wraithnet.phantom.data.VpnEventLog
+import xyz.wraithnet.phantom.data.NativeCrashTrace
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,6 +33,14 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
     var events by remember { mutableStateOf(VpnEventLog.read(context)) }
     val dateFormat = remember { SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault()) }
     var message by remember { mutableStateOf<String?>(null) }
+    var crashReport by remember { mutableStateOf("Чтение системного отчёта…") }
+    var crashExpanded by remember { mutableStateOf(false) }
+    var crashRefresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(crashRefresh) {
+        crashReport = withContext(Dispatchers.IO) {
+            NativeCrashTrace.report(context.applicationContext)
+        }
+    }
     BackHandler { onBack() }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -75,6 +87,54 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
             message?.let {
                 Text(it, Modifier.padding(horizontal = 18.dp),
                     fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+            }
+            // Android 12+ stores a native tombstone for the application's
+            // own :singbox process. Display only crash signal + symbol names,
+            // never process memory, secrets, raw protobuf or logcat.
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("Нативные сбои sing-box", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Отчёт читает Android на этом устройстве. Адреса серверов и ключи не включаются.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { crashRefresh++ }) {
+                            Text("Обновить")
+                        }
+                        TextButton(onClick = { crashExpanded = !crashExpanded }) {
+                            Text(if (crashExpanded) "Скрыть" else "Показать")
+                        }
+                        TextButton(
+                            enabled = !crashReport.startsWith("Чтение"),
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                    as ClipboardManager
+                                clipboard.setPrimaryClip(
+                                    ClipData.newPlainText("Phantom native crash", crashReport)
+                                )
+                                message = "Отчёт о нативном сбое скопирован"
+                            }
+                        ) {
+                            Icon(Icons.Default.ContentCopy, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Копировать")
+                        }
+                    }
+                    if (crashExpanded) {
+                        SelectionContainer {
+                            Text(
+                                crashReport,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
             if (events.isEmpty()) {
                 Text("Пока нет событий",
