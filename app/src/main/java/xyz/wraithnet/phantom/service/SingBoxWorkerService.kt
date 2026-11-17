@@ -38,7 +38,7 @@ class SingBoxWorkerService : VpnService() {
             val orphan = activeSessionId
             if (orphan != null) submit {
                 if (!boundClient && activeSessionId == orphan) {
-                    stopSession(orphan, "управляющий процесс не переподключился")
+                    retireProcess("управляющий процесс не переподключился")
                 }
             }
         }
@@ -75,17 +75,18 @@ class SingBoxWorkerService : VpnService() {
         runCatching { recipient?.send(reply) }
     }
 
-    private fun releaseLease(session: String) {
-        leaseStartIds.remove(session)?.let { startId -> stopSelfResult(startId) }
-    }
-
-    private fun stopSession(session: String, reason: String) {
-        if (activeSessionId == session) {
-            runCatching { backend.stop() }
-            activeSessionId = null
-            lastStopReason = reason
-        }
-        releaseLease(session)
+    /**
+     * A native Go runtime is NEVER restarted within the same Linux process.
+     * Closing and immediately reopening libbox during quick profile switches
+     * can race native callbacks. Kill only the dedicated :singbox process;
+     * Android closes every socket and FD, while the main Xray VPN stays alive.
+     * No reusable Go state crosses a session boundary.
+     */
+    private fun retireProcess(reason: String) {
+        lastStopReason = reason
+        activeSessionId = null
+        leaseStartIds.clear()
+        Process.killProcess(Process.myPid())
     }
 
     private val messenger = Messenger(object : Handler(Looper.getMainLooper()) {
@@ -101,24 +102,22 @@ class SingBoxWorkerService : VpnService() {
                             check(id.isNotBlank() && leaseStartIds.containsKey(id)) {
                                 "Сеанс sing-box не имеет активной Android-службы"
                             }
-                            activeSessionId?.takeIf { it != id }?.let { old ->
-                                stopSession(old, "смена профиля")
+                            check(activeSessionId == null) {
+                                "Предыдущий сеанс sing-box ещё завершается"
                             }
-                            check(activeSessionId != id) { "Сеанс sing-box уже запущен" }
                             val port = backend.start(raw)
                             activeSessionId = id
                             lastStopReason = "запущен"
                             if (destroyed) {
-                                stopSession(id, "закрытие Android-службы")
                                 fail(recipient, "Android закрывает процесс sing-box")
+                                retireProcess("закрытие Android-службы")
                                 return@submit
                             }
                             runCatching {
                                 recipient?.send(Message.obtain(null, MSG_STARTED, port, Process.myPid()))
                             }
                         } catch (e: Exception) {
-                            if (activeSessionId == id) stopSession(id, "ошибка запуска")
-                            else releaseLease(id)
+                            // Never restart a possibly half-initialized Go runtime.
                             // Never put a raw URL or native Go stack in IPC/errors.
                             val reason = e.message.orEmpty()
                             val safe = when {
@@ -133,12 +132,25 @@ class SingBoxWorkerService : VpnService() {
                             }
                             lastStopReason = "ошибка запуска"
                             fail(recipient, safe)
+                            retireProcess("ошибка запуска")
                         }
                     }) fail(recipient, "Сервис sing-box закрыт Android")
                 }
                 MSG_STOP -> {
                     val id = message.data.getString(KEY_SESSION)
-                    if (!id.isNullOrBlank()) submit { stopSession(id, "остановлен пользователем") }
+                    val recipient = message.replyTo
+                    if (!id.isNullOrBlank()) {
+                        if (!submit {
+                            // A late STOP for an older session must not kill a
+                            // newer one; only the owner may retire this worker.
+                            if (id == activeSessionId || leaseStartIds.containsKey(id)) {
+                                runCatching { recipient?.send(Message.obtain(null, MSG_STOPPED)) }
+                                retireProcess("сеанс завершён")
+                            } else {
+                                runCatching { recipient?.send(Message.obtain(null, MSG_STOPPED)) }
+                            }
+                        }) fail(recipient, "Процесс sing-box уже закрывается")
+                    }
                 }
                 MSG_PING -> {
                     val running = !destroyed && activeSessionId != null && backend.isRunning
@@ -177,16 +189,14 @@ class SingBoxWorkerService : VpnService() {
     override fun onDestroy() {
         destroyed = true
         mainHandler.removeCallbacks(orphanCleanup)
-        runCatching {
-            executor.execute {
-                runCatching { backend.stop() }
-                activeSessionId = null
-                leaseStartIds.clear()
-                lastStopReason = "Android уничтожил сервис"
-            }
-        }
-        executor.shutdown()
+        // The worker may have been destroyed while JNI still owns live Go
+        // callbacks. Never call native closeService() on Android's main thread.
+        // End this dedicated process instead of leaving a half-closed runtime
+        // to be reused by a subsequent TUIC connection.
+        val stillActive = activeSessionId != null
+        executor.shutdownNow()
         super.onDestroy()
+        if (stillActive) Process.killProcess(Process.myPid())
     }
 
     companion object {
@@ -197,6 +207,7 @@ class SingBoxWorkerService : VpnService() {
         const val MSG_ERROR = 4
         const val MSG_PING = 5
         const val MSG_PONG = 6
+        const val MSG_STOPPED = 7
         const val KEY_PROFILE = "profile"
         const val KEY_SESSION = "session"
         const val KEY_ERROR = "error"
