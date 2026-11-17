@@ -38,6 +38,15 @@ object LatencyProbe {
             .putString("ping_mode", mode).putInt("ping_timeout_seconds", seconds).apply()
     }
 
+    /** RTT through the actual tunnel; never fabricate a TCP ping for UDP protocols. */
+    fun lastVerifiedTunnelLatency(context: Context, server: ServerProfile): Long {
+        val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("vpn_running", false) ||
+            prefs.getInt("vpn_last_latency_profile_hash", Int.MIN_VALUE) != server.raw.hashCode()
+        ) return -1L
+        return prefs.getLong("vpn_last_latency_ms", -1L).takeIf { it > 0L } ?: -1L
+    }
+
     internal fun endpoint(server: ServerProfile): Pair<String, Int>? {
         return runCatching {
             val raw = server.raw.trim()
@@ -82,9 +91,10 @@ object LatencyProbe {
     suspend fun measure(context: Context, server: ServerProfile): Long = withContext(Dispatchers.IO) {
         val timeout = timeoutMs(context)
         if (mode(context) == TCP) {
-            if (server.scheme.lowercase() in setOf("hysteria", "hysteria2", "hy2", "tuic")) {
-                // UDP servers cannot be tested honestly with a TCP handshake.
-                return@withContext -1L
+            if (ProtocolSupport.needsConnectedPing(server.scheme)) {
+                // QUIC/UDP does not have a valid TCP-handshake ping.
+                // Only show the HTTPS delay verified through the active VPN tunnel.
+                return@withContext lastVerifiedTunnelLatency(context, server)
             }
             val (host, port) = endpoint(server) ?: return@withContext -1L
             // Bound the full DNS + socket handshake, not only connect().
