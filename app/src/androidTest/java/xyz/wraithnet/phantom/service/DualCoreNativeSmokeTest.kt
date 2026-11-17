@@ -129,6 +129,71 @@ class DualCoreNativeSmokeTest {
      * Regression for the v0.2.18 lease defect: a temporary Binder unbind
      * MUST NOT stop the native core while the started lease is still held.
      */
+    /**
+     * Regression for the observed 2026-11-17 ARM64 native panic.
+     *
+     * Older tests only sent a SOCKS5 greeting. Go's routing path does not run
+     * until a CONNECT is sent; that path called the app PlatformInterface's
+     * unimplemented findConnectionOwner() and libbox service.go:197 panicked
+     * when the Java proxy returned null.
+     *
+     * All traffic targets a deliberately absent local TUIC endpoint; no live
+     * VPN server, user account, key or Internet connection is necessary.
+     */
+    @Test fun socks5ConnectDoesNotPanicOnUnknownAndroidConnectionOwner() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val link = "tuic://00000000-0000-0000-0000-000000000001:testPassword@" +
+            "127.0.0.1:25443?sni=example.org&alpn=h3"
+        repeat(3) { session ->
+            val bridge = SingBoxBridge(context)
+            var pid = -1
+            try {
+                val port = bridge.start(link)
+                pid = bridge.workerPid
+                assertTrue("SOCKS5 greeting unavailable before CONNECT",
+                    LocalSocks5Probe.check(port).ready)
+                repeat(3) { request ->
+                    // SOCKS5 greeting, followed by CONNECT to 1.1.1.1:443.
+                    // The target is never actually dialed: dummy TUIC server
+                    // is local and deliberately unavailable.
+                    Socket().use { socket ->
+                        socket.soTimeout = 800
+                        socket.connect(InetSocketAddress("127.0.0.1", port), 1000)
+                        val output = socket.getOutputStream()
+                        val input = socket.getInputStream()
+                        output.write(byteArrayOf(5, 1, 0))
+                        output.flush()
+                        assertTrue("SOCKS5 greeting must succeed",
+                            input.read() == 5 && input.read() == 0)
+                        output.write(byteArrayOf(
+                            5, 1, 0, 1, 1, 1, 1, 1, 1, -69
+                        ))
+                        output.flush()
+                        // The remote TUIC endpoint is intentionally absent.
+                        // A read timeout or negative response is expected.
+                        runCatching { input.read() }
+                    }
+                    Thread.sleep(350)
+                    val result = LocalSocks5Probe.check(port)
+                    assertTrue(
+                        "Native Go worker crashed after SOCKS5 CONNECT " +
+                            "session=$session request=$request; ${result.reason}",
+                        result.ready
+                    )
+                    assertTrue(
+                        "Worker PID died after SOCKS5 CONNECT " +
+                            "session=$session request=$request",
+                        workerAliveForTest(context, pid)
+                    )
+                }
+            } finally {
+                runCatching { bridge.stop() }
+            }
+            assertTrue("Worker PID not retired after session $session",
+                pid > 0 && !workerAliveForTest(context, pid))
+        }
+    }
+
     @Test fun startedWorkerSurvivesTransientClientUnbind() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val session = UUID.randomUUID().toString()
