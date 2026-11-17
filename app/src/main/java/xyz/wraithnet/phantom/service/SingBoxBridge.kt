@@ -112,13 +112,17 @@ internal class SingBoxBridge(
             // Only a real SOCKS5 negotiation proves that the inbound is usable.
             // A TCP-only probe can succeed before the handler has stopped/crashed.
             var probe = LocalSocks5Probe.Result(false, "не проверен")
+            var successfulHandshakes = 0
             repeat(6) {
-                if (!probe.ready) {
+                if (successfulHandshakes < 3) {
                     probe = LocalSocks5Probe.check(actualPort)
-                    if (!probe.ready) Thread.sleep(150)
+                    successfulHandshakes = if (probe.ready) successfulHandshakes + 1 else 0
+                    if (successfulHandshakes < 3) Thread.sleep(150)
                 }
             }
-            check(probe.ready) { "Локальный SOCKS5 sing-box недоступен: ${probe.reason}" }
+            check(successfulHandshakes >= 3) {
+                "Локальный SOCKS5 sing-box нестабилен: ${probe.reason}"
+            }
             return actualPort
         } catch (e: Exception) {
             stop()
