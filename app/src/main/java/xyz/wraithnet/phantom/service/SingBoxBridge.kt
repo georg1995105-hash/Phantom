@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import java.util.UUID
 
 /**
  * Main-process IPC client. Never import or initialize libbox in this process:
@@ -26,6 +27,7 @@ internal class SingBoxBridge(
     private val context: Context,
     private val onUnexpectedExit: () -> Unit = {},
 ) {
+    private val sessionId = UUID.randomUUID().toString()
     @Volatile private var remote: Messenger? = null
     @Volatile private var stopping = false
     @Volatile var workerPid: Int = -1
@@ -72,7 +74,7 @@ internal class SingBoxBridge(
         try {
             val didBind = context.bindService(
                 Intent(context, SingBoxWorkerService::class.java),
-                serviceConnection, Context.BIND_AUTO_CREATE
+                serviceConnection, Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
             )
             check(didBind) { "Android не смог запустить процесс sing-box" }
             synchronized(this) { bound = true }
@@ -99,6 +101,7 @@ internal class SingBoxBridge(
             val command = Message.obtain(null, SingBoxWorkerService.MSG_START)
             command.data = android.os.Bundle().apply {
                 putString(SingBoxWorkerService.KEY_PROFILE, raw)
+                putString(SingBoxWorkerService.KEY_SESSION, sessionId)
             }
             command.replyTo = receiver
             binder.send(command)
@@ -170,7 +173,13 @@ internal class SingBoxBridge(
             bound = false
             workerPid = -1
         }
-        runCatching { oldRemote?.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP)) }
+        runCatching {
+            oldRemote?.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP).apply {
+                data = android.os.Bundle().apply {
+                    putString(SingBoxWorkerService.KEY_SESSION, sessionId)
+                }
+            })
+        }
         if (wasBound && oldConnection != null) {
             runCatching { context.unbindService(oldConnection) }
         }

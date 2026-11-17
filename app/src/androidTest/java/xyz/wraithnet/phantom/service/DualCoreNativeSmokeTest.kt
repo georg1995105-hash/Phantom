@@ -78,5 +78,15 @@ class DualCoreNativeSmokeTest {
         } finally {
             restarted.stop()
         }
+        repeat(3) { cycle ->
+            val fastSwitch = SingBoxBridge(context)
+            try {
+                val port = fastSwitch.start(link)
+                val result = LocalSocks5Probe.check(port)
+                assertTrue("Fast session switch $cycle: ${result.reason}", result.ready)
+            } finally {
+                fastSwitch.stop()
+            }
+        }
     }
 }

@@ -18,6 +18,7 @@ import java.util.concurrent.Executors
 class SingBoxWorkerService : VpnService() {
     private val executor = Executors.newSingleThreadExecutor()
     @Volatile private var destroyed = false
+    @Volatile private var activeSessionId: String? = null
     private val backend by lazy { SingBoxNativeBackend(this) }
 
     private val messenger = Messenger(object : Handler(Looper.getMainLooper()) {
@@ -25,19 +26,34 @@ class SingBoxWorkerService : VpnService() {
             when (message.what) {
                 MSG_START -> {
                     val raw = message.data.getString(KEY_PROFILE).orEmpty()
+                    val sessionId = message.data.getString(KEY_SESSION).orEmpty()
                     val recipient = message.replyTo
                     executor.execute {
                         try {
                             check(!destroyed) { "Процесс закрыт" }
-                            val port = backend.start(raw)
-                            if (destroyed) {
+                            check(sessionId.isNotBlank()) { "Нет идентификатора сеанса sing-box" }
+                            // The old asynchronous STOP may arrive after a new START.
+                            // Transition to the new session and reject all stale STOPs.
+                            if (activeSessionId != null && activeSessionId != sessionId) {
                                 backend.stop()
+                                activeSessionId = null
+                            }
+                            val port = backend.start(raw)
+                            activeSessionId = sessionId
+                            if (destroyed) {
+                                if (activeSessionId == sessionId) {
+                                    backend.stop()
+                                    activeSessionId = null
+                                }
                                 return@execute
                             }
                             val reply = Message.obtain(null, MSG_STARTED, port, Process.myPid())
                             runCatching { recipient?.send(reply) }
                         } catch (e: Exception) {
-                            runCatching { backend.stop() }
+                            if (activeSessionId == sessionId) {
+                                runCatching { backend.stop() }
+                                activeSessionId = null
+                            }
                             val reply = Message.obtain(null, MSG_ERROR)
                             // Never echo a native error or the supplied URL: it can contain credentials.
                             val reason = e.message.orEmpty()
@@ -59,10 +75,18 @@ class SingBoxWorkerService : VpnService() {
                         }
                     }
                 }
-                MSG_STOP -> executor.execute { runCatching { backend.stop() } }
+                MSG_STOP -> {
+                    val sessionId = message.data.getString(KEY_SESSION)
+                    executor.execute {
+                        if (sessionId != null && sessionId == activeSessionId) {
+                            runCatching { backend.stop() }
+                            activeSessionId = null
+                        }
+                    }
+                }
                 MSG_PING -> {
                     val reply = Message.obtain(null, MSG_PONG,
-                        if (!destroyed && backend.isRunning) 1 else 0, Process.myPid())
+                        if (!destroyed && activeSessionId != null && backend.isRunning) 1 else 0, Process.myPid())
                     runCatching { message.replyTo?.send(reply) }
                 }
             }
@@ -73,7 +97,10 @@ class SingBoxWorkerService : VpnService() {
 
     override fun onDestroy() {
         destroyed = true
-        executor.execute { runCatching { backend.stop() } }
+        executor.execute {
+            runCatching { backend.stop() }
+            activeSessionId = null
+        }
         executor.shutdown()
         super.onDestroy()
     }
@@ -86,6 +113,7 @@ class SingBoxWorkerService : VpnService() {
         const val MSG_PING = 5
         const val MSG_PONG = 6
         const val KEY_PROFILE = "profile"
+        const val KEY_SESSION = "session"
         const val KEY_ERROR = "error"
     }
 }
