@@ -54,7 +54,10 @@ class DualCoreNativeSmokeTest {
         val restarted = SingBoxBridge(context)
         try {
             Log.i("PhantomNativeSmoke", "BEFORE_SECOND_SINGBOX_START")
-            val secondPort = restarted.start(link)
+            // Exercise Android physical-network hostname resolution on the
+            // second worker startup, without contacting a real TUIC server.
+            val domainLink = link.replace("@127.0.0.1:", "@localhost:")
+            val secondPort = restarted.start(domainLink)
             assertTrue("Second sing-box process must be separate from Xray",
                 restarted.workerPid != android.os.Process.myPid())
             Socket().use { socket ->
