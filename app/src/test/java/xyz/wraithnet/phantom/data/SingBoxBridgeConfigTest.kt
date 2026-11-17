@@ -17,6 +17,8 @@ class SingBoxBridgeConfigTest {
 
     @Test fun realTuicConfigHasValidTLSAndNativeUdpParameters() {
         val config = JSONObject(SingBoxBridgeConfig.fromShareLink(tuic, 39121))
+        assertTrue("Android must protect sing-box QUIC sockets from its VPN loop",
+            config.getJSONObject("route").getBoolean("auto_detect_interface"))
         val local = config.getJSONArray("inbounds").getJSONObject(0)
         val outbound = config.getJSONArray("outbounds").getJSONObject(0)
         assertEquals("socks", local.getString("type"))
