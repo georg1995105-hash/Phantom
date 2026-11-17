@@ -32,6 +32,12 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class DualCoreNativeSmokeTest {
+    private fun workerAliveForTest(context: Context, pid: Int): Boolean =
+        context.getSystemService(android.app.ActivityManager::class.java)
+            .runningAppProcesses?.any {
+                it.pid == pid && it.processName == "${context.packageName}:singbox"
+            } == true
+
     @Test fun bothGoRuntimesLoadAndNativeSocksStarts() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         Log.i("PhantomNativeSmoke", "BEFORE_XRAY_INITIALIZE")
@@ -73,7 +79,10 @@ class DualCoreNativeSmokeTest {
                 assertTrue("Local SOCKS5 handshake failed: ${result.reason}", result.ready)
             }
         } finally {
+            val previousPid = bridge.workerPid
             bridge.stop()
+            assertTrue("Old Go worker still runs after STOP",
+                previousPid > 0 && !workerAliveForTest(context, previousPid))
         }
         // The same app must switch back to TUIC after a stop without retaining
         // the previous worker's Go runtime or a stale local SOCKS listener.
@@ -99,14 +108,20 @@ class DualCoreNativeSmokeTest {
         } finally {
             restarted.stop()
         }
-        repeat(6) { cycle ->
+        var lastPid = -1
+        repeat(12) { cycle ->
             val fastSwitch = SingBoxBridge(context)
             try {
                 val port = fastSwitch.start(link)
+                assertTrue("New session reused old Go runtime at switch $cycle",
+                    lastPid != fastSwitch.workerPid)
+                lastPid = fastSwitch.workerPid
                 val result = LocalSocks5Probe.check(port)
                 assertTrue("Fast session switch $cycle: ${result.reason}", result.ready)
             } finally {
                 fastSwitch.stop()
+                assertTrue("Old process survived STOP at cycle $cycle",
+                    !workerAliveForTest(context, lastPid))
             }
         }
     }
