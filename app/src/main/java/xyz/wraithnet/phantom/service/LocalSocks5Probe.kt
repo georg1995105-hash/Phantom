@@ -20,8 +20,8 @@ internal object LocalSocks5Probe {
         var stage = "TCP"
         return try {
             Socket().use { socket ->
-                socket.soTimeout = 2500
-                socket.connect(InetSocketAddress("127.0.0.1", port), 2000)
+                socket.soTimeout = 1200
+                socket.connect(InetSocketAddress("127.0.0.1", port), 1000)
                 stage = "SOCKS5"
                 val out = socket.getOutputStream()
                 out.write(byteArrayOf(5, 1, 0))
