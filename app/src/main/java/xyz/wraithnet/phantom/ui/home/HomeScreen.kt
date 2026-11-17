@@ -439,6 +439,14 @@ fun HomeScreen(
             !item.source.startsWith("https://", true) && item.servers.size == 1
     }
     val regular = subscriptions.filterNot { sub -> standalone.any { it.id == sub.id } }
+    // One compact card holds every standalone key. A pinned key moves the group first.
+    val displayItems: List<Subscription?> = buildList {
+        addAll(regular)
+        if (standalone.isNotEmpty()) add(null)
+    }.sortedByDescending { item ->
+        if (item == null) standalone.any { it.id == pinnedSubId }
+        else item.id == pinnedSubId
+    }
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -582,18 +590,94 @@ fun HomeScreen(
                             Text("Ссылка подписки или отдельный ключ VPN",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { add(pasteText()) }) {
-                                    Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp)); Text("Вставить")
-                                }
-                                Button(onClick = { importMode = "url" }) { Text("Добавить") }
-                            }
+
                         }
                     }
                 }
             }
-            items(regular.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
+            items(displayItems, key = { it?.id ?: "__standalone_keys__" }) { item ->
+                if (item == null) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.5.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = .72f)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column {
+                            Text(
+                                "Отдельные ключи",
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            standalone.sortedByDescending { it.id == pinnedSubId }
+                                .forEach { single ->
+                                    val server = single.servers.single()
+                                    val chosen = selectedMatch?.let { (owner, profile) ->
+                                        owner.id == single.id && profile.id == server.id
+                                    } == true
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = .16f))
+                                    Row(
+                                        Modifier.fillMaxWidth()
+                                            .background(if (chosen)
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f)
+                                                else Color.Transparent)
+                                            .heightIn(min = 65.dp)
+                                            .padding(start = 14.dp, end = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            Modifier.weight(1f).clickable {
+                                                softTap()
+                                                selectedId = server.id
+                                                selectedSubId = single.id
+                                                prefs.edit().putString("selected_server_id", server.id)
+                                                    .putString("selected_subscription_id", single.id).apply()
+                                                if (vpnStatus == "connected") onStartVpn(server.raw)
+                                            }.padding(vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(CountryFlags.flag(server), fontSize = 23.sp)
+                                            Spacer(Modifier.width(12.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(displayServerName(server), fontSize = 15.sp,
+                                                        maxLines = 1,
+                                                        fontWeight = if (chosen)
+                                                            FontWeight.SemiBold else FontWeight.Medium,
+                                                        modifier = Modifier.weight(1f))
+                                                    if (pinnedSubId == single.id) {
+                                                        Icon(Icons.Default.PushPin, "Закреплено",
+                                                            Modifier.size(16.dp),
+                                                            tint = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                }
+                                                Text(protocolLabel(server), fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            latencies[pingKey(single, server)]?.takeIf { it > 0 }?.let { delayMs ->
+                                                Text("${delayMs} мс", fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Spacer(Modifier.width(8.dp))
+                                            }
+                                            if (chosen) Icon(Icons.Default.CheckCircle, "Выбран",
+                                                Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(
+                                            onClick = { activeSubMenu = single.id },
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(Icons.Default.MoreVert, "Меню ключа",
+                                                Modifier.size(21.dp))
+                                        }
+                                    }
+                                }
+                        }
+                    }
+                } else {
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.5.dp,
@@ -734,6 +818,7 @@ fun HomeScreen(
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -907,7 +992,11 @@ fun HomeScreen(
                         })
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
+                    funActionRow(when {
+                        isRemote -> "Удалить подписку"
+                        sub.servers.size == 1 -> "Удалить ключ"
+                        else -> "Удалить конфигурацию"
+                    }, Icons.Default.DeleteOutline) {
                         activeSubMenu = null
                         deleteId = sub.id
                     }
@@ -916,37 +1005,6 @@ fun HomeScreen(
         }
     }
 
-    /* remote subscriptions have one menu in their header; no per-server menu */
-    /* activeServerMenu legacy handler removed */
-    /*
-    activeServerMenu?.let { (subscriptionId, serverId) ->
-        val server = subscriptions.firstOrNull { it.id == subscriptionId }
-            ?.servers?.firstOrNull { it.id == serverId }
-        if (server == null) {
-            LaunchedEffect(subscriptionId, serverId) { activeServerMenu = null }
-        } else {
-            ModalBottomSheet(
-                onDismissRequest = { activeServerMenu = null },
-                containerColor = MaterialTheme.colorScheme.surface,
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
-            ) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding()
-                    .padding(start = 14.dp, end = 14.dp, bottom = 18.dp)) {
-                    Text(displayServerName(server),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
-                    funActionRow("Копировать ключ", Icons.Default.ContentCopy) {
-                        activeServerMenu = null
-                        copyLink(server.raw, "Ключ скопирован")
-                    }
-                }
-            }
-        }
-    }
-
-    */
     if (importMode != null) {
         val manual = importMode == "manual"
         var value by remember(importMode) { mutableStateOf("") }
@@ -1031,9 +1089,13 @@ fun HomeScreen(
             tonalElevation = 0.dp,
             shape = RoundedCornerShape(22.dp),
             onDismissRequest = { deleteId = null },
-            title = { Text("Удалить подписку?") },
-            text = { Text("Серверы этой подписки будут удалены с устройства.") },
+            title = { Text(if (subscriptions.firstOrNull { it.id == id }
+                    ?.servers?.size == 1 && subscriptions.firstOrNull { it.id == id }
+                    ?.source?.startsWith("http") == false) "Удалить ключ?"
+                    else "Удалить подписку?") },
+            text = { Text("Конфигурация будет удалена с устройства.") },
             confirmButton = { TextButton(onClick = {
+                if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
                 persist(subscriptions.filterNot { it.id == id })
                 deleteId = null
             }) { Text("Удалить") } },
