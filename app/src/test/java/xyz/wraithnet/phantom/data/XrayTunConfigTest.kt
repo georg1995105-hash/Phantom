@@ -5,6 +5,20 @@ import org.junit.Test
 import org.json.JSONObject
 
 class XrayTunConfigTest {
+    @Test fun singBoxBridgeUsesCurrentXraySocksOutboundSchema() {
+        val port = 39651
+        val root = JSONObject(XrayConfigBuilder.buildSocksBridge(port))
+        val outbound = root.getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("socks", outbound.getString("protocol"))
+        val settings = outbound.getJSONObject("settings")
+        assertEquals("127.0.0.1", settings.getString("address"))
+        assertEquals(port, settings.getInt("port"))
+        assertFalse("Old servers array is not valid in current Xray SOCKS outbound",
+            settings.has("servers"))
+        assertEquals("tun", root.getJSONArray("inbounds").getJSONObject(0)
+            .getString("protocol"))
+    }
+
     @Test fun shareLinkUsesNamedTunWithoutNetlinkInterfaceEnumeration() {
         val server = ServerProfile(id = "vless", name = "Demo", scheme = "vless",
             raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=xhttp&security=reality&pbk=abc&sid=def")
