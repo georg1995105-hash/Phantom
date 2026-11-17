@@ -71,7 +71,7 @@ internal object SocksHttpsProbe {
                 }
                 it.startHandshake()
                 it.outputStream.write(
-                    "GET $path HTTP/1.1\\r\\nHost: $host\\r\\nConnection: close\\r\\n\\r\\n"
+                    "GET $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n"
                         .toByteArray(StandardCharsets.US_ASCII)
                 )
                 it.outputStream.flush()
