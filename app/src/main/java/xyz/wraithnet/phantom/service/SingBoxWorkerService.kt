@@ -40,8 +40,20 @@ class SingBoxWorkerService : VpnService() {
                             runCatching { backend.stop() }
                             val reply = Message.obtain(null, MSG_ERROR)
                             // Never echo a native error or the supplied URL: it can contain credentials.
+                            val reason = e.message.orEmpty()
+                            val safeMessage = when {
+                                reason.contains("DNS физической сети") ->
+                                    "Не удалось определить IP сервера TUIC/AnyTLS через физическую сеть"
+                                reason.contains("Нет доступной физической сети") ||
+                                    reason.contains("не обнаружил физическую сеть") ->
+                                    "Android не предоставляет физическую сеть для TUIC/AnyTLS"
+                                reason.contains("не запустил наблюдение") ||
+                                    reason.contains("libbox:") ->
+                                    "Ошибка интеграции sing-box с сетевыми интерфейсами Android"
+                                else -> "Ошибка запуска sing-box (${e.javaClass.simpleName})"
+                            }
                             reply.data = android.os.Bundle().apply {
-                                putString(KEY_ERROR, "Ошибка запуска sing-box (${e.javaClass.simpleName})")
+                                putString(KEY_ERROR, safeMessage)
                             }
                             runCatching { recipient?.send(reply) }
                         }
