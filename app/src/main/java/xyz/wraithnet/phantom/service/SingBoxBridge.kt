@@ -126,6 +126,32 @@ internal class SingBoxBridge(
         }
     }
 
+    /** Read-only remote health status. Never includes server addresses or credentials. */
+    fun workerStatus(): String {
+        val peer = remote ?: return "дочерний процесс не подключён"
+        val answer = CountDownLatch(1)
+        val state = AtomicInteger(-1)
+        val recipient = Messenger(object : Handler(Looper.getMainLooper()) {
+            override fun handleMessage(message: Message) {
+                if (message.what == SingBoxWorkerService.MSG_PONG) state.set(message.arg1)
+                answer.countDown()
+            }
+        })
+        return try {
+            peer.send(Message.obtain(null, SingBoxWorkerService.MSG_PING).apply {
+                replyTo = recipient
+            })
+            if (!answer.await(2, TimeUnit.SECONDS)) "дочерний процесс не отвечает"
+            else when (state.get()) {
+                1 -> "движок запущен, локальный SOCKS5 недоступен"
+                0 -> "движок sing-box остановлен"
+                else -> "дочерний процесс вернул неизвестное состояние"
+            }
+        } catch (e: Exception) {
+            "связь с дочерним процессом потеряна"
+        }
+    }
+
     fun stop() {
         val oldConnection: ServiceConnection?
         val oldRemote: Messenger?
