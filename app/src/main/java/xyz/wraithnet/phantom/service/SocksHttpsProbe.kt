@@ -111,8 +111,12 @@ internal object SocksHttpsProbe {
             // Error dialog must never contain URI credentials, addresses or Go traces.
             val kind = when (e) {
                 is javax.net.ssl.SSLHandshakeException -> "ошибка TLS"
+                is java.net.ConnectException -> "соединение отклонено"
+                is java.net.NoRouteToHostException -> "сеть недоступна"
                 is java.net.SocketTimeoutException -> "тайм-аут"
-                else -> "нет ответа"
+                is java.io.EOFException -> "соединение преждевременно закрыто"
+                is java.net.SocketException -> "сокет сброшен"
+                else -> "ошибка ${e.javaClass.simpleName}"
             }
             throw IllegalStateException("$stage: $kind")
         }
