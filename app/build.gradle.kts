@@ -12,8 +12,8 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "0.2.22"
+        versionCode = 25
+        versionName = "0.2.23"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
 
