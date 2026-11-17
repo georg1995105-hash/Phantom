@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.VpnService
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
+import io.nekohasekai.libbox.ConnectionOwner
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.PlatformInterface
@@ -56,6 +57,19 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
     private fun platform(): PlatformInterface {
         val handler = InvocationHandler { _, method, args ->
             when (method.name) {
+                // libbox v1.14.4 experimental/libbox/service.go:191-201 always
+                // dereferences the result of FindConnectionOwner() if err == nil.
+                // Returning null from this Java proxy causes a native Go
+                // nil-pointer panic on the FIRST SOCKS5 CONNECT, even though
+                // a bare SOCKS5 greeting (older smoke test) succeeds.
+                //
+                // Xray owns per-app routing. The sing-box bridge deliberately
+                // has no OS process-owner lookup. Return an allocated "unknown"
+                // owner instead of null (UserId=-1 means unavailable), so Go
+                // route/process_cache.go can proceed without a crash.
+                "findConnectionOwner" -> ConnectionOwner().apply {
+                    userId = -1
+                }
                 "usePlatformAutoDetectInterfaceControl" -> true
                 "autoDetectInterfaceControl" -> {
                     // Outbound QUIC/TLS sockets must bypass the VPN TUN itself.
