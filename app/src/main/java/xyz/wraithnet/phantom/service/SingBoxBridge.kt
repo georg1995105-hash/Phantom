@@ -4,143 +4,149 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
-import android.net.VpnService
-import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
-import android.os.RemoteException
 import android.os.Process
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Binder-only bridge to the isolated :singbox Android process.
- * No libbox, sb.Seq or Go types may be referenced in the Xray process.
- * Both processes share loopback so Xray TUN can forward TCP/UDP through
- * the secondary sing-box SOCKS5 listener without creating another VPN.
+ * Main-process IPC client. Never import or initialize libbox in this process:
+ * Xray's independent Go runtime owns the VPN TUN here.
+ * The bound worker runs in Android :singbox and owns its own Go runtime.
  */
 internal class SingBoxBridge(
     private val context: Context,
-    private val onDied: () -> Unit = {},
+    private val onUnexpectedExit: () -> Unit = {},
 ) {
-    constructor(vpn: VpnService) : this(vpn.applicationContext)
-
-    internal companion object {
-        const val MSG_START = 1
-        const val MSG_READY = 2
-        const val MSG_ERROR = 3
-        const val MSG_STOP = 4
-        const val KEY_PROFILE = "profile"
-        const val KEY_ERROR = "error"
-    }
-
     @Volatile private var remote: Messenger? = null
-    @Volatile private var closed = false
-    @Volatile private var active = false
-    @Volatile private var bound = false
-    @Volatile private var serverPort = 0
-    @Volatile private var startupError = ""
-    @Volatile internal var remotePid = -1
+    @Volatile private var stopping = false
+    @Volatile var workerPid: Int = -1
         private set
     private var connection: ServiceConnection? = null
-    private var pending: CountDownLatch? = null
-
-    private val replies = Messenger(object : Handler(Looper.getMainLooper()) {
-        override fun handleMessage(message: Message) {
-            if (closed) return
-            when (message.what) {
-                MSG_READY -> {
-                    serverPort = message.arg1
-                    remotePid = message.arg2
-                    pending?.countDown()
-                }
-                MSG_ERROR -> {
-                    startupError = message.data.getString(KEY_ERROR)
-                        ?: "Ошибка запуска sing-box"
-                    pending?.countDown()
-                }
-                else -> super.handleMessage(message)
-            }
-        }
-    })
+    private var bound = false
 
     fun start(raw: String): Int {
         check(Looper.myLooper() != Looper.getMainLooper()) {
-            "Нельзя запускать ядро VPN в главном потоке Android"
+            "Нельзя запускать sing-box с главного потока Android"
         }
-        check(!bound && !closed) { "Движок уже запущен или закрыт" }
-        require(raw.isNotBlank()) { "Отсутствует конфигурация" }
-        val ready = CountDownLatch(1)
-        pending = ready
-        val callback = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                if (closed) return
-                try {
-                    val ipc = Messenger(service)
-                    remote = ipc
-                    val request = Message.obtain(null, MSG_START).apply {
-                        replyTo = replies
-                        data = Bundle().apply { putString(KEY_PROFILE, raw) }
+        synchronized(this) {
+            check(connection == null) { "sing-box уже запущен" }
+            stopping = false
+        }
+        val connected = CountDownLatch(1)
+        val answered = CountDownLatch(1)
+        val failure = AtomicReference<String?>(null)
+        val port = AtomicInteger(-1)
+        val serviceConnection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                if (!stopping) remote = Messenger(binder)
+                connected.countDown()
+            }
+            override fun onServiceDisconnected(name: ComponentName) {
+                fail("Процесс sing-box завершился")
+            }
+            override fun onBindingDied(name: ComponentName) {
+                fail("Связь с процессом sing-box потеряна")
+            }
+            override fun onNullBinding(name: ComponentName) {
+                fail("Процесс sing-box не предоставил интерфейс")
+            }
+            private fun fail(reason: String) {
+                if (stopping) return
+                failure.compareAndSet(null, reason)
+                remote = null
+                connected.countDown()
+                answered.countDown()
+                onUnexpectedExit()
+            }
+        }
+        synchronized(this) { connection = serviceConnection }
+        try {
+            val didBind = context.bindService(
+                Intent(context, SingBoxWorkerService::class.java),
+                serviceConnection, Context.BIND_AUTO_CREATE
+            )
+            check(didBind) { "Android не смог запустить процесс sing-box" }
+            synchronized(this) { bound = true }
+            check(connected.await(12, TimeUnit.SECONDS)) { "Таймаут запуска процесса sing-box" }
+            failure.get()?.let { error(it) }
+            val binder = remote ?: error("Процесс sing-box не подключён")
+            val receiver = Messenger(object : Handler(Looper.getMainLooper()) {
+                override fun handleMessage(message: Message) {
+                    when (message.what) {
+                        SingBoxWorkerService.MSG_STARTED -> {
+                            port.set(message.arg1)
+                            workerPid = message.arg2
+                        }
+                        SingBoxWorkerService.MSG_ERROR -> {
+                            failure.compareAndSet(null,
+                                message.data.getString(SingBoxWorkerService.KEY_ERROR)
+                                    ?: "Не удалось запустить sing-box")
+                        }
+                        else -> failure.compareAndSet(null, "Неизвестный ответ sing-box")
                     }
-                    ipc.send(request)
-                } catch (e: Exception) {
-                    startupError = "Не удалось связаться с движком sing-box"
-                    ready.countDown()
+                    answered.countDown()
+                }
+            })
+            val command = Message.obtain(null, SingBoxWorkerService.MSG_START)
+            command.data = android.os.Bundle().apply {
+                putString(SingBoxWorkerService.KEY_PROFILE, raw)
+            }
+            command.replyTo = receiver
+            binder.send(command)
+            check(answered.await(35, TimeUnit.SECONDS)) { "Таймаут запуска ядра sing-box" }
+            failure.get()?.let { error(it) }
+            check(workerPid > 0 && workerPid != Process.myPid()) {
+                "sing-box не изолирован от процесса Xray"
+            }
+            val actualPort = port.get()
+            check(actualPort in 1024..65535) { "Движок sing-box не вернул SOCKS-порт" }
+            // A successful IPC reply is not sufficient: ensure the remote SOCKS socket accepts.
+            var ready = false
+            repeat(25) {
+                if (!ready) {
+                    ready = runCatching {
+                        Socket().use { socket ->
+                            socket.connect(InetSocketAddress("127.0.0.1", actualPort), 300)
+                            socket.isConnected
+                        }
+                    }.getOrDefault(false)
+                    if (!ready) Thread.sleep(120)
                 }
             }
-
-            override fun onServiceDisconnected(name: ComponentName) {
-                if (closed) return
-                remote = null
-                startupError = "Процесс sing-box неожиданно остановился"
-                ready.countDown()
-                if (active) onDied()
-            }
-
-            override fun onBindingDied(name: ComponentName) {
-                onServiceDisconnected(name)
-            }
-        }
-        connection = callback
-        try {
-            bound = context.applicationContext.bindService(
-                Intent(context, SingBoxCoreService::class.java),
-                callback, Context.BIND_AUTO_CREATE)
-            check(bound) { "Android не запустил процесс sing-box" }
-            check(ready.await(20, TimeUnit.SECONDS)) {
-                "Истекло время запуска sing-box"
-            }
-            check(startupError.isBlank()) { startupError }
-            check(serverPort in 1024..65535 && remotePid > 0 &&
-                remotePid != Process.myPid()) {
-                "Второй VPN-движок не изолирован в отдельном процессе"
-            }
-            active = true
-            return serverPort
+            check(ready) { "SOCKS-порт sing-box не отвечает" }
+            return actualPort
         } catch (e: Exception) {
             stop()
-            throw IllegalStateException(e.message ?: "Не удалось запустить sing-box", e)
-        } finally {
-            pending = null
+            throw e
         }
     }
 
     fun stop() {
-        if (closed) return
-        closed = true
-        active = false
-        pending?.countDown()
-        runCatching { remote?.send(Message.obtain(null, MSG_STOP)) }
-        remote = null
-        if (bound) {
+        val oldConnection: ServiceConnection?
+        val oldRemote: Messenger?
+        val wasBound: Boolean
+        synchronized(this) {
+            stopping = true
+            oldConnection = connection
+            connection = null
+            oldRemote = remote
+            remote = null
+            wasBound = bound
             bound = false
-            connection?.let { runCatching {
-                context.applicationContext.unbindService(it)
-            } }
+            workerPid = -1
         }
-        connection = null
+        runCatching { oldRemote?.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP)) }
+        if (wasBound && oldConnection != null) {
+            runCatching { context.unbindService(oldConnection) }
+        }
     }
 }
