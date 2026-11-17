@@ -1,142 +1,146 @@
 package xyz.wraithnet.phantom.service
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.net.VpnService
-import io.nekohasekai.libbox.CommandServer
-import io.nekohasekai.libbox.CommandServerHandler
-import io.nekohasekai.libbox.Libbox
-import io.nekohasekai.libbox.OverrideOptions
-import io.nekohasekai.libbox.PlatformInterface
-import io.nekohasekai.libbox.SetupOptions
-import io.nekohasekai.libbox.SystemProxyStatus
-import java.lang.reflect.InvocationHandler
-import java.lang.reflect.Proxy
-import java.net.ServerSocket
-import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
+import android.os.Bundle
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.Message
+import android.os.Messenger
+import android.os.RemoteException
+import android.os.Process
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
- * Isolated sing-box SOCKS5 backend; Xray still owns the one Android TUN.
- * Two gomobile runtimes are isolated at build-time; see isolate_libbox_aar.py.
- *
- * Never prints raw profiles: the share link includes authentication credentials.
+ * Binder-only bridge to the isolated :singbox Android process.
+ * No libbox, sb.Seq or Go types may be referenced in the Xray process.
+ * Both processes share loopback so Xray TUN can forward TCP/UDP through
+ * the secondary sing-box SOCKS5 listener without creating another VPN.
  */
 internal class SingBoxBridge(
     private val context: Context,
-    private val protectFd: (Int) -> Unit,
+    private val onDied: () -> Unit = {},
 ) {
-    constructor(vpn: VpnService) : this(vpn, { fd -> vpn.protect(fd) })
-    private var server: CommandServer? = null
+    constructor(vpn: VpnService) : this(vpn.applicationContext)
 
-    companion object {
-        private val setupLock = Any()
-        @Volatile private var prepared = false
-
-        private fun initialize(context: Context) {
-            if (prepared) return
-            synchronized(setupLock) {
-                if (prepared) return
-                val app = context.applicationContext
-                val working = app.filesDir.resolve("singbox").apply { mkdirs() }
-                val cache = app.cacheDir.resolve("singbox").apply { mkdirs() }
-                // The isolated gomobile runtime must have its own Android context.
-                sb.Seq.setContext(app)
-                Libbox.setup(SetupOptions().apply {
-                    basePath = working.absolutePath
-                    workingPath = working.absolutePath
-                    tempPath = cache.absolutePath
-                    debug = false
-                    logMaxLines = 200
-                    appVersion = "Phantom"
-                    appMarketingVersion = "0.2.13"
-                })
-                prepared = true
-            }
-        }
+    internal companion object {
+        const val MSG_START = 1
+        const val MSG_READY = 2
+        const val MSG_ERROR = 3
+        const val MSG_STOP = 4
+        const val KEY_PROFILE = "profile"
+        const val KEY_ERROR = "error"
     }
 
-    private fun platform(): PlatformInterface {
-        val handler = InvocationHandler { _, method, args ->
-            when (method.name) {
-                "usePlatformAutoDetectInterfaceControl" -> true
-                "autoDetectInterfaceControl" -> {
-                    protectFd(args?.get(0) as Int)
-                    null
+    @Volatile private var remote: Messenger? = null
+    @Volatile private var closed = false
+    @Volatile private var active = false
+    @Volatile private var bound = false
+    @Volatile private var serverPort = 0
+    @Volatile private var startupError = ""
+    @Volatile internal var remotePid = -1
+        private set
+    private var connection: ServiceConnection? = null
+    private var pending: CountDownLatch? = null
+
+    private val replies = Messenger(object : Handler(Looper.getMainLooper()) {
+        override fun handleMessage(message: Message) {
+            if (closed) return
+            when (message.what) {
+                MSG_READY -> {
+                    serverPort = message.arg1
+                    remotePid = message.arg2
+                    pending?.countDown()
                 }
-                "openTun" -> error("sing-box не создаёт второй VPN-интерфейс")
-                "getInterfaces" -> {
-                    val klass = Class.forName("io.nekohasekai.libbox.NetworkInterfaceIterator")
-                    Proxy.newProxyInstance(klass.classLoader, arrayOf(klass)) { _, m, _ ->
-                        when (m.name) {
-                            "hasNext" -> false
-                            "len" -> 0
-                            else -> null
-                        }
-                    }
+                MSG_ERROR -> {
+                    startupError = message.data.getString(KEY_ERROR)
+                        ?: "Ошибка запуска sing-box"
+                    pending?.countDown()
                 }
-                "underNetworkExtension" -> false
-                "includeAllNetworks" -> false
-                "usePlatformBridge" -> false
-                "usePlatformShell" -> false
-                "usePlatformAutoRedirect" -> false
-                "localDNSTransport" -> null
-                "readWIFIState" -> null
-                else -> when (method.returnType) {
-                    java.lang.Boolean.TYPE -> false
-                    java.lang.Integer.TYPE -> 0
-                    java.lang.Long.TYPE -> 0L
-                    else -> null
-                }
+                else -> super.handleMessage(message)
             }
         }
-        return Proxy.newProxyInstance(
-            PlatformInterface::class.java.classLoader,
-            arrayOf(PlatformInterface::class.java), handler
-        ) as PlatformInterface
-    }
-
-    private fun callbacks(): CommandServerHandler =
-        Proxy.newProxyInstance(
-            CommandServerHandler::class.java.classLoader,
-            arrayOf(CommandServerHandler::class.java)
-        ) { _, method, _ ->
-            when (method.name) {
-                "getSystemProxyStatus" -> SystemProxyStatus().apply {
-                    available = false
-                    enabled = false
-                }
-                "connectSSHAgent" -> -1
-                else -> when (method.returnType) {
-                    java.lang.Boolean.TYPE -> false
-                    java.lang.Integer.TYPE -> 0
-                    java.lang.Long.TYPE -> 0L
-                    else -> null
-                }
-            }
-        } as CommandServerHandler
+    })
 
     fun start(raw: String): Int {
-        check(server == null) { "sing-box уже запущен" }
-        initialize(context)
-        val port = ServerSocket(0).use { it.localPort }
-        val config = SingBoxBridgeConfig.fromShareLink(raw, port)
-        val current = CommandServer(callbacks(), platform())
+        check(Looper.myLooper() != Looper.getMainLooper()) {
+            "Нельзя запускать ядро VPN в главном потоке Android"
+        }
+        check(!bound && !closed) { "Движок уже запущен или закрыт" }
+        require(raw.isNotBlank()) { "Отсутствует конфигурация" }
+        val ready = CountDownLatch(1)
+        pending = ready
+        val callback = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, service: IBinder) {
+                if (closed) return
+                try {
+                    val ipc = Messenger(service)
+                    remote = ipc
+                    val request = Message.obtain(null, MSG_START).apply {
+                        replyTo = replies
+                        data = Bundle().apply { putString(KEY_PROFILE, raw) }
+                    }
+                    ipc.send(request)
+                } catch (e: Exception) {
+                    startupError = "Не удалось связаться с движком sing-box"
+                    ready.countDown()
+                }
+            }
+
+            override fun onServiceDisconnected(name: ComponentName) {
+                if (closed) return
+                remote = null
+                startupError = "Процесс sing-box неожиданно остановился"
+                ready.countDown()
+                if (active) onDied()
+            }
+
+            override fun onBindingDied(name: ComponentName) {
+                onServiceDisconnected(name)
+            }
+        }
+        connection = callback
         try {
-            current.start()
-            current.startOrReloadService(config, OverrideOptions())
-            server = current
-            return port
+            bound = context.applicationContext.bindService(
+                Intent(context, SingBoxCoreService::class.java),
+                callback, Context.BIND_AUTO_CREATE)
+            check(bound) { "Android не запустил процесс sing-box" }
+            check(ready.await(20, TimeUnit.SECONDS)) {
+                "Истекло время запуска sing-box"
+            }
+            check(startupError.isBlank()) { startupError }
+            check(serverPort in 1024..65535 && remotePid > 0 &&
+                remotePid != Process.myPid()) {
+                "Второй VPN-движок не изолирован в отдельном процессе"
+            }
+            active = true
+            return serverPort
         } catch (e: Exception) {
-            runCatching { current.closeService() }
-            runCatching { current.close() }
-            throw IllegalStateException("Не удалось запустить TUIC/AnyTLS: " +
-                (e.message ?: "ошибка ядра"), e)
+            stop()
+            throw IllegalStateException(e.message ?: "Не удалось запустить sing-box", e)
+        } finally {
+            pending = null
         }
     }
 
     fun stop() {
-        val current = server ?: return
-        server = null
-        runCatching { current.closeService() }
-        runCatching { current.close() }
+        if (closed) return
+        closed = true
+        active = false
+        pending?.countDown()
+        runCatching { remote?.send(Message.obtain(null, MSG_STOP)) }
+        remote = null
+        if (bound) {
+            bound = false
+            connection?.let { runCatching {
+                context.applicationContext.unbindService(it)
+            } }
+        }
+        connection = null
     }
 }
