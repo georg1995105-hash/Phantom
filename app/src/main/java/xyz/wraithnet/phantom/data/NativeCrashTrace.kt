@@ -67,7 +67,7 @@ object NativeCrashTrace {
                         }
                     }
                 }.getOrNull()
-                "$header\n" + if (bytes.isNullOrEmpty()) {
+                "$header\n" + if (bytes == null || bytes.isEmpty()) {
                     "Android не сохранил tombstone для этого сбоя."
                 } else {
                     runCatching { summarize(bytes) }.getOrDefault(
