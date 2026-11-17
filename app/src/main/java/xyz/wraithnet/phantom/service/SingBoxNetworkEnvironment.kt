@@ -63,12 +63,18 @@ internal class SingBoxNetworkEnvironment(context: Context) {
     fun startDefaultInterfaceMonitor(listener: Any) {
         if (callbacks.containsKey(listener)) return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = notifyDefault(listener)
-            override fun onLost(network: Network) = notifyDefault(listener)
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) =
-                notifyDefault(listener)
-            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) =
-                notifyDefault(listener)
+            override fun onAvailable(network: Network) {
+                runCatching { notifyDefault(listener) }
+            }
+            override fun onLost(network: Network) {
+                runCatching { notifyDefault(listener) }
+            }
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                runCatching { notifyDefault(listener) }
+            }
+            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) {
+                runCatching { notifyDefault(listener) }
+            }
         }
         callbacks[listener] = callback
         try {
@@ -123,6 +129,10 @@ internal class SingBoxNetworkEnvironment(context: Context) {
                     "${address}/${prefix}"
                 }
                 put(item, "Addresses", stringIterator(addresses))
+                put(item, "DNSServer", stringIterator(emptyList()))
+                put(item, "Gateway", stringIterator(emptyList()))
+                put(item, "Type", 3) // Other; no transport-specific strategy required.
+                put(item, "Metered", false)
                 item
             }
         var position = 0
@@ -140,10 +150,10 @@ internal class SingBoxNetworkEnvironment(context: Context) {
     }
 
     private fun put(target: Any, field: String, value: Any) {
-        target.javaClass.methods.firstOrNull {
+        val method = target.javaClass.methods.firstOrNull {
             it.name.equals("set$field", ignoreCase = true) && it.parameterCount == 1
-        }?.invoke(target, value)
-            ?: error("libbox: отсутствует сетевое поле $field")
+        } ?: error("libbox: отсутствует сетевое поле $field")
+        method.invoke(target, value)
     }
 
     private fun stringIterator(values: List<String>): Any {
@@ -152,6 +162,7 @@ internal class SingBoxNetworkEnvironment(context: Context) {
         return Proxy.newProxyInstance(type.classLoader, arrayOf(type)) { _, method, _ ->
             when (method.name) {
                 "hasNext" -> position < values.size
+                "len" -> values.size
                 "next" -> values[position++]
                 else -> when (method.returnType) {
                     java.lang.Boolean.TYPE -> false
