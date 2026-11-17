@@ -10,7 +10,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Real Android JNI check. JVM unit tests cannot detect libbox/Xray Go runtime conflicts.
+ * Real Android process isolation check: Xray JNI in the main process and
+ * sing-box JNI in a separate process. JVM tests cannot detect Go runtime conflicts.
  * This does not establish VPN permission or send traffic over an actual remote TUIC server.
  */
 @RunWith(AndroidJUnit4::class)
@@ -20,13 +21,15 @@ class DualCoreNativeSmokeTest {
         Log.i("PhantomNativeSmoke", "BEFORE_XRAY_INITIALIZE")
         XrayEnvironment.initialize(context)
         Log.i("PhantomNativeSmoke", "AFTER_XRAY_INITIALIZE")
-        val bridge = SingBoxBridge(context) { /* not needed until outbound dials */ }
+        val bridge = SingBoxBridge(context)
         val link = "tuic://00000000-0000-0000-0000-000000000001:testPassword@" +
             "127.0.0.1:25443?sni=example.org&alpn=h3"
         try {
             Log.i("PhantomNativeSmoke", "BEFORE_SINGBOX_START")
             val port = bridge.start(link)
-            Log.i("PhantomNativeSmoke", "AFTER_SINGBOX_START")
+            Log.i("PhantomNativeSmoke", "AFTER_SINGBOX_START pid=" + bridge.remotePid)
+            assertTrue("sing-box must have a distinct Android PID",
+                bridge.remotePid != android.os.Process.myPid())
             var ready = false
             repeat(20) {
                 if (!ready) {
