@@ -35,14 +35,16 @@ class SingBoxCoreService : VpnService() {
                             backend?.stop()
                             val engine = SingBoxNativeBackend(this@SingBoxCoreService)
                             backend = engine
-                            Message.obtain(null, SingBoxBridge.MSG_READY, engine.start(raw), 0)
+                            Message.obtain(null, SingBoxBridge.MSG_READY,
+                                engine.start(raw), android.os.Process.myPid())
                         } catch (e: Exception) {
                             Log.e("PhantomSingBox", "Native backend startup failed: " +
                                 e.javaClass.simpleName)
                             Message.obtain(null, SingBoxBridge.MSG_ERROR).apply {
                                 data = android.os.Bundle().apply {
                                     putString(SingBoxBridge.KEY_ERROR,
-                                        e.message?.take(250) ?: "Не удалось запустить sing-box")
+                                        "sing-box: " + e.javaClass.simpleName +
+                                            ". Проверьте параметры подключения")
                                 }
                             }
                         }
