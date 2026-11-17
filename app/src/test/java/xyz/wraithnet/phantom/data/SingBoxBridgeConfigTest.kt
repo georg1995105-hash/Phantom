@@ -44,10 +44,9 @@ class SingBoxBridgeConfigTest {
         val root = JSONObject(XrayConfigBuilder.buildSocksBridge(39918))
         val proxy = root.getJSONArray("outbounds").getJSONObject(0)
         assertEquals("socks", proxy.getString("protocol"))
-        assertEquals("127.0.0.1", proxy.getJSONObject("settings")
-            .getJSONArray("servers").getJSONObject(0).getString("address"))
-        assertEquals(39918, proxy.getJSONObject("settings")
-            .getJSONArray("servers").getJSONObject(0).getInt("port"))
+        assertEquals("127.0.0.1", proxy.getJSONObject("settings").getString("address"))
+        assertEquals(39918, proxy.getJSONObject("settings").getInt("port"))
+        assertFalse(proxy.getJSONObject("settings").has("servers"))
         assertEquals("tcp,udp", root.getJSONObject("routing")
             .getJSONArray("rules").getJSONObject(0).getString("network"))
     }
