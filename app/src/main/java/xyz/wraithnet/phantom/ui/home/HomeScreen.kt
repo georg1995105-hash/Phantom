@@ -632,7 +632,7 @@ fun HomeScreen(
                                                 selectedSubId = single.id
                                                 prefs.edit().putString("selected_server_id", server.id)
                                                     .putString("selected_subscription_id", single.id).apply()
-                                                if (vpnStatus == "connected") onStartVpn(server.raw)
+                                                if (!chosen && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                                             }.padding(vertical = 10.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
@@ -778,7 +778,7 @@ fun HomeScreen(
                                                 selectedSubId = item.id
                                                 prefs.edit().putString("selected_server_id", server.id)
                                                     .putString("selected_subscription_id", item.id).apply()
-                                                if (vpnStatus == "connected") onStartVpn(server.raw)
+                                                if (!chosen && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                                             } else {
                                                 scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                                             }
