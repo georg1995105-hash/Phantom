@@ -2,27 +2,47 @@ package xyz.wraithnet.phantom.service
 
 import android.content.Intent
 import android.net.VpnService
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.Message
 import android.os.Messenger
 import android.os.Process
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 
 /**
- * Only this non-exported bound service loads libbox; the OS places it in :singbox.
- * The main VPN process loads Xray only. This service never establishes a TUN.
- * Extending VpnService enables socket protect(fd) for native outbound dials.
+ * A started AND bound Android service in the dedicated :singbox process.
+ *
+ * The separate Go runtime must stay alive while the main process establishes
+ * Android TUN and starts Xray. A bound-only service has no independent lease,
+ * and can be torn down on a transient unbind. Explicit startService leases
+ * survive rebinds and are released only by their own session IDs.
+ *
+ * This service uses VpnService.protect(fd) for QUIC, but it NEVER establishes
+ * another Android TUN. PhantomVpnService remains the one registered VPN.
  */
 class SingBoxWorkerService : VpnService() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val leaseStartIds = ConcurrentHashMap<String, Int>()
     @Volatile private var destroyed = false
     @Volatile private var activeSessionId: String? = null
+    @Volatile private var lastStopReason = "не запускался"
     private val backend by lazy { SingBoxNativeBackend(this) }
 
-    /** Never let a late Binder message crash the OS process after onDestroy. */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val id = intent?.getStringExtra(KEY_SESSION)
+        if (intent?.action != ACTION_LEASE || id.isNullOrBlank()) {
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+        leaseStartIds[id] = startId
+        return START_NOT_STICKY
+    }
+
+    /** No binder message is allowed to crash the worker after onDestroy. */
     private fun submit(action: () -> Unit): Boolean {
         if (destroyed || executor.isShutdown) return false
         return try {
@@ -33,12 +53,23 @@ class SingBoxWorkerService : VpnService() {
         }
     }
 
-    private fun replyClosed(recipient: Messenger?) {
+    private fun fail(recipient: Messenger?, reason: String) {
         val reply = Message.obtain(null, MSG_ERROR)
-        reply.data = android.os.Bundle().apply {
-            putString(KEY_ERROR, "Процесс sing-box завершает работу; повторите подключение")
-        }
+        reply.data = Bundle().apply { putString(KEY_ERROR, reason) }
         runCatching { recipient?.send(reply) }
+    }
+
+    private fun releaseLease(session: String) {
+        leaseStartIds.remove(session)?.let { startId -> stopSelfResult(startId) }
+    }
+
+    private fun stopSession(session: String, reason: String) {
+        if (activeSessionId == session) {
+            runCatching { backend.stop() }
+            activeSessionId = null
+            lastStopReason = reason
+        }
+        releaseLease(session)
     }
 
     private val messenger = Messenger(object : Handler(Looper.getMainLooper()) {
@@ -46,68 +77,60 @@ class SingBoxWorkerService : VpnService() {
             when (message.what) {
                 MSG_START -> {
                     val raw = message.data.getString(KEY_PROFILE).orEmpty()
-                    val sessionId = message.data.getString(KEY_SESSION).orEmpty()
+                    val id = message.data.getString(KEY_SESSION).orEmpty()
                     val recipient = message.replyTo
                     if (!submit {
                         try {
                             check(!destroyed) { "Процесс закрыт" }
-                            check(sessionId.isNotBlank()) { "Нет идентификатора сеанса sing-box" }
-                            // The old asynchronous STOP may arrive after a new START.
-                            // Transition to the new session and reject all stale STOPs.
-                            if (activeSessionId != null && activeSessionId != sessionId) {
-                                backend.stop()
-                                activeSessionId = null
+                            check(id.isNotBlank() && leaseStartIds.containsKey(id)) {
+                                "Сеанс sing-box не имеет активной Android-службы"
                             }
+                            activeSessionId?.takeIf { it != id }?.let { old ->
+                                stopSession(old, "смена профиля")
+                            }
+                            check(activeSessionId != id) { "Сеанс sing-box уже запущен" }
                             val port = backend.start(raw)
-                            activeSessionId = sessionId
+                            activeSessionId = id
+                            lastStopReason = "запущен"
                             if (destroyed) {
-                                if (activeSessionId == sessionId) {
-                                    backend.stop()
-                                    activeSessionId = null
-                                }
-                                replyClosed(recipient)
+                                stopSession(id, "закрытие Android-службы")
+                                fail(recipient, "Android закрывает процесс sing-box")
                                 return@submit
                             }
-                            val reply = Message.obtain(null, MSG_STARTED, port, Process.myPid())
-                            runCatching { recipient?.send(reply) }
-                        } catch (e: Exception) {
-                            if (activeSessionId == sessionId) {
-                                runCatching { backend.stop() }
-                                activeSessionId = null
+                            runCatching {
+                                recipient?.send(Message.obtain(null, MSG_STARTED, port, Process.myPid()))
                             }
-                            val reply = Message.obtain(null, MSG_ERROR)
-                            // Never echo a native error or the supplied URL: it can contain credentials.
+                        } catch (e: Exception) {
+                            if (activeSessionId == id) stopSession(id, "ошибка запуска")
+                            else releaseLease(id)
+                            // Never put a raw URL or native Go stack in IPC/errors.
                             val reason = e.message.orEmpty()
-                            val safeMessage = when {
+                            val safe = when {
                                 reason.contains("DNS физической сети") ->
-                                    "Не удалось определить IP сервера TUIC/AnyTLS через физическую сеть"
+                                    "DNS физической сети не определил сервер TUIC/AnyTLS"
                                 reason.contains("Нет доступной физической сети") ||
                                     reason.contains("не обнаружил физическую сеть") ->
-                                    "Android не предоставляет физическую сеть для TUIC/AnyTLS"
-                                reason.contains("не запустил наблюдение") ||
-                                    reason.contains("libbox:") ->
-                                    "Ошибка интеграции sing-box с сетевыми интерфейсами Android"
+                                    "Android не предоставляет физическую сеть"
+                                reason.contains("libbox:") || reason.contains("не запустил наблюдение") ->
+                                    "Ошибка сетевой интеграции sing-box"
                                 else -> "Ошибка запуска sing-box (${e.javaClass.simpleName})"
                             }
-                            reply.data = android.os.Bundle().apply {
-                                putString(KEY_ERROR, safeMessage)
-                            }
-                            runCatching { recipient?.send(reply) }
+                            lastStopReason = "ошибка запуска"
+                            fail(recipient, safe)
                         }
-                    }) replyClosed(recipient)
+                    }) fail(recipient, "Сервис sing-box закрыт Android")
                 }
                 MSG_STOP -> {
-                    val sessionId = message.data.getString(KEY_SESSION)
-                    submit {
-                        if (sessionId != null && sessionId == activeSessionId) {
-                            runCatching { backend.stop() }
-                            activeSessionId = null
-                        }
-                    }
+                    val id = message.data.getString(KEY_SESSION)
+                    if (!id.isNullOrBlank()) submit { stopSession(id, "остановлен пользователем") }
                 }
                 MSG_PING -> {
+                    val running = !destroyed && activeSessionId != null && backend.isRunning
                     val reply = Message.obtain(null, MSG_PONG,
-                        if (!destroyed && activeSessionId != null && backend.isRunning) 1 else 0, Process.myPid())
+                        if (running) 1 else 0, Process.myPid())
+                    reply.data = Bundle().apply {
+                        putString(KEY_STOP_REASON, lastStopReason)
+                    }
                     runCatching { message.replyTo?.send(reply) }
                 }
             }
@@ -116,12 +139,25 @@ class SingBoxWorkerService : VpnService() {
 
     override fun onBind(intent: Intent?): IBinder = messenger.binder
 
+    override fun onUnbind(intent: Intent?): Boolean {
+        // Defensive cleanup if the controlling process vanished before MSG_STOP.
+        // A replacement session is never stopped because IDs are checked in the
+        // serial executor and stopSelfResult cannot stop a newer startId.
+        val orphan = activeSessionId
+        if (orphan != null) submit {
+            if (activeSessionId == orphan) stopSession(orphan, "потеряна привязка Android")
+        }
+        return true
+    }
+
     override fun onDestroy() {
         destroyed = true
         runCatching {
             executor.execute {
                 runCatching { backend.stop() }
                 activeSessionId = null
+                leaseStartIds.clear()
+                lastStopReason = "Android уничтожил сервис"
             }
         }
         executor.shutdown()
@@ -129,6 +165,7 @@ class SingBoxWorkerService : VpnService() {
     }
 
     companion object {
+        const val ACTION_LEASE = "xyz.wraithnet.phantom.SINGBOX_LEASE"
         const val MSG_START = 1
         const val MSG_STOP = 2
         const val MSG_STARTED = 3
@@ -138,5 +175,6 @@ class SingBoxWorkerService : VpnService() {
         const val KEY_PROFILE = "profile"
         const val KEY_SESSION = "session"
         const val KEY_ERROR = "error"
+        const val KEY_STOP_REASON = "stop_reason"
     }
 }

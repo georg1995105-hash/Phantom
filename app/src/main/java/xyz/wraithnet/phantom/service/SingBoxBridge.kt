@@ -34,6 +34,7 @@ internal class SingBoxBridge(
         private set
     private var connection: ServiceConnection? = null
     private var bound = false
+    private var startedLease = false
 
     fun start(raw: String): Int {
         check(Looper.myLooper() != Looper.getMainLooper()) {
@@ -72,6 +73,17 @@ internal class SingBoxBridge(
         }
         synchronized(this) { connection = serviceConnection }
         try {
+            // This must run while the main PhantomVpnService is foreground.
+            // A STARTED lease keeps the separate Go process alive across
+            // Android bind/unbind, network changes and TUN establishment.
+            val lease = Intent(context, SingBoxWorkerService::class.java).apply {
+                action = SingBoxWorkerService.ACTION_LEASE
+                putExtra(SingBoxWorkerService.KEY_SESSION, sessionId)
+            }
+            check(context.startService(lease) != null) {
+                "Android не разрешил закрепить процесс sing-box"
+            }
+            startedLease = true
             val didBind = context.bindService(
                 Intent(context, SingBoxWorkerService::class.java),
                 serviceConnection, Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT
@@ -138,9 +150,13 @@ internal class SingBoxBridge(
         val peer = remote ?: return "дочерний процесс не подключён"
         val answer = CountDownLatch(1)
         val state = AtomicInteger(-1)
+        val lastReason = AtomicReference("")
         val recipient = Messenger(object : Handler(Looper.getMainLooper()) {
             override fun handleMessage(message: Message) {
-                if (message.what == SingBoxWorkerService.MSG_PONG) state.set(message.arg1)
+                if (message.what == SingBoxWorkerService.MSG_PONG) {
+                    state.set(message.arg1)
+                    lastReason.set(message.data.getString(SingBoxWorkerService.KEY_STOP_REASON).orEmpty())
+                }
                 answer.countDown()
             }
         })
@@ -151,7 +167,8 @@ internal class SingBoxBridge(
             if (!answer.await(2, TimeUnit.SECONDS)) "дочерний процесс не отвечает"
             else when (state.get()) {
                 1 -> "движок запущен, локальный SOCKS5 недоступен"
-                0 -> "движок sing-box остановлен"
+                0 -> "движок sing-box остановлен: " +
+                    (lastReason.get().ifBlank { "причина не сообщена" })
                 else -> "дочерний процесс вернул неизвестное состояние"
             }
         } catch (e: Exception) {
@@ -161,21 +178,44 @@ internal class SingBoxBridge(
 
     fun stop() {
         val oldConnection: ServiceConnection?
+        val oldRemote: Messenger?
+        val hadStartedLease: Boolean
         val wasBound: Boolean
         synchronized(this) {
             stopping = true
             oldConnection = connection
             connection = null
+            oldRemote = remote
             remote = null
+            hadStartedLease = startedLease
+            startedLease = false
             wasBound = bound
             bound = false
             workerPid = -1
         }
-        // Do not race a queued STOP IPC with Android's onDestroy()/executor.shutdown().
-        // Last unbind destroys the service and performs cleanup; a new START replaces
-        // the previous session synchronously on the worker's single-thread executor.
+        // STOP names its session; a late command must never terminate a
+        // replacement connection. The started lease prevents onDestroy before
+        // STOP is processed, and onUnbind handles missing STOP defensively.
+        var stopSent = false
+        if (hadStartedLease && oldRemote != null) {
+            stopSent = runCatching {
+                oldRemote.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP).apply {
+                    data = android.os.Bundle().apply {
+                        putString(SingBoxWorkerService.KEY_SESSION, sessionId)
+                    }
+                })
+                true
+            }.getOrDefault(false)
+        }
         if (wasBound && oldConnection != null) {
             runCatching { context.unbindService(oldConnection) }
+        }
+        if (hadStartedLease && !stopSent) {
+            // Only if IPC was unavailable; normally STOP self-releases the lease.
+            // Main VPN serializes starts/stops under a mutex.
+            runCatching {
+                context.stopService(Intent(context, SingBoxWorkerService::class.java))
+            }
         }
     }
 }

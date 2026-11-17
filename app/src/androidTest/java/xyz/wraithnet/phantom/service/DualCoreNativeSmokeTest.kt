@@ -46,6 +46,13 @@ class DualCoreNativeSmokeTest {
             }
             Log.i("PhantomNativeSmoke", "SOCKS_READY=$ready")
             assertTrue("sing-box native SOCKS did not bind", ready)
+            // The native core must remain available while Android's main
+            // process does other work; this models the TUN/Xray warm-up period.
+            Thread.sleep(2200)
+            assertTrue("SOCKS5 must survive a TUN warm-up interval",
+                LocalSocks5Probe.check(port).ready)
+            assertTrue("Worker must still be live during VPN warm-up",
+                bridge.workerStatus().contains("движок запущен"))
             repeat(4) { iteration ->
                 val result = LocalSocks5Probe.check(port)
                 Log.i("PhantomNativeSmoke", "SOCKS_HANDSHAKE_${iteration}=${result.ready}")
@@ -78,7 +85,7 @@ class DualCoreNativeSmokeTest {
         } finally {
             restarted.stop()
         }
-        repeat(3) { cycle ->
+        repeat(6) { cycle ->
             val fastSwitch = SingBoxBridge(context)
             try {
                 val port = fastSwitch.start(link)
