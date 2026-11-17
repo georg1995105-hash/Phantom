@@ -198,6 +198,7 @@ class PhantomVpnService : VpnService() {
             val dns = VpnDnsSettings.load(this)
             check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
             val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
+            var singBoxPort: Int? = null
             val baseConfig = if (SingBoxBridgeConfig.requiresSingBox(profile)) {
                 // sing-box handles the native TUIC/AnyTLS transport, while Xray
                 // keeps Android TUN and all existing per-app VPN routing.
@@ -215,15 +216,11 @@ class PhantomVpnService : VpnService() {
                     }
                 }
                 singBoxBridge = engine
+                // Validate only local SOCKS readiness before Android TUN exists.
+                // The first outbound TUIC/AnyTLS dial must happen after the VPN
+                // interface and native Xray routing are established.
                 val socksPort = engine.start(raw)
-                val upstream = SocksHttpsProbe.check(socksPort)
-                check(upstream.delayMs > 0L) {
-                    val local = LocalSocks5Probe.check(socksPort)
-                    val status = if (local.ready)
-                        "SOCKS5 отвечает, удалённый HTTPS недоступен"
-                    else "SOCKS5 не отвечает: ${local.reason}; ${engine.workerStatus()}"
-                    "TUIC/AnyTLS не передаёт трафик: ${upstream.failure}. $status"
-                }
+                singBoxPort = socksPort
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
                 XrayConfigBuilder.build(profile)
@@ -256,6 +253,7 @@ class PhantomVpnService : VpnService() {
             for (endpoint in listOf(
                 "https://www.gstatic.com/generate_204",
                 "https://cp.cloudflare.com/generate_204",
+                "https://example.com/",
             )) {
                 val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
                 if (value > 0L) {
@@ -264,9 +262,24 @@ class PhantomVpnService : VpnService() {
                 }
             }
             require(verifiedDelay > 0L) {
-                if (SingBoxBridgeConfig.requiresSingBox(profile))
-                    "sing-box передаёт HTTPS, но Xray не пропускает его через VPN-туннель."
-                else "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
+                if (SingBoxBridgeConfig.requiresSingBox(profile)) {
+                    val port = singBoxPort
+                    val local = port?.let { LocalSocks5Probe.check(it) }
+                    when {
+                        port == null -> "Не получен SOCKS5-порт sing-box."
+                        local?.ready != true ->
+                            "Локальный SOCKS5 перестал отвечать: " +
+                                (local?.reason ?: "нет данных") +
+                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
+                        else -> {
+                            val upstream = SocksHttpsProbe.check(port)
+                            if (upstream.delayMs > 0L)
+                                "TUIC передаёт HTTPS, но Xray не пропускает его через VPN."
+                            else "TUIC/AnyTLS не передаёт HTTPS: " + upstream.failure +
+                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
+                        }
+                    }
+                } else "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
             }
 
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
