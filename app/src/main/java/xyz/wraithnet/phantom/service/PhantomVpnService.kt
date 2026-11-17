@@ -216,9 +216,9 @@ class PhantomVpnService : VpnService() {
                 }
                 singBoxBridge = engine
                 val socksPort = engine.start(raw)
-                check(SocksHttpsProbe.measure(socksPort) > 0L) {
-                    "TUIC/AnyTLS запущен, но не передаёт HTTPS через сервер. " +
-                        "Проверьте параметры сервера и соединение."
+                val upstream = SocksHttpsProbe.check(socksPort)
+                check(upstream.delayMs > 0L) {
+                    "TUIC/AnyTLS не передаёт трафик: " + upstream.failure
                 }
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
