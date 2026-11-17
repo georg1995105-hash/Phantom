@@ -44,7 +44,7 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
                     debug = false
                     logMaxLines = 200
                     appVersion = "15"
-                    appMarketingVersion = "0.2.13"
+                    appMarketingVersion = "0.2.14"
                 })
                 prepared = true
             }
