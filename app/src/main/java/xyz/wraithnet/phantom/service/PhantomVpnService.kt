@@ -218,7 +218,11 @@ class PhantomVpnService : VpnService() {
                 val socksPort = engine.start(raw)
                 val upstream = SocksHttpsProbe.check(socksPort)
                 check(upstream.delayMs > 0L) {
-                    "TUIC/AnyTLS не передаёт трафик: " + upstream.failure
+                    val local = LocalSocks5Probe.check(socksPort)
+                    val status = if (local.ready)
+                        "SOCKS5 отвечает, удалённый HTTPS недоступен"
+                    else "SOCKS5 не отвечает: ${local.reason}; ${engine.workerStatus()}"
+                    "TUIC/AnyTLS не передаёт трафик: ${upstream.failure}. $status"
                 }
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
