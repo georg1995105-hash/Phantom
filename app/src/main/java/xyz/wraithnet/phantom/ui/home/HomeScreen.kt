@@ -460,9 +460,6 @@ fun HomeScreen(
                     Icon(Icons.Default.Settings, "Настройки", Modifier.size(24.dp))
                 }
                 Spacer(Modifier.weight(1f))
-                Text("Phantom VPN", color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(end = 16.dp))
             }
         },
         bottomBar = {
