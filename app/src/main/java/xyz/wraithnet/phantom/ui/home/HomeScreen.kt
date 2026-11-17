@@ -69,6 +69,8 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.ProtocolSupport
+import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
@@ -127,8 +129,10 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     var subscriptions by remember { mutableStateOf(store.read()) }
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
-    val selected = subscriptions.flatMap { it.servers }.firstOrNull { it.id == selectedId }
-        ?: subscriptions.firstOrNull()?.servers?.firstOrNull()
+    var selectedSubId by remember { mutableStateOf(prefs.getString("selected_subscription_id", null)) }
+    var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
+    val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
+    val selected = selectedMatch?.second
     var expandedIds by remember { mutableStateOf(subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
@@ -136,7 +140,6 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
-    var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -158,6 +161,17 @@ fun HomeScreen(
     fun persist(list: List<Subscription>) {
         subscriptions = list
         store.write(list)
+    }
+    fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
+
+    // For QUIC/UDP, show only real HTTPS latency measured over the active tunnel.
+    LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
+        if (vpnStatus == "connected") {
+            selectedMatch?.let { (owner, server) ->
+                val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
+                if (rtt > 0L) latencies[pingKey(owner, server)] = rtt
+            }
+        }
     }
 
     fun pasteText(): String {
@@ -196,7 +210,12 @@ fun HomeScreen(
                 )
                 persist(subscriptions + subscription)
                 expandedIds = expandedIds + subscription.id
-                if (selectedId == null) selectedId = subscription.servers.firstOrNull()?.id
+                if (selected == null) {
+                    selectedId = subscription.servers.firstOrNull()?.id
+                    selectedSubId = subscription.id
+                    prefs.edit().putString("selected_server_id", selectedId)
+                        .putString("selected_subscription_id", selectedSubId).apply()
+                }
                 importMode = null
                 showImportMenu = false
                 softTap()
@@ -265,8 +284,7 @@ fun HomeScreen(
         pingCompleted = 0
         scope.launch {
             try {
-                val supported = setOf("vless", "vmess", "trojan", "ss", "xray", "hysteria", "hysteria2", "hy2")
-                val servers = item.servers.filter { it.scheme.lowercase() in supported }
+                val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
                 coroutineScope {
                     val limit = Semaphore(3)
                     servers.map { server ->
@@ -275,19 +293,21 @@ fun HomeScreen(
                                 runCatching { LatencyProbe.measure(context.applicationContext, server) }
                                     .getOrNull() ?: -1L
                             }
-                            latencies[server.id] = ping
+                            latencies[pingKey(item, server)] = ping
                             pingCompleted++
-                            server.id to ping
+                            pingKey(item, server) to ping
                         }
-                    }.awaitAll().forEach { (serverId, delayMs) ->
-                        latencies[serverId] = delayMs
+                    }.awaitAll().forEach { (serverKey, delayMs) ->
+                        latencies[serverKey] = delayMs
                     }
                 }
-                val checked = servers.count { (latencies[it.id] ?: -1L) > 0L }
-                snackbar.showSnackbar(
-                    if (checked == 0) "Не получено ни одного результата проверки"
-                    else "Проверка пинга завершена"
-                )
+                val checked = servers.count { (latencies[pingKey(item, it)] ?: -1L) > 0L }
+                val needsTunnel = servers.any { ProtocolSupport.needsConnectedPing(it.scheme) }
+                snackbar.showSnackbar(when {
+                    checked > 0 -> "Проверка задержки завершена"
+                    needsTunnel -> "Для точного пинга TUIC/Hysteria2 подключите сервер"
+                    else -> "Не получено ни одного результата проверки"
+                })
             } catch (e: Exception) {
                 snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
@@ -378,6 +398,7 @@ fun HomeScreen(
             onBackupRestored = {
                 subscriptions = store.read()
                 selectedId = prefs.getString("selected_server_id", null)
+                selectedSubId = prefs.getString("selected_subscription_id", null)
                 pinnedSubId = prefs.getString("pinned_sub_id", null)
                 expandedIds = subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()
                 runCatching {
@@ -539,8 +560,16 @@ fun HomeScreen(
                             Column(Modifier.weight(1f).padding(start = 5.dp).clickable {
                                 expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id
                             }) {
-                                Text(item.title, style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(item.title, style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold, maxLines = 1,
+                                        modifier = Modifier.weight(1f))
+                                    if (pinnedSubId == item.id) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Icon(Icons.Default.PushPin, "Закреплено сверху",
+                                            Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
                                 Text("Обновлено " + timeLabel(item.updatedAt),
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -589,11 +618,11 @@ fun HomeScreen(
                         if (item.id in expandedIds) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .3f))
                             item.servers.forEach { server ->
-                                val supported = server.scheme.lowercase() in setOf(
-                                    "vless", "vmess", "trojan", "ss", "xray",
-                                    "hysteria", "hysteria2", "hy2"
-                                )
-                                val chosen = selected?.id == server.id
+                                val supported = ProtocolSupport.isSupported(server.scheme)
+                                val singleDirect = !item.source.startsWith("http", ignoreCase = true) &&
+                                    item.servers.size == 1
+                                val chosen = selectedMatch?.first?.id == item.id &&
+                                    selectedMatch.second.id == server.id
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .background(if (chosen)
@@ -603,7 +632,9 @@ fun HomeScreen(
                                             if (supported) {
                                                 softTap()
                                                 selectedId = server.id
-                                                prefs.edit().putString("selected_server_id", server.id).apply()
+                                                selectedSubId = item.id
+                                                prefs.edit().putString("selected_server_id", server.id)
+                                                    .putString("selected_subscription_id", item.id).apply()
                                                 if (vpnStatus == "connected") onStartVpn(server.raw)
                                             } else {
                                                 scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
@@ -623,15 +654,17 @@ fun HomeScreen(
                                         Text(protocolLabel(server), fontSize = 10.sp,
                                             maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    latencies[server.id]?.let { ms ->
+                                    latencies[pingKey(item, server)]?.let { ms ->
                                         Text(if (ms >= 0) ms.toString() + " мс" else "—",
                                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Spacer(Modifier.width(7.dp))
                                     }
-                                    if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.primary)
-                                    else if (supported) Box(Modifier.size(16.dp)
-                                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+                                    if (!singleDirect) {
+                                        if (chosen) Icon(Icons.Default.CheckCircle, "Выбран",
+                                            Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                        else if (supported) Box(Modifier.size(16.dp)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+                                    }
                                 }
                                 HorizontalDivider(Modifier.padding(start = 48.dp),
                                     color = MaterialTheme.colorScheme.outline.copy(alpha = .15f))
@@ -790,6 +823,10 @@ fun HomeScreen(
                         pinnedSubId = if (pinnedSubId == sub.id) null else sub.id
                         prefs.edit().putString("pinned_sub_id", pinnedSubId).apply()
                         activeSubMenu = null
+                        scope.launch {
+                            snackbar.showSnackbar(if (pinnedSubId == sub.id)
+                                "Закреплено сверху" else "Откреплено")
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
@@ -820,7 +857,7 @@ fun HomeScreen(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (manual) "Поддерживаются VLESS, VMess, Trojan, Shadowsocks, Hysteria2 и Xray JSON."
+                    if (manual) "VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, AnyTLS и Xray JSON."
                     else "Вставьте URL подписки любого совместимого сервиса.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
