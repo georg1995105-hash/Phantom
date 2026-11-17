@@ -109,20 +109,16 @@ internal class SingBoxBridge(
             }
             val actualPort = port.get()
             check(actualPort in 1024..65535) { "Движок sing-box не вернул SOCKS-порт" }
-            // A successful IPC reply is not sufficient: ensure the remote SOCKS socket accepts.
-            var ready = false
-            repeat(25) {
-                if (!ready) {
-                    ready = runCatching {
-                        Socket().use { socket ->
-                            socket.connect(InetSocketAddress("127.0.0.1", actualPort), 300)
-                            socket.isConnected
-                        }
-                    }.getOrDefault(false)
-                    if (!ready) Thread.sleep(120)
+            // Only a real SOCKS5 negotiation proves that the inbound is usable.
+            // A TCP-only probe can succeed before the handler has stopped/crashed.
+            var probe = LocalSocks5Probe.Result(false, "не проверен")
+            repeat(12) {
+                if (!probe.ready) {
+                    probe = LocalSocks5Probe.check(actualPort)
+                    if (!probe.ready) Thread.sleep(180)
                 }
             }
-            check(ready) { "SOCKS-порт sing-box не отвечает" }
+            check(probe.ready) { "Локальный SOCKS5 sing-box недоступен: ${probe.reason}" }
             return actualPort
         } catch (e: Exception) {
             stop()
