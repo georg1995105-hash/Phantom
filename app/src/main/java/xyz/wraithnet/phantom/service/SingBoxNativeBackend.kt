@@ -22,7 +22,8 @@ import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
  * Never prints raw profiles: the share link includes authentication credentials.
  */
 internal class SingBoxNativeBackend(private val vpn: VpnService) {
-    private var server: CommandServer? = null
+    @Volatile private var server: CommandServer? = null
+    val isRunning: Boolean get() = server != null
     private val networkEnvironment = SingBoxNetworkEnvironment(vpn)
 
     companion object {
