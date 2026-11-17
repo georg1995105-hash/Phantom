@@ -13,9 +13,10 @@ import java.util.Locale
  * Reads Android's own historical native-crash tombstones without root, ADB,
  * network access or an external crash SDK.
  *
- * Only the crashing thread's signal and symbol/file names are reported.
- * NEVER include memory dumps, registers, raw tombstone, logcat, auth links,
- * network addresses, environment variables or other app processes.
+ * Returns the crashing thread's signal/frames, Android's explicit abort_message
+ * and narrowly filtered fatal messages of the same crashing PID. All text is
+ * redacted before display; no registers, raw tombstone, other-process logs,
+ * passwords, subscription links, network addresses or process memory.
  *
  * AOSP schema: debuggerd/proto/tombstone.proto
  * ApplicationExitInfo.getTraceInputStream() supplies protobuf on API 31+.
@@ -81,13 +82,17 @@ object NativeCrashTrace {
     /** Exposed only for pure JVM regression tests against AOSP protobuf tags. */
     fun summarize(tombstone: ByteArray): String {
         var tid = -1L
+        var pid = -1L
         var signal = ""
         var code = ""
+        var abortMessage = ""
+        val crashLogBuffers = ArrayList<ByteArray>()
         val threadEntries = ArrayList<Pair<Long, ByteArray>>()
         val root = Fields(tombstone)
         while (true) {
             val f = root.next() ?: break
             when (f.number) {
+                5 -> if (f.wire == 0) pid = f.value
                 6 -> if (f.wire == 0) tid = f.value
                 10 -> if (f.wire == 2) {
                     val signalFields = Fields(root.slice(f))
@@ -98,6 +103,10 @@ object NativeCrashTrace {
                             4 -> if (sf.wire == 2) code = signalFields.string(sf)
                         }
                     }
+                }
+                14 -> if (f.wire == 2) abortMessage = root.string(f)
+                18 -> if (f.wire == 2 && crashLogBuffers.size < 4) {
+                    crashLogBuffers.add(root.slice(f))
                 }
                 16 -> if (f.wire == 2 && threadEntries.size < 64) {
                     val mapping = Fields(root.slice(f))
@@ -115,6 +124,16 @@ object NativeCrashTrace {
         val output = StringBuilder()
         output.append("Сигнал: ").append(safe(signal.ifBlank { "не указан" }))
         if (code.isNotBlank()) output.append(" (").append(safe(code)).append(")")
+        if (abortMessage.isNotBlank()) {
+            output.append("\nAbort message: ").append(safeDiagnostic(abortMessage))
+        } else {
+            output.append("\nAbort message: отсутствует в tombstone")
+        }
+        val fatalLines = findFatalCrashLines(crashLogBuffers, pid, tid)
+        if (fatalLines.isNotEmpty()) {
+            output.append("\nПоследние аварийные сообщения процесса:")
+            fatalLines.forEach { output.append("\n").append(it) }
+        }
         val crashingThread = threadEntries.firstOrNull { it.first == tid }?.second
         if (crashingThread == null) {
             output.append("\nСтек аварийного потока отсутствует.")
@@ -123,10 +142,14 @@ object NativeCrashTrace {
         val threadFields = Fields(crashingThread)
         var threadName = ""
         val frames = ArrayList<String>()
+        val unwindNotes = ArrayList<String>()
         while (true) {
             val f = threadFields.next() ?: break
             when (f.number) {
                 2 -> if (f.wire == 2) threadName = threadFields.string(f)
+                7 -> if (f.wire == 2 && unwindNotes.size < 2) {
+                    unwindNotes.add(safeDiagnostic(threadFields.string(f)))
+                }
                 4 -> if (f.wire == 2 && frames.size < 15) {
                     val frame = Fields(threadFields.slice(f))
                     var pc = -1L
@@ -152,8 +175,67 @@ object NativeCrashTrace {
         output.append("\nПоток: ").append(safe(threadName.ifBlank { "не указан" }))
         if (frames.isEmpty()) output.append("\nСтек отсутствует.")
         else frames.forEach { output.append("\n").append(it) }
+        unwindNotes.filter(String::isNotBlank)
+            .forEach { output.append("\nПримечание развёртки: ").append(it) }
         return output.toString()
     }
+
+    /**
+     * Tombstone LogBuffer #18 is optional. Never expose arbitrary logcat.
+     * Only severe lines from the exact crashed process ID can contribute.
+     */
+    private fun findFatalCrashLines(buffers: List<ByteArray>, pid: Long, tid: Long): List<String> {
+        if (pid <= 0) return emptyList()
+        val hits = ArrayList<String>()
+        for (buffer in buffers) {
+            val messages = Fields(buffer)
+            while (true) {
+                val entry = messages.next() ?: break
+                if (entry.number != 2 || entry.wire != 2) continue
+                val record = Fields(messages.slice(entry))
+                var logPid = -1L
+                var logTid = -1L
+                var priority = 0L
+                var tag = ""
+                var message = ""
+                while (true) {
+                    val field = record.next() ?: break
+                    when (field.number) {
+                        2 -> if (field.wire == 0) logPid = field.value
+                        3 -> if (field.wire == 0) logTid = field.value
+                        4 -> if (field.wire == 0) priority = field.value
+                        5 -> if (field.wire == 2) tag = record.string(field)
+                        6 -> if (field.wire == 2) message = record.string(field)
+                    }
+                }
+                if (logPid != pid || priority < 6) continue
+                // Show only known failure signatures; no general process logs.
+                if (!Regex("(?i)jni detected error|fatal error:|panic:|abort|assertion|runtime:|signal 6|sigabrt")
+                        .containsMatchIn(message)) continue
+                val line = safeDiagnostic(message)
+                if (line.isNotBlank()) {
+                    hits.add("${safe(tag.take(35))} " +
+                        (if (logTid == tid) "[поток сбоя] " else "") + line)
+                }
+            }
+        }
+        return hits.takeLast(6)
+    }
+
+    /**
+     * Explicit privacy filter for user-visible error-only text. Avoid URLs,
+     * credentials, IP addresses, absolute file paths and long opaque tokens.
+     */
+    private fun safeDiagnostic(input: String): String = input
+        .replace(Regex("(?i)(?:tuic|anytls|vless|vmess|ss|trojan|hysteria2?|https?|wss?)://\\S+"),
+            "[ссылка скрыта]")
+        .replace(Regex("(?i)\\b(password|passwd|secret|token|authorization|uuid|key)\\s*[=:]\\s*[^\\s,;]+"),
+            "$1=[скрыто]")
+        .replace(Regex("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b"), "[IP скрыт]")
+        .replace(Regex("(?i)(?:/[a-z0-9_.-]+){2,}"), "[путь скрыт]")
+        .replace(Regex("[A-Za-z0-9+/]{60,}={0,2}"), "[данные скрыты]")
+        .replace(Regex("[\\r\\n\\t]+"), " ")
+        .take(350)
 
     private fun safe(input: String): String =
         input.replace(Regex("[\\r\\n\\t]"), " ")
