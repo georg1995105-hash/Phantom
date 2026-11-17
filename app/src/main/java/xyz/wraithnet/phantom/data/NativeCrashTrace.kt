@@ -157,8 +157,8 @@ object NativeCrashTrace {
 
     private fun safe(input: String): String =
         input.replace(Regex("[\\r\\n\\t]"), " ")
-            .replace(Regex("""(?i)(?:vless|vmess|tuic|anytls|ss|trojan|https?)://\\S+"""), "[URL]")
-            .replace(Regex("""(?i)(?:password|secret|token|key)[=:]\\S+"""), "[скрыто]")
+            .replace(Regex("""(?i)(?:vless|vmess|tuic|anytls|ss|trojan|https?)://\S+"""), "[URL]")
+            .replace(Regex("""(?i)(?:password|secret|token|key)[=:]\S+"""), "[скрыто]")
             .take(160)
 
     private class Fields(private val input: ByteArray) {
