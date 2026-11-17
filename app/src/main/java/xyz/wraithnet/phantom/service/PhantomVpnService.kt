@@ -48,6 +48,7 @@ class PhantomVpnService : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var controller: CoreController? = null
     private var singBoxBridge: SingBoxBridge? = null
+    private var singBoxSession: Any? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var trafficJob: Job? = null
     private var handoverJob: Job? = null
@@ -200,9 +201,21 @@ class PhantomVpnService : VpnService() {
             val baseConfig = if (SingBoxBridgeConfig.requiresSingBox(profile)) {
                 // sing-box handles the native TUIC/AnyTLS transport, while Xray
                 // keeps Android TUN and all existing per-app VPN routing.
-                val engine = SingBoxBridge(this)
-                val socksPort = engine.start(raw)
+                val session = Any()
+                singBoxSession = session
+                val engine = SingBoxBridge(this) {
+                    ioScope.launch {
+                        mutex.withLock {
+                            if (singBoxSession === session) {
+                                stopLocked(false)
+                                setState(STATUS_ERROR, "Процесс sing-box неожиданно завершился")
+                                updateNotification("Ошибка движка VPN")
+                            }
+                        }
+                    }
+                }
                 singBoxBridge = engine
+                val socksPort = engine.start(raw)
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
                 XrayConfigBuilder.build(profile)
@@ -262,6 +275,7 @@ class PhantomVpnService : VpnService() {
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
         controller = null
+        singBoxSession = null
         runCatching { singBoxBridge?.stop() }
         singBoxBridge = null
         runCatching { vpnInterface?.close() }
@@ -413,6 +427,7 @@ class PhantomVpnService : VpnService() {
         trafficJob?.cancel()
         releaseWakeLock()
         runCatching { controller?.stopLoop() }
+        singBoxSession = null
         runCatching { singBoxBridge?.stop() }
         runCatching { vpnInterface?.close() }
         ioScope.cancel()
