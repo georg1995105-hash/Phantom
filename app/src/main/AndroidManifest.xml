@@ -53,6 +53,8 @@
                 <data android:scheme="ss" />
                 <data android:scheme="hysteria2" />
                 <data android:scheme="hy2" />
+                <data android:scheme="tuic" />
+                <data android:scheme="anytls" />
             </intent-filter>
         </activity>
         <activity
@@ -85,6 +87,12 @@
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="vpn_tunnel" />
         </service>
+        <!-- Native sing-box runs in a dedicated app process. It has no VPN
+             intent filter and never establishes its own Android TUN. -->
+        <service
+            android:name=".service.SingBoxCoreService"
+            android:process=":singbox"
+            android:exported="false" />
         <service
             android:name=".service.PhantomQuickTileService"
             android:label="Phantom VPN"
