@@ -29,9 +29,9 @@ class DualCoreNativeSmokeTest {
         try {
             Log.i("PhantomNativeSmoke", "BEFORE_SINGBOX_START")
             val port = bridge.start(link)
-            Log.i("PhantomNativeSmoke", "AFTER_SINGBOX_START pid=" + bridge.remotePid)
+            Log.i("PhantomNativeSmoke", "AFTER_SINGBOX_START pid=" + bridge.workerPid)
             assertTrue("sing-box must have a distinct Android PID",
-                bridge.remotePid != android.os.Process.myPid())
+                bridge.workerPid != android.os.Process.myPid())
             var ready = false
             repeat(20) {
                 if (!ready) {
