@@ -1,6 +1,10 @@
 package xyz.wraithnet.phantom.ui.home
 
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.os.Build
+import android.os.PersistableBundle
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -140,6 +145,7 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
+    var activeServerMenu by remember { mutableStateOf<Pair<String, String>?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -172,6 +178,24 @@ fun HomeScreen(
                 if (rtt > 0L) latencies[pingKey(owner, server)] = rtt
             }
         }
+    }
+
+    fun copyLink(value: String, message: String) {
+        if (value.isBlank()) {
+            scope.launch { snackbar.showSnackbar("Нет ссылки для копирования") }
+            return
+        }
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // Android 13+: suppress plaintext previews of VPN secrets in the system clipboard.
+        val clip = ClipData.newPlainText("Phantom VPN", value)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clip.description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        clipboard.setPrimaryClip(clip)
+        softTap()
+        scope.launch { snackbar.showSnackbar(message) }
     }
 
     fun pasteText(): String {
@@ -665,6 +689,14 @@ fun HomeScreen(
                                         else if (supported) Box(Modifier.size(16.dp)
                                             .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
                                     }
+                                    IconButton(
+                                        onClick = { activeServerMenu = item.id to server.id },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.MoreVert, "Меню сервера",
+                                            Modifier.size(19.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                                 HorizontalDivider(Modifier.padding(start = 48.dp),
                                     color = MaterialTheme.colorScheme.outline.copy(alpha = .15f))
@@ -829,9 +861,51 @@ fun HomeScreen(
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
+                        sub.source.startsWith("http://", ignoreCase = true)
+                    funActionRow(when {
+                        isRemote -> "Копировать ссылку подписки"
+                        sub.servers.size == 1 -> "Копировать ключ"
+                        else -> "Копировать конфигурацию"
+                    }, Icons.Default.ContentCopy) {
+                        activeSubMenu = null
+                        copyLink(sub.source, when {
+                            isRemote -> "Ссылка подписки скопирована"
+                            sub.servers.size == 1 -> "Ключ скопирован"
+                            else -> "Конфигурация скопирована"
+                        })
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
                         activeSubMenu = null
                         deleteId = sub.id
+                    }
+                }
+            }
+        }
+    }
+
+    activeServerMenu?.let { (subscriptionId, serverId) ->
+        val server = subscriptions.firstOrNull { it.id == subscriptionId }
+            ?.servers?.firstOrNull { it.id == serverId }
+        if (server == null) {
+            LaunchedEffect(subscriptionId, serverId) { activeServerMenu = null }
+        } else {
+            ModalBottomSheet(
+                onDismissRequest = { activeServerMenu = null },
+                containerColor = MaterialTheme.colorScheme.surface,
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
+            ) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                    .padding(start = 14.dp, end = 14.dp, bottom = 18.dp)) {
+                    Text(displayServerName(server),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                    funActionRow("Копировать ключ", Icons.Default.ContentCopy) {
+                        activeServerMenu = null
+                        copyLink(server.raw, "Ключ скопирован")
                     }
                 }
             }
