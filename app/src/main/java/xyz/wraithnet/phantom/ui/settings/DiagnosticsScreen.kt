@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.selection.SelectionContainer
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.NativeCrashTrace
+import xyz.wraithnet.phantom.data.GoCrashTrace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -38,7 +39,8 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
     var crashRefresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(crashRefresh) {
         crashReport = withContext(Dispatchers.IO) {
-            NativeCrashTrace.report(context.applicationContext)
+            NativeCrashTrace.report(context.applicationContext) +
+                "\n\n" + GoCrashTrace.report(context.applicationContext)
         }
     }
     BackHandler { onBack() }
