@@ -23,6 +23,7 @@ import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
  */
 internal class SingBoxNativeBackend(private val vpn: VpnService) {
     private var server: CommandServer? = null
+    private val networkEnvironment = SingBoxNetworkEnvironment(vpn)
 
     companion object {
         private val setupLock = Any()
@@ -56,20 +57,23 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
             when (method.name) {
                 "usePlatformAutoDetectInterfaceControl" -> true
                 "autoDetectInterfaceControl" -> {
-                    check(vpn.protect(args?.get(0) as Int)) { "Android не защитил сокет от VPN-петли" }
+                    // Outbound QUIC/TLS sockets must bypass the VPN TUN itself.
+                    val fd = args?.get(0) as? Int
+                        ?: error("libbox: нет файлового дескриптора для защиты")
+                    check(vpn.protect(fd)) { "Android не разрешил обход VPN для исходящего сокета" }
+                    null
+                }
+                "startDefaultInterfaceMonitor" -> {
+                    networkEnvironment.startDefaultInterfaceMonitor(
+                        args?.firstOrNull() ?: error("libbox: нет слушателя смены сети"))
+                    null
+                }
+                "closeDefaultInterfaceMonitor" -> {
+                    args?.firstOrNull()?.let(networkEnvironment::closeDefaultInterfaceMonitor)
                     null
                 }
                 "openTun" -> error("sing-box не создаёт второй VPN-интерфейс")
-                "getInterfaces" -> {
-                    val klass = Class.forName("io.nekohasekai.libbox.NetworkInterfaceIterator")
-                    Proxy.newProxyInstance(klass.classLoader, arrayOf(klass)) { _, m, _ ->
-                        when (m.name) {
-                            "hasNext" -> false
-                            "len" -> 0
-                            else -> null
-                        }
-                    }
-                }
+                "getInterfaces" -> networkEnvironment.getInterfaces()
                 "underNetworkExtension" -> false
                 "includeAllNetworks" -> false
                 "usePlatformBridge" -> false
@@ -114,6 +118,12 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
     fun start(raw: String): Int {
         check(server == null) { "sing-box уже запущен" }
         initialize(vpn)
+        // Never announce a usable SOCKS listener with an empty physical network table.
+        val available = networkEnvironment.getInterfaces()
+        val hasNext = available.javaClass.methods.first {
+            it.name.equals("hasNext", ignoreCase = true)
+        }.invoke(available) as Boolean
+        check(hasNext) { "Android не обнаружил физическую сеть для TUIC/AnyTLS" }
         val port = ServerSocket(0).use { it.localPort }
         val config = SingBoxBridgeConfig.fromShareLink(raw, port)
         val current = CommandServer(callbacks(), platform())
@@ -125,6 +135,7 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
         } catch (e: Exception) {
             runCatching { current.closeService() }
             runCatching { current.close() }
+            networkEnvironment.close()
             throw IllegalStateException("Не удалось запустить TUIC/AnyTLS: " +
                 (e.message ?: "ошибка ядра"), e)
         }
@@ -135,5 +146,6 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
         server = null
         runCatching { current.closeService() }
         runCatching { current.close() }
+        networkEnvironment.close()
     }
 }
