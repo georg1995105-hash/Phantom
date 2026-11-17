@@ -12,7 +12,7 @@ object SingBoxBridgeConfig {
     fun requiresSingBox(profile: ServerProfile): Boolean =
         profile.scheme.lowercase() in schemes
 
-    fun fromShareLink(raw: String, localPort: Int): String {
+    fun fromShareLink(raw: String, localPort: Int, resolvedServerIp: String? = null): String {
         require(localPort in 1024..65535) { "Неверный локальный порт" }
         val uri = URI(raw.trim())
         val protocol = uri.scheme?.lowercase() ?: ""
@@ -35,7 +35,7 @@ object SingBoxBridgeConfig {
         val outbound = JSONObject()
             .put("type", protocol)
             .put("tag", "proxy")
-            .put("server", host)
+            .put("server", resolvedServerIp?.takeIf { it.isNotBlank() } ?: host)
             .put("server_port", uri.port)
             .put("tls", tls)
         when (protocol) {

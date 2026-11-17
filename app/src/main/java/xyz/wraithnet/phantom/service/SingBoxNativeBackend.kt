@@ -125,7 +125,8 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
         }.invoke(available) as Boolean
         check(hasNext) { "Android не обнаружил физическую сеть для TUIC/AnyTLS" }
         val port = ServerSocket(0).use { it.localPort }
-        val config = SingBoxBridgeConfig.fromShareLink(raw, port)
+        val resolvedIp = networkEnvironment.resolveOutboundAddress(raw)
+        val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp)
         val current = CommandServer(callbacks(), platform())
         try {
             current.start()

@@ -32,6 +32,15 @@ class SingBoxBridgeConfigTest {
         assertFalse(outbound.getJSONObject("tls").getBoolean("insecure"))
     }
 
+    @Test fun resolvedServerAddressKeepsOriginalTLSIdentity() {
+        val json = JSONObject(SingBoxBridgeConfig.fromShareLink(tuic, 39121, "203.0.113.21"))
+        val outbound = json.getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("203.0.113.21", outbound.getString("server"))
+        assertEquals("solar.veor.pro", outbound.getJSONObject("tls").getString("server_name"))
+        assertEquals("0e30184e-81b9-4ac0-9e43-e47b9c6ad0aa",
+            outbound.getString("uuid"))
+    }
+
     @Test fun realAnyTLSConfigIsSupported() {
         val json = JSONObject(SingBoxBridgeConfig.fromShareLink(
             "anytls://my%40password@example.org:443?sni=edge.example.org", 39821))

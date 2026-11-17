@@ -9,6 +9,9 @@ import android.net.NetworkRequest
 import android.os.Build
 import java.lang.reflect.Proxy
 import java.net.NetworkInterface
+import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.URI
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,6 +28,31 @@ import java.util.concurrent.ConcurrentHashMap
 internal class SingBoxNetworkEnvironment(context: Context) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val callbacks = ConcurrentHashMap<Any, ConnectivityManager.NetworkCallback>()
+
+    /**
+     * Resolve the TUIC/AnyTLS server using Android's physical network, bypassing
+     * any already active VPN. The original domain remains the TLS SNI.
+     * sing-box 1.14 requires a resolver when dialing outbound hostnames; an IP
+     * literal avoids using the incomplete app-provided DNS transport.
+     */
+    fun resolveOutboundAddress(raw: String): String {
+        val host = URI(raw.trim()).host?.takeIf { it.isNotBlank() }
+            ?: error("Не указан адрес TUIC/AnyTLS")
+        if (host.contains(':') || host.all { it.isDigit() || it == '.' }) {
+            return host.substringBefore('%')
+        }
+        val network = physicalNetwork()
+            ?: error("Нет доступной физической сети для DNS TUIC/AnyTLS")
+        val addresses = try {
+            network.getAllByName(host).toList()
+        } catch (e: Exception) {
+            throw IllegalStateException("DNS физической сети не определил сервер TUIC/AnyTLS")
+        }
+        val resolved = addresses.filterIsInstance<Inet4Address>().firstOrNull()
+            ?: addresses.firstOrNull()
+            ?: error("DNS вернул пустой список IP сервера")
+        return resolved.hostAddress.substringBefore('%')
+    }
 
     private fun physicalNetwork(): Network? {
         return connectivity.allNetworks
