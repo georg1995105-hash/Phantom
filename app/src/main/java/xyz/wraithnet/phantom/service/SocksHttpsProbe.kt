@@ -18,26 +18,38 @@ import java.util.concurrent.TimeUnit
 internal object SocksHttpsProbe {
     private val targets = listOf(
         "www.gstatic.com" to "/generate_204",
-        "cp.cloudflare.com" to "/generate_204"
+        "cp.cloudflare.com" to "/generate_204",
+        "example.com" to "/"
     )
 
-    fun measure(port: Int): Long {
+    data class Result(val delayMs: Long, val failure: String = "")
+
+    /** Failure stage is deliberately coarse: no profile secrets or remote server host. */
+    fun check(port: Int): Result {
         require(port in 1024..65535) { "Неверный SOCKS-порт" }
+        var failure = "Нет ответа от контрольных HTTPS-адресов"
         for ((host, path) in targets) {
-            val delay = runCatching { request(port, host, path) }.getOrDefault(-1L)
-            if (delay > 0L) return delay
+            val response = runCatching { request(port, host, path) }
+            val delay = response.getOrNull()
+            if (delay != null && delay > 0L) return Result(delay)
+            failure = response.exceptionOrNull()?.message?.take(130) ?: failure
         }
-        return -1L
+        return Result(-1L, failure)
     }
+
+    fun measure(port: Int): Long = check(port).delayMs
 
     private fun request(port: Int, host: String, path: String): Long {
         val start = System.nanoTime()
+        var stage = "соединение с локальным SOCKS5"
+        try {
         Socket().use { socket ->
-            socket.soTimeout = 5000
+            socket.soTimeout = 7000
             socket.connect(InetSocketAddress("127.0.0.1", port), 2500)
             val output = socket.getOutputStream()
             val input = socket.getInputStream()
             // SOCKS5: no authentication; credentials apply to remote VPN, not this loopback.
+            stage = "согласование SOCKS5"
             output.write(byteArrayOf(5, 1, 0))
             output.flush()
             val greeting = readExact(input, 2)
@@ -46,6 +58,7 @@ internal object SocksHttpsProbe {
             }
             val name = host.toByteArray(StandardCharsets.US_ASCII)
             require(name.size in 1..255)
+            stage = "подключение TUIC/AnyTLS к HTTPS"
             output.write(byteArrayOf(5, 1, 0, 3, name.size.toByte()))
             output.write(name)
             output.write(byteArrayOf(1, -69)) // HTTPS 443
@@ -61,15 +74,17 @@ internal object SocksHttpsProbe {
                 else -> error("Неверный SOCKS5 ответ")
             }
             readExact(input, 2) // BND port
+            stage = "проверка TLS-сертификата HTTPS"
             val ssl = (SSLSocketFactory.getDefault() as SSLSocketFactory)
                 .createSocket(socket, host, 443, false) as SSLSocket
             ssl.use {
-                it.soTimeout = 5000
+                it.soTimeout = 7000
                 it.sslParameters = it.sslParameters.apply {
                     endpointIdentificationAlgorithm = "HTTPS"
                     serverNames = listOf(SNIHostName(host))
                 }
                 it.startHandshake()
+                stage = "получение ответа HTTPS"
                 it.outputStream.write(
                     "GET $path HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n"
                         .toByteArray(StandardCharsets.US_ASCII)
@@ -85,13 +100,22 @@ internal object SocksHttpsProbe {
                         first[count - 1] == 10.toByte()) break
                 }
                 val status = String(first, 0, count, StandardCharsets.US_ASCII)
-                require(status.startsWith("HTTP/1.1 204") ||
-                    status.startsWith("HTTP/1.0 204")) {
-                    "HTTPS-проверка вернула неожиданный статус"
+                val code = status.trim().split(" ").getOrNull(1)?.toIntOrNull() ?: -1
+                require(code in 200..399) {
+                    "Контрольный HTTPS-адрес не подтвердил доступность"
                 }
             }
         }
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start).coerceAtLeast(1)
+        } catch (e: Exception) {
+            // Error dialog must never contain URI credentials, addresses or Go traces.
+            val kind = when (e) {
+                is javax.net.ssl.SSLHandshakeException -> "ошибка TLS"
+                is java.net.SocketTimeoutException -> "тайм-аут"
+                else -> "нет ответа"
+            }
+            throw IllegalStateException("$stage: $kind")
+        }
     }
 
     private fun readExact(input: java.io.InputStream, length: Int): ByteArray {
