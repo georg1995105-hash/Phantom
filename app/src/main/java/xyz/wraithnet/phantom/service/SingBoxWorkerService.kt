@@ -27,6 +27,22 @@ import java.util.concurrent.RejectedExecutionException
 class SingBoxWorkerService : VpnService() {
     private val executor = Executors.newSingleThreadExecutor()
     private val leaseStartIds = ConcurrentHashMap<String, Int>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile private var boundClient = false
+    // Losing the last Binder connection is not the same as an explicit STOP.
+    // Android may detach/rebind clients during a VPN/network transition.
+    // Keep the started-service lease during a short reconnect window, then
+    // release an orphan if the controlling process never comes back.
+    private val orphanCleanup = Runnable {
+        if (!destroyed && !boundClient) {
+            val orphan = activeSessionId
+            if (orphan != null) submit {
+                if (!boundClient && activeSessionId == orphan) {
+                    stopSession(orphan, "управляющий процесс не переподключился")
+                }
+            }
+        }
+    }
     @Volatile private var destroyed = false
     @Volatile private var activeSessionId: String? = null
     @Volatile private var lastStopReason = "не запускался"
@@ -137,21 +153,30 @@ class SingBoxWorkerService : VpnService() {
         }
     })
 
-    override fun onBind(intent: Intent?): IBinder = messenger.binder
+    override fun onBind(intent: Intent?): IBinder {
+        boundClient = true
+        mainHandler.removeCallbacks(orphanCleanup)
+        return messenger.binder
+    }
+
+    override fun onRebind(intent: Intent?) {
+        boundClient = true
+        mainHandler.removeCallbacks(orphanCleanup)
+        super.onRebind(intent)
+    }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        // Defensive cleanup if the controlling process vanished before MSG_STOP.
-        // A replacement session is never stopped because IDs are checked in the
-        // serial executor and stopSelfResult cannot stop a newer startId.
-        val orphan = activeSessionId
-        if (orphan != null) submit {
-            if (activeSessionId == orphan) stopSession(orphan, "потеряна привязка Android")
-        }
+        // Do NOT immediately stop sing-box here. The started lease survives
+        // transient unbinds; only an explicit session STOP may stop it now.
+        boundClient = false
+        mainHandler.removeCallbacks(orphanCleanup)
+        mainHandler.postDelayed(orphanCleanup, 15_000L)
         return true
     }
 
     override fun onDestroy() {
         destroyed = true
+        mainHandler.removeCallbacks(orphanCleanup)
         runCatching {
             executor.execute {
                 runCatching { backend.stop() }
