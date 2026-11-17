@@ -50,6 +50,50 @@ class NativeCrashTraceTest {
         assertFalse(actual, actual.contains("vpn.host"))
     }
 
+
+    @Test fun capturesAbortReasonAndSamePidFatalWithoutOtherProcessOrCredentials() {
+        val pid = 5434L
+        val tid = 5440L
+        val sig = text(2, "SIGABRT") + text(4, "SI_TKILL")
+        val frame = scalar(1, 0x23a12c8) + text(6, "/private/base.apk")
+        val thread = scalar(1, tid) + text(2, "Thread-4") +
+            embedded(4, frame) + text(7, "unwind failed near JNI callback")
+        val map = scalar(1, tid) + embedded(2, thread)
+
+        fun logEntry(id: Long, line: String, level: Long = 7L): ByteArray =
+            embedded(2, scalar(2, id) + scalar(3, tid) +
+                scalar(4, level) + text(5, "libc") + text(6, line))
+
+        val logs = logEntry(pid, "JNI DETECTED ERROR IN APPLICATION: use of stale JNI global ref") +
+            logEntry(999L, "panic: THIS_MUST_NOT_APPEAR") +
+            logEntry(pid, "user clicked https://test.example/private", 4L)
+
+        val tombstone = scalar(5, pid) + scalar(6, tid) +
+            embedded(10, sig) +
+            text(14, "JNI DETECTED ERROR IN APPLICATION: password=EXPOSED_TOKEN; " +
+                "tuic://username:secret@server.example.net /data/app/private/config") +
+            embedded(16, map) + embedded(18, text(1, "crash") + logs)
+        val result = NativeCrashTrace.summarize(tombstone)
+        assertTrue(result, result.contains("SIGABRT"))
+        assertTrue(result, result.contains("Abort message: JNI DETECTED ERROR"))
+        assertTrue(result, result.contains("JNI global ref"))
+        assertTrue(result, result.contains("Thread-4"))
+        assertTrue(result, result.contains("0x23a12c8"))
+        assertTrue(result, result.contains("unwind failed"))
+        assertTrue(result, result.contains("[ссылка скрыта]"))
+        assertFalse(result, result.contains("EXPOSED_TOKEN"))
+        assertFalse(result, result.contains("server.example.net"))
+        assertFalse(result, result.contains("/data/app"))
+        assertFalse(result, result.contains("THIS_MUST_NOT_APPEAR"))
+        assertFalse(result, result.contains("user clicked"))
+    }
+
+    @Test fun abortMessageAbsenceIsExplicit() {
+        val sig = text(2, "SIGABRT")
+        val result = NativeCrashTrace.summarize(scalar(6, 12) + embedded(10, sig))
+        assertTrue(result, result.contains("Abort message: отсутствует"))
+    }
+
     @Test fun missingThreadIsExplicitAndDoesNotLeakMemory() {
         val signal = text(2, "SIGABRT")
         val actual = NativeCrashTrace.summarize(scalar(6, 1234) + embedded(10, signal))
