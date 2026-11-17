@@ -244,16 +244,27 @@ class PhantomVpnService : VpnService() {
 
             // Core startup alone is not proof of Internet access.
             // Measure via the configured Xray outbound, not device networking.
-            val verified = listOf(
+            var verifiedDelay = -1L
+            for (endpoint in listOf(
                 "https://www.gstatic.com/generate_204",
                 "https://cp.cloudflare.com/generate_204",
-            ).any { endpoint -> runCatching { active.measureDelay(endpoint) > 0L }.getOrDefault(false) }
-            require(verified) { "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер." }
+            )) {
+                val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
+                if (value > 0L) {
+                    verifiedDelay = value
+                    break
+                }
+            }
+            require(verifiedDelay > 0L) {
+                "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
+            }
 
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
+                .putLong("vpn_last_latency_ms", verifiedDelay)
+                .putInt("vpn_last_latency_profile_hash", raw.hashCode())
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
@@ -281,6 +292,7 @@ class PhantomVpnService : VpnService() {
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         prefs.edit().putBoolean("vpn_running", false)
+            .remove("vpn_last_latency_ms").remove("vpn_last_latency_profile_hash")
             .putLong("vpn_connected_since_elapsed", 0L).apply()
         if (report) {
             setState(STATUS_DISCONNECTED)
