@@ -216,6 +216,10 @@ class PhantomVpnService : VpnService() {
                 }
                 singBoxBridge = engine
                 val socksPort = engine.start(raw)
+                check(SocksHttpsProbe.measure(socksPort) > 0L) {
+                    "TUIC/AnyTLS запущен, но не передаёт HTTPS через сервер. " +
+                        "Проверьте параметры сервера и соединение."
+                }
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
                 XrayConfigBuilder.build(profile)
@@ -256,7 +260,9 @@ class PhantomVpnService : VpnService() {
                 }
             }
             require(verifiedDelay > 0L) {
-                "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
+                if (SingBoxBridgeConfig.requiresSingBox(profile))
+                    "sing-box передаёт HTTPS, но Xray не пропускает его через VPN-туннель."
+                else "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
             }
 
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
