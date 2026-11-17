@@ -56,7 +56,7 @@ object VpnEventLog {
 
     private fun scrub(message: String): String {
         var text = message.take(400)
-        text = text.replace(Regex("""(?i)\b(?:vless|vmess|trojan|hysteria2?|hy2|ss)://\S+"""), "[ссылка скрыта]")
+        text = text.replace(Regex("""(?i)\b(?:vless|vmess|trojan|hysteria2?|hy2|tuic|anytls|ss)://\S+"""), "[ссылка скрыта]")
         text = text.replace(Regex("""(?i)\b(?:https?|wss?)://\S+"""), "[адрес скрыт]")
         text = text.replace(Regex("""(?i)\b[A-F0-9]{8}(?:-[A-F0-9]{4}){3}-[A-F0-9]{12}\b"""), "[ID скрыт]")
         text = text.replace(Regex("""(?i)(?:password|passwd|secret|token|key)\s*[=:]\s*\S+"""), "[секрет скрыт]")

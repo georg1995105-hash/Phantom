@@ -35,8 +35,13 @@ object SubscriptionParser {
 
     private fun parseLink(line: String, index: Int): ServerProfile? {
         val scheme = line.substringBefore(":", "").lowercase()
-        val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")
+        val supported = setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2", "tuic", "anytls")
         if (scheme !in supported) return null
+        // Do not display broken TUIC/AnyTLS links as usable servers.
+        // Import succeeds only when credentials and address can become a real outbound.
+        if (scheme in SingBoxBridgeConfig.schemes &&
+            runCatching { SingBoxBridgeConfig.fromShareLink(line, 39051) }.isFailure
+        ) return null
         val uri = runCatching { URI(line) }.getOrNull()
         val fragment = uri?.rawFragment?.let(ShareLinkCodec::percentDecode)
         val ss = if (scheme == "ss") runCatching { ShareLinkCodec.shadowsocks(line) }.getOrNull() else null
@@ -95,7 +100,7 @@ object SubscriptionParser {
             if (decoded.startsWith("{") || decoded.startsWith("[") ||
                 decoded.lineSequence().any {
                     val scheme = it.trim().substringBefore("://", "").lowercase()
-                    scheme in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")
+                    scheme in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2", "tuic", "anytls")
                 }) decoded else value
         }.getOrDefault(value)
     }

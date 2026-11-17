@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.os.PowerManager
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,15 +38,20 @@ import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
+import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
 import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.MainActivity
 
 class PhantomVpnService : VpnService() {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
+    // Intent commands may launch on different IO threads; the latest tap wins.
+    private val commandEpoch = AtomicLong(0)
     private lateinit var prefs: SharedPreferences
     private var vpnInterface: ParcelFileDescriptor? = null
     private var controller: CoreController? = null
+    private var singBoxBridge: SingBoxBridge? = null
+    private var singBoxSession: Any? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var trafficJob: Job? = null
     private var handoverJob: Job? = null
@@ -130,11 +136,17 @@ class PhantomVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                val epoch = commandEpoch.incrementAndGet()
                 prefs.edit().putBoolean("vpn_requested", false).apply()
                 handoverJob?.cancel()
                 ioScope.launch {
-                    mutex.withLock { stopLocked() }
-                    stopSelf()
+                    mutex.withLock {
+                        if (epoch != commandEpoch.get()) return@withLock
+                        stopLocked()
+                    }
+                    if (epoch == commandEpoch.get() &&
+                        !prefs.getBoolean("vpn_requested", false)
+                    ) stopSelfResult(startId)
                 }
             }
             ACTION_QUERY -> sendStatus(state)
@@ -147,17 +159,25 @@ class PhantomVpnService : VpnService() {
                     trafficJob = null
                 }
             }
-            ACTION_RELOAD -> ioScope.launch { mutex.withLock {
-                startLocked(prefs.getString("vpn_last_profile", "").orEmpty())
-            } }
+            ACTION_RELOAD -> {
+                val epoch = commandEpoch.incrementAndGet()
+                ioScope.launch { mutex.withLock {
+                    if (epoch == commandEpoch.get()) {
+                        startLocked(prefs.getString("vpn_last_profile", "").orEmpty(), epoch)
+                    }
+                } }
+            }
             ACTION_KEEP_ALIVE -> ioScope.launch {
                 mutex.withLock { configureWakeLock() }
             }
             ACTION_START -> {
                 val profile = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
                 if (profile.isNotBlank()) {
+                    val epoch = commandEpoch.incrementAndGet()
                     prefs.edit().putBoolean("vpn_requested", true).apply()
-                    ioScope.launch { mutex.withLock { startLocked(profile) } }
+                    ioScope.launch { mutex.withLock {
+                        if (epoch == commandEpoch.get()) startLocked(profile, epoch)
+                    } }
                 } else setState(STATUS_ERROR, "Сначала выберите сервер")
             }
             ACTION_BOOT_START -> {
@@ -184,19 +204,48 @@ class PhantomVpnService : VpnService() {
         return if (intent?.action == ACTION_STOP) START_NOT_STICKY else START_STICKY
     }
 
-    private fun startLocked(raw: String) {
+    private fun startLocked(raw: String, command: Long? = null) {
         if (revokedByAndroid) return
-        stopLocked(false)
+        val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
         try {
+            check(previousClosed) {
+                "Старое ядро sing-box не завершилось. Подключение остановлено во избежание сбоя"
+            }
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
             val dns = VpnDnsSettings.load(this)
             check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
-            val config = dns.applyToXray(FragmentationOptions.load(this).apply(
-                XrayConfigBuilder.build(ServerProfile("runtime", "runtime", scheme, raw = raw))
-            ))
+            val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
+            var singBoxPort: Int? = null
+            val baseConfig = if (SingBoxBridgeConfig.requiresSingBox(profile)) {
+                // sing-box handles the native TUIC/AnyTLS transport, while Xray
+                // keeps Android TUN and all existing per-app VPN routing.
+                val session = Any()
+                singBoxSession = session
+                val engine = SingBoxBridge(this) {
+                    ioScope.launch {
+                        mutex.withLock {
+                            if (singBoxSession === session) {
+                                stopLocked(false)
+                                setState(STATUS_ERROR, "Процесс sing-box неожиданно завершился")
+                                updateNotification("Ошибка движка VPN")
+                            }
+                        }
+                    }
+                }
+                singBoxBridge = engine
+                // Validate only local SOCKS readiness before Android TUN exists.
+                // The first outbound TUIC/AnyTLS dial must happen after the VPN
+                // interface and native Xray routing are established.
+                val socksPort = engine.start(raw)
+                singBoxPort = socksPort
+                XrayConfigBuilder.buildSocksBridge(socksPort)
+            } else {
+                XrayConfigBuilder.build(profile)
+            }
+            val config = dns.applyToXray(FragmentationOptions.load(this).apply(baseConfig))
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
@@ -220,16 +269,51 @@ class PhantomVpnService : VpnService() {
 
             // Core startup alone is not proof of Internet access.
             // Measure via the configured Xray outbound, not device networking.
-            val verified = listOf(
+            var verifiedDelay = -1L
+            for (endpoint in listOf(
                 "https://www.gstatic.com/generate_204",
                 "https://cp.cloudflare.com/generate_204",
-            ).any { endpoint -> runCatching { active.measureDelay(endpoint) > 0L }.getOrDefault(false) }
-            require(verified) { "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер." }
+                "https://example.com/",
+            )) {
+                check(command == null || command == commandEpoch.get()) {
+                    "Запрос подключения заменён новым действием"
+                }
+                val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
+                if (value > 0L) {
+                    verifiedDelay = value
+                    break
+                }
+            }
+            require(verifiedDelay > 0L) {
+                if (SingBoxBridgeConfig.requiresSingBox(profile)) {
+                    val port = singBoxPort
+                    val local = port?.let { LocalSocks5Probe.check(it) }
+                    when {
+                        port == null -> "Не получен SOCKS5-порт sing-box."
+                        local?.ready != true ->
+                            "Локальный SOCKS5 перестал отвечать: " +
+                                (local?.reason ?: "нет данных") +
+                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
+                        else -> {
+                            val upstream = SocksHttpsProbe.check(port)
+                            if (upstream.delayMs > 0L)
+                                "TUIC передаёт HTTPS, но Xray не пропускает его через VPN."
+                            else "TUIC/AnyTLS не передаёт HTTPS: " + upstream.failure +
+                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
+                        }
+                    }
+                } else "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
+            }
 
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
+            check(command == null || command == commandEpoch.get()) {
+                "Подключение заменено новым действием"
+            }
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
+                .putLong("vpn_last_latency_ms", verifiedDelay)
+                .putInt("vpn_last_latency_profile_hash", raw.hashCode())
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
@@ -244,21 +328,31 @@ class PhantomVpnService : VpnService() {
         }
     }
 
-    private fun stopLocked(report: Boolean = true) {
+    /**
+     * Tear down the dependency chain in order: isolated sing-box -> Xray -> TUN.
+     * The next profile must not begin until the former Go worker has exited.
+     */
+    private fun stopLocked(report: Boolean = true): Boolean {
         running = false
         trafficJob?.cancel()
         trafficJob = null
         releaseWakeLock()
+        singBoxSession = null
+        val previousBridge = singBoxBridge
+        singBoxBridge = null
+        val workerStopped = runCatching { previousBridge?.stop() }.isSuccess
         runCatching { controller?.stopLoop() }
         controller = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         prefs.edit().putBoolean("vpn_running", false)
+            .remove("vpn_last_latency_ms").remove("vpn_last_latency_profile_hash")
             .putLong("vpn_connected_since_elapsed", 0L).apply()
         if (report) {
             setState(STATUS_DISCONNECTED)
             updateNotification("VPN отключён")
         }
+        return workerStopped
     }
 
     /** Only the running Xray core is queried; no root access, server API or device-wide counters. */
@@ -372,6 +466,7 @@ class PhantomVpnService : VpnService() {
         // Publish the revoked state *before* super.onRevoke() stops the service:
         // deferred coroutines can be cancelled by onDestroy before they run.
         revokedByAndroid = true
+        commandEpoch.incrementAndGet()
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
         running = false
@@ -399,6 +494,14 @@ class PhantomVpnService : VpnService() {
         }
         trafficJob?.cancel()
         releaseWakeLock()
+        // onDestroy runs on Android main thread. Retire worker in an independent
+        // cleanup thread so no synchronous IPC wait can stall the UI.
+        singBoxSession = null
+        val oldWorker = singBoxBridge
+        singBoxBridge = null
+        if (oldWorker != null) {
+            Thread({ runCatching { oldWorker.stop() } }, "Phantom-SingBox-Cleanup").start()
+        }
         runCatching { controller?.stopLoop() }
         runCatching { vpnInterface?.close() }
         ioScope.cancel()

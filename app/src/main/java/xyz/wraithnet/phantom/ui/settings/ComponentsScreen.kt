@@ -25,6 +25,10 @@ private data class LibraryLicense(val title: String, val license: String, val ur
 
 private val componentLicenses = listOf(
     LibraryLicense(
+        "sing-box / libbox (TUIC, AnyTLS)", "GNU GPL 3.0",
+        "https://github.com/singbox-android/libbox/blob/main/LICENSE"
+    ),
+    LibraryLicense(
         "Xray-core", "Mozilla Public License 2.0",
         "https://github.com/XTLS/Xray-core/blob/main/LICENSE"
     ),
@@ -89,12 +93,12 @@ fun ComponentsScreen(onBack: () -> Unit) {
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("VPN-ядро Xray " + BuildConfig.XRAY_CORE_VERSION,
+                        Text("VPN-ядра Xray " + BuildConfig.XRAY_CORE_VERSION + " и sing-box 1.14.4",
                             fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                         Text("Поддерживаемые форматы подключений",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("VLESS  ·  VMess  ·  Trojan  ·  Shadowsocks  ·  Hysteria2  ·  Xray JSON",
+                        Text("VLESS  ·  VMess  ·  Trojan  ·  Shadowsocks  ·  Hysteria2  ·  TUIC v5  ·  AnyTLS  ·  Xray JSON",
                             fontSize = 14.sp, lineHeight = 22.sp)
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
                         Text("Транспорты и защита", fontWeight = FontWeight.Medium)

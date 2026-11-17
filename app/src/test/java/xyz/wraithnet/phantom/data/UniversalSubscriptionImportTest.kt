@@ -33,6 +33,18 @@ class UniversalSubscriptionImportTest {
         assertEquals(2, SubscriptionParser.parse(encoded).servers.size)
     }
 
+    @Test fun mixedSubscriptionKeepsTuicAnyTlsHysteria2AndVless() {
+        val tuic = "tuic://00000000-0000-0000-0000-000000000002:secret@se.example.org:25443?sni=se.example.org#TUIC"
+        val anytls = "anytls://secret@se.example.org:443?sni=se.example.org#AnyTLS"
+        val hy2 = "hysteria2://secret@de.example.org:443?sni=de.example.org#Germany"
+        val mixed = listOf(tuic, vless, hy2, anytls).joinToString("\n")
+        val subscription = SubscriptionParser.parse(mixed)
+        assertEquals(4, subscription.servers.size)
+        assertEquals(listOf("tuic", "vless", "hysteria2", "anytls"),
+            subscription.servers.map { it.scheme })
+        assertTrue(subscription.servers.all { ProtocolSupport.isSupported(it.scheme) })
+    }
+
     @Test fun unknownProtocolsAreNotMisrepresentedAsSupported() {
         val unsupported = "tuic://password@not-supported.example.org:443"
         assertThrows(IllegalArgumentException::class.java) {

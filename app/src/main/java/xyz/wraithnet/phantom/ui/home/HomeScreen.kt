@@ -1,6 +1,10 @@
 package xyz.wraithnet.phantom.ui.home
 
+import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.os.Build
+import android.os.PersistableBundle
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
@@ -23,6 +27,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -69,6 +74,8 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.ProtocolSupport
+import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
@@ -127,8 +134,10 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     var subscriptions by remember { mutableStateOf(store.read()) }
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
-    val selected = subscriptions.flatMap { it.servers }.firstOrNull { it.id == selectedId }
-        ?: subscriptions.firstOrNull()?.servers?.firstOrNull()
+    var selectedSubId by remember { mutableStateOf(prefs.getString("selected_subscription_id", null)) }
+    var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
+    val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
+    val selected = selectedMatch?.second
     var expandedIds by remember { mutableStateOf(subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
@@ -136,7 +145,6 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
-    var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
@@ -158,6 +166,35 @@ fun HomeScreen(
     fun persist(list: List<Subscription>) {
         subscriptions = list
         store.write(list)
+    }
+    fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
+
+    // For QUIC/UDP, show only real HTTPS latency measured over the active tunnel.
+    LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
+        if (vpnStatus == "connected") {
+            selectedMatch?.let { (owner, server) ->
+                val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
+                if (rtt > 0L) latencies[pingKey(owner, server)] = rtt
+            }
+        }
+    }
+
+    fun copyLink(value: String, message: String) {
+        if (value.isBlank()) {
+            scope.launch { snackbar.showSnackbar("Нет ссылки для копирования") }
+            return
+        }
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        // Android 13+: suppress plaintext previews of VPN secrets in the system clipboard.
+        val clip = ClipData.newPlainText("Phantom VPN", value)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            clip.description.extras = PersistableBundle().apply {
+                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+            }
+        }
+        clipboard.setPrimaryClip(clip)
+        softTap()
+        scope.launch { snackbar.showSnackbar(message) }
     }
 
     fun pasteText(): String {
@@ -196,7 +233,12 @@ fun HomeScreen(
                 )
                 persist(subscriptions + subscription)
                 expandedIds = expandedIds + subscription.id
-                if (selectedId == null) selectedId = subscription.servers.firstOrNull()?.id
+                if (selected == null) {
+                    selectedId = subscription.servers.firstOrNull()?.id
+                    selectedSubId = subscription.id
+                    prefs.edit().putString("selected_server_id", selectedId)
+                        .putString("selected_subscription_id", selectedSubId).apply()
+                }
                 importMode = null
                 showImportMenu = false
                 softTap()
@@ -265,8 +307,7 @@ fun HomeScreen(
         pingCompleted = 0
         scope.launch {
             try {
-                val supported = setOf("vless", "vmess", "trojan", "ss", "xray", "hysteria", "hysteria2", "hy2")
-                val servers = item.servers.filter { it.scheme.lowercase() in supported }
+                val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
                 coroutineScope {
                     val limit = Semaphore(3)
                     servers.map { server ->
@@ -275,19 +316,21 @@ fun HomeScreen(
                                 runCatching { LatencyProbe.measure(context.applicationContext, server) }
                                     .getOrNull() ?: -1L
                             }
-                            latencies[server.id] = ping
+                            latencies[pingKey(item, server)] = ping
                             pingCompleted++
-                            server.id to ping
+                            pingKey(item, server) to ping
                         }
-                    }.awaitAll().forEach { (serverId, delayMs) ->
-                        latencies[serverId] = delayMs
+                    }.awaitAll().forEach { (serverKey, delayMs) ->
+                        latencies[serverKey] = delayMs
                     }
                 }
-                val checked = servers.count { (latencies[it.id] ?: -1L) > 0L }
-                snackbar.showSnackbar(
-                    if (checked == 0) "Не получено ни одного результата проверки"
-                    else "Проверка пинга завершена"
-                )
+                val checked = servers.count { (latencies[pingKey(item, it)] ?: -1L) > 0L }
+                val needsTunnel = servers.any { ProtocolSupport.needsConnectedPing(it.scheme) }
+                snackbar.showSnackbar(when {
+                    checked > 0 -> "Проверка задержки завершена"
+                    needsTunnel -> "Для точного пинга TUIC/Hysteria2 подключите сервер"
+                    else -> "Не получено ни одного результата проверки"
+                })
             } catch (e: Exception) {
                 snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
@@ -378,6 +421,7 @@ fun HomeScreen(
             onBackupRestored = {
                 subscriptions = store.read()
                 selectedId = prefs.getString("selected_server_id", null)
+                selectedSubId = prefs.getString("selected_subscription_id", null)
                 pinnedSubId = prefs.getString("pinned_sub_id", null)
                 expandedIds = subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()
                 runCatching {
@@ -390,6 +434,19 @@ fun HomeScreen(
         return
     }
 
+    val standalone = subscriptions.filter { item ->
+        !item.source.startsWith("http://", true) &&
+            !item.source.startsWith("https://", true) && item.servers.size == 1
+    }
+    val regular = subscriptions.filterNot { sub -> standalone.any { it.id == sub.id } }
+    // One compact card holds every standalone key. A pinned key moves the group first.
+    val displayItems: List<Subscription?> = buildList {
+        addAll(regular)
+        if (standalone.isNotEmpty()) add(null)
+    }.sortedByDescending { item ->
+        if (item == null) standalone.any { it.id == pinnedSubId }
+        else item.id == pinnedSubId
+    }
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -403,8 +460,34 @@ fun HomeScreen(
                     Icon(Icons.Default.Settings, "Настройки", Modifier.size(24.dp))
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { showImportMenu = true }) {
-                    Icon(Icons.Default.Add, "Добавить конфигурацию", Modifier.size(27.dp))
+            }
+        },
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.background) {
+                Row(
+                    Modifier.fillMaxWidth().navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = { softTap(); add(pasteText()) },
+                        enabled = !importBusy,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Вставить")
+                    }
+                    OutlinedButton(
+                        onClick = { softTap(); showImportMenu = true },
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text("Добавить")
+                    }
                 }
             }
         }
@@ -504,18 +587,94 @@ fun HomeScreen(
                             Text("Ссылка подписки или отдельный ключ VPN",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(Modifier.height(12.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { add(pasteText()) }) {
-                                    Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp)); Text("Вставить")
-                                }
-                                Button(onClick = { importMode = "url" }) { Text("Добавить") }
-                            }
+
                         }
                     }
                 }
             }
-            items(subscriptions.sortedByDescending { it.id == pinnedSubId }, key = { it.id }) { item ->
+            items(displayItems, key = { it?.id ?: "__standalone_keys__" }) { item ->
+                if (item == null) {
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.5.dp,
+                            MaterialTheme.colorScheme.outline.copy(alpha = .72f)),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column {
+                            Text(
+                                "Отдельные ключи",
+                                modifier = Modifier.fillMaxWidth()
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            standalone.sortedByDescending { it.id == pinnedSubId }
+                                .forEach { single ->
+                                    val server = single.servers.single()
+                                    val chosen = selectedMatch?.let { (owner, profile) ->
+                                        owner.id == single.id && profile.id == server.id
+                                    } == true
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.outline.copy(alpha = .16f))
+                                    Row(
+                                        Modifier.fillMaxWidth()
+                                            .background(if (chosen)
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f)
+                                                else Color.Transparent)
+                                            .heightIn(min = 65.dp)
+                                            .padding(start = 14.dp, end = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            Modifier.weight(1f).clickable {
+                                                softTap()
+                                                selectedId = server.id
+                                                selectedSubId = single.id
+                                                prefs.edit().putString("selected_server_id", server.id)
+                                                    .putString("selected_subscription_id", single.id).apply()
+                                                if (!chosen && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
+                                            }.padding(vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(CountryFlags.flag(server), fontSize = 23.sp)
+                                            Spacer(Modifier.width(12.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(displayServerName(server), fontSize = 15.sp,
+                                                        maxLines = 1,
+                                                        fontWeight = if (chosen)
+                                                            FontWeight.SemiBold else FontWeight.Medium,
+                                                        modifier = Modifier.weight(1f))
+                                                    if (pinnedSubId == single.id) {
+                                                        Icon(Icons.Default.PushPin, "Закреплено",
+                                                            Modifier.size(16.dp),
+                                                            tint = MaterialTheme.colorScheme.primary)
+                                                    }
+                                                }
+                                                Text(protocolLabel(server), fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            latencies[pingKey(single, server)]?.takeIf { it > 0 }?.let { delayMs ->
+                                                Text("${delayMs} мс", fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Spacer(Modifier.width(8.dp))
+                                            }
+                                            if (chosen) Icon(Icons.Default.CheckCircle, "Выбран",
+                                                Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(
+                                            onClick = { activeSubMenu = single.id },
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Icon(Icons.Default.MoreVert, "Меню ключа",
+                                                Modifier.size(21.dp))
+                                        }
+                                    }
+                                }
+                        }
+                    }
+                } else {
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.5.dp,
@@ -539,15 +698,27 @@ fun HomeScreen(
                             Column(Modifier.weight(1f).padding(start = 5.dp).clickable {
                                 expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id
                             }) {
-                                Text(item.title, style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(item.title, style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold, maxLines = 1,
+                                        modifier = Modifier.weight(1f))
+                                    if (pinnedSubId == item.id) {
+                                        Spacer(Modifier.width(6.dp))
+                                        Icon(Icons.Default.PushPin, "Закреплено сверху",
+                                            Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
                                 Text("Обновлено " + timeLabel(item.updatedAt),
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            IconButton(onClick = { scope.launch { refresh(item) } },
-                                enabled = item.id !in refreshing, modifier = Modifier.size(40.dp)) {
-                                if (item.id in refreshing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
+                            if (item.source.startsWith("https://", ignoreCase = true) ||
+                                item.source.startsWith("http://", ignoreCase = true)) {
+                                IconButton(onClick = { scope.launch { refresh(item) } },
+                                    enabled = item.id !in refreshing, modifier = Modifier.size(40.dp)) {
+                                    if (item.id in refreshing) CircularProgressIndicator(
+                                        Modifier.size(17.dp), strokeWidth = 2.dp)
+                                    else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
+                                }
                             }
                             IconButton(onClick = { probeSubscription(item) },
                                 enabled = item.id !in probing, modifier = Modifier.size(40.dp)) {
@@ -589,11 +760,12 @@ fun HomeScreen(
                         if (item.id in expandedIds) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .3f))
                             item.servers.forEach { server ->
-                                val supported = server.scheme.lowercase() in setOf(
-                                    "vless", "vmess", "trojan", "ss", "xray",
-                                    "hysteria", "hysteria2", "hy2"
-                                )
-                                val chosen = selected?.id == server.id
+                                val supported = ProtocolSupport.isSupported(server.scheme)
+                                val singleDirect = !item.source.startsWith("http", ignoreCase = true) &&
+                                    item.servers.size == 1
+                                val chosen = selectedMatch?.let { (owner, profile) ->
+                                    owner.id == item.id && profile.id == server.id
+                                } == true
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .background(if (chosen)
@@ -603,8 +775,10 @@ fun HomeScreen(
                                             if (supported) {
                                                 softTap()
                                                 selectedId = server.id
-                                                prefs.edit().putString("selected_server_id", server.id).apply()
-                                                if (vpnStatus == "connected") onStartVpn(server.raw)
+                                                selectedSubId = item.id
+                                                prefs.edit().putString("selected_server_id", server.id)
+                                                    .putString("selected_subscription_id", item.id).apply()
+                                                if (!chosen && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                                             } else {
                                                 scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                                             }
@@ -623,21 +797,25 @@ fun HomeScreen(
                                         Text(protocolLabel(server), fontSize = 10.sp,
                                             maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    latencies[server.id]?.let { ms ->
+                                    latencies[pingKey(item, server)]?.let { ms ->
                                         Text(if (ms >= 0) ms.toString() + " мс" else "—",
                                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         Spacer(Modifier.width(7.dp))
                                     }
-                                    if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.primary)
-                                    else if (supported) Box(Modifier.size(16.dp)
-                                        .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+                                    if (!singleDirect) {
+                                        if (chosen) Icon(Icons.Default.CheckCircle, "Выбран",
+                                            Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                                        else if (supported) Box(Modifier.size(16.dp)
+                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+                                    }
+
                                 }
                                 HorizontalDivider(Modifier.padding(start = 48.dp),
                                     color = MaterialTheme.colorScheme.outline.copy(alpha = .15f))
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -790,9 +968,32 @@ fun HomeScreen(
                         pinnedSubId = if (pinnedSubId == sub.id) null else sub.id
                         prefs.edit().putString("pinned_sub_id", pinnedSubId).apply()
                         activeSubMenu = null
+                        scope.launch {
+                            snackbar.showSnackbar(if (pinnedSubId == sub.id)
+                                "Закреплено сверху" else "Откреплено")
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    funActionRow("Удалить подписку", Icons.Default.DeleteOutline) {
+                    val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
+                        sub.source.startsWith("http://", ignoreCase = true)
+                    funActionRow(when {
+                        isRemote -> "Копировать подписку"
+                        sub.servers.size == 1 -> "Копировать ключ"
+                        else -> "Копировать конфигурацию"
+                    }, Icons.Default.ContentCopy) {
+                        activeSubMenu = null
+                        copyLink(sub.source, when {
+                            isRemote -> "Ссылка подписки скопирована"
+                            sub.servers.size == 1 -> "Ключ скопирован"
+                            else -> "Конфигурация скопирована"
+                        })
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    funActionRow(when {
+                        isRemote -> "Удалить подписку"
+                        sub.servers.size == 1 -> "Удалить ключ"
+                        else -> "Удалить конфигурацию"
+                    }, Icons.Default.DeleteOutline) {
                         activeSubMenu = null
                         deleteId = sub.id
                     }
@@ -820,7 +1021,7 @@ fun HomeScreen(
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (manual) "Поддерживаются VLESS, VMess, Trojan, Shadowsocks, Hysteria2 и Xray JSON."
+                    if (manual) "VLESS, VMess, Trojan, Shadowsocks, Hysteria2, TUIC, AnyTLS и Xray JSON."
                     else "Вставьте URL подписки любого совместимого сервиса.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -885,9 +1086,13 @@ fun HomeScreen(
             tonalElevation = 0.dp,
             shape = RoundedCornerShape(22.dp),
             onDismissRequest = { deleteId = null },
-            title = { Text("Удалить подписку?") },
-            text = { Text("Серверы этой подписки будут удалены с устройства.") },
+            title = { Text(if (subscriptions.firstOrNull { it.id == id }
+                    ?.servers?.size == 1 && subscriptions.firstOrNull { it.id == id }
+                    ?.source?.startsWith("http") == false) "Удалить ключ?"
+                    else "Удалить подписку?") },
+            text = { Text("Конфигурация будет удалена с устройства.") },
             confirmButton = { TextButton(onClick = {
+                if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
                 persist(subscriptions.filterNot { it.id == id })
                 deleteId = null
             }) { Text("Удалить") } },

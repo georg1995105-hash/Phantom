@@ -12,8 +12,8 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.2.12"
+        versionCode = 26
+        versionName = "0.2.24"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
 
@@ -21,7 +21,13 @@ android {
         vectorDrawables.useSupportLibrary = true
 
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            // Production remains arm64. The CI-only emulator runs x86_64
+            // to exercise both Go/JNI runtimes on real Android.
+            abiFilters += if (project.hasProperty("nativeSmoke")) {
+                listOf("x86_64")
+            } else {
+                listOf("arm64-v8a")
+            }
         }
     }
 
@@ -78,6 +84,8 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     debugImplementation("androidx.compose.ui:ui-tooling")

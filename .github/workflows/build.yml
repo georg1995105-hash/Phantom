@@ -45,6 +45,17 @@ jobs:
           echo "cdfef146218233a31a8b52c8b1016557730d3b63fc121d4c84cacea50e669155  app/libs/libv2ray.aar" | sha256sum -c -
           ls -lh app/libs/
 
+      - name: Download and isolate pinned sing-box libbox AAR
+        run: |
+          curl --retry 3 -fSL -o app/libs/libbox-original.aar \
+            https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar
+          echo "d2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  app/libs/libbox-original.aar" | sha256sum -c -
+          python3 -m pip install --no-cache-dir --user "lief==1.0.0"
+          python3 scripts/isolate_libbox_aar.py app/libs/libbox-original.aar app/libs/libbox-isolated.aar
+          rm app/libs/libbox-original.aar
+          unzip -l app/libs/libbox-isolated.aar | grep -E 'lib(box|sbjni).so' | head -4
+          ls -lh app/libs/
+
       - name: Download pinned Xray geo databases
         run: |
           mkdir -p app/src/main/assets
@@ -72,6 +83,23 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Enable emulator hardware acceleration
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: Run dual Go runtime JNI smoke test on Android
+        if: github.event_name == 'pull_request'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: bash scripts/ci_native_smoke.sh
 
       - name: Sign APK
         env:
@@ -105,8 +133,8 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && 'v0.2.12' || inputs.release_tag }}
-          name: PHANTOM VPN 0.2.12
+          tag_name: ${{ github.event_name == 'push' && 'v0.2.24' || inputs.release_tag }}
+          name: PHANTOM VPN 0.2.24
           files: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
           prerelease: true
           body_path: RELEASE_NOTES.md
