@@ -161,25 +161,19 @@ internal class SingBoxBridge(
 
     fun stop() {
         val oldConnection: ServiceConnection?
-        val oldRemote: Messenger?
         val wasBound: Boolean
         synchronized(this) {
             stopping = true
             oldConnection = connection
             connection = null
-            oldRemote = remote
             remote = null
             wasBound = bound
             bound = false
             workerPid = -1
         }
-        runCatching {
-            oldRemote?.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP).apply {
-                data = android.os.Bundle().apply {
-                    putString(SingBoxWorkerService.KEY_SESSION, sessionId)
-                }
-            })
-        }
+        // Do not race a queued STOP IPC with Android's onDestroy()/executor.shutdown().
+        // Last unbind destroys the service and performs cleanup; a new START replaces
+        // the previous session synchronously on the worker's single-thread executor.
         if (wasBound && oldConnection != null) {
             runCatching { context.unbindService(oldConnection) }
         }

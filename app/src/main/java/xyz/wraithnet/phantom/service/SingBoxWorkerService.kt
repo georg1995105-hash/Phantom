@@ -9,6 +9,7 @@ import android.os.Message
 import android.os.Messenger
 import android.os.Process
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Only this non-exported bound service loads libbox; the OS places it in :singbox.
@@ -21,6 +22,25 @@ class SingBoxWorkerService : VpnService() {
     @Volatile private var activeSessionId: String? = null
     private val backend by lazy { SingBoxNativeBackend(this) }
 
+    /** Never let a late Binder message crash the OS process after onDestroy. */
+    private fun submit(action: () -> Unit): Boolean {
+        if (destroyed || executor.isShutdown) return false
+        return try {
+            executor.execute(action)
+            true
+        } catch (_: RejectedExecutionException) {
+            false
+        }
+    }
+
+    private fun replyClosed(recipient: Messenger?) {
+        val reply = Message.obtain(null, MSG_ERROR)
+        reply.data = android.os.Bundle().apply {
+            putString(KEY_ERROR, "Процесс sing-box завершает работу; повторите подключение")
+        }
+        runCatching { recipient?.send(reply) }
+    }
+
     private val messenger = Messenger(object : Handler(Looper.getMainLooper()) {
         override fun handleMessage(message: Message) {
             when (message.what) {
@@ -28,7 +48,7 @@ class SingBoxWorkerService : VpnService() {
                     val raw = message.data.getString(KEY_PROFILE).orEmpty()
                     val sessionId = message.data.getString(KEY_SESSION).orEmpty()
                     val recipient = message.replyTo
-                    executor.execute {
+                    if (!submit {
                         try {
                             check(!destroyed) { "Процесс закрыт" }
                             check(sessionId.isNotBlank()) { "Нет идентификатора сеанса sing-box" }
@@ -45,7 +65,7 @@ class SingBoxWorkerService : VpnService() {
                                     backend.stop()
                                     activeSessionId = null
                                 }
-                                return@execute
+                                return@submit
                             }
                             val reply = Message.obtain(null, MSG_STARTED, port, Process.myPid())
                             runCatching { recipient?.send(reply) }
@@ -73,11 +93,11 @@ class SingBoxWorkerService : VpnService() {
                             }
                             runCatching { recipient?.send(reply) }
                         }
-                    }
+                    }) replyClosed(recipient)
                 }
                 MSG_STOP -> {
                     val sessionId = message.data.getString(KEY_SESSION)
-                    executor.execute {
+                    submit {
                         if (sessionId != null && sessionId == activeSessionId) {
                             runCatching { backend.stop() }
                             activeSessionId = null
@@ -97,9 +117,11 @@ class SingBoxWorkerService : VpnService() {
 
     override fun onDestroy() {
         destroyed = true
-        executor.execute {
-            runCatching { backend.stop() }
-            activeSessionId = null
+        runCatching {
+            executor.execute {
+                runCatching { backend.stop() }
+                activeSessionId = null
+            }
         }
         executor.shutdown()
         super.onDestroy()
