@@ -112,6 +112,13 @@ internal class SingBoxNetworkEnvironment(context: Context) {
     fun getInterfaces(): Any {
         val iteratorType = Class.forName("io.nekohasekai.libbox.NetworkInterfaceIterator")
         val itemType = Class.forName("io.nekohasekai.libbox.NetworkInterface")
+        val physicalLinks = connectivity.allNetworks.mapNotNull { network ->
+            val caps = connectivity.getNetworkCapabilities(network) ?: return@mapNotNull null
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return@mapNotNull null
+            connectivity.getLinkProperties(network)?.let { link ->
+                link.interfaceName?.let { name -> name to (caps to link) }
+            }
+        }.toMap()
         val items = Collections.list(NetworkInterface.getNetworkInterfaces())
             .filter { iface -> runCatching { iface.isUp && !iface.isLoopback &&
                 !iface.isVirtual && !iface.name.startsWith("tun") &&
@@ -129,10 +136,20 @@ internal class SingBoxNetworkEnvironment(context: Context) {
                     "${address}/${prefix}"
                 }
                 put(item, "Addresses", stringIterator(addresses))
-                put(item, "DNSServer", stringIterator(emptyList()))
+                val (caps, link) = physicalLinks[iface.name] ?: (null to null)
+                put(item, "DNSServer", stringIterator(link?.dnsServers?.map { dns ->
+                    dns.hostAddress?.substringBefore('%').orEmpty()
+                }?.filter { it.isNotBlank() }.orEmpty()))
                 put(item, "Gateway", stringIterator(emptyList()))
-                put(item, "Type", 3) // Other; no transport-specific strategy required.
-                put(item, "Metered", false)
+                val type = when {
+                    caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> 0
+                    caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> 1
+                    caps?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> 2
+                    else -> 3
+                }
+                put(item, "Type", type)
+                put(item, "Metered", caps?.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false)
                 item
             }
         var position = 0
