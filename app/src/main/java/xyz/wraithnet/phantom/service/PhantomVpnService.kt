@@ -137,7 +137,11 @@ class PhantomVpnService : VpnService() {
                 handoverJob?.cancel()
                 ioScope.launch {
                     mutex.withLock { stopLocked() }
-                    stopSelf()
+                    // A newer START may already have reached onStartCommand.
+                    // stopSelf() would destroy its VPN service indiscriminately.
+                    if (!prefs.getBoolean("vpn_requested", false)) {
+                        stopSelfResult(startId)
+                    }
                 }
             }
             ACTION_QUERY -> sendStatus(state)
@@ -189,9 +193,12 @@ class PhantomVpnService : VpnService() {
 
     private fun startLocked(raw: String) {
         if (revokedByAndroid) return
-        stopLocked(false)
+        val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
         try {
+            check(previousClosed) {
+                "Старое ядро sing-box не завершилось. Подключение остановлено во избежание сбоя"
+            }
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
@@ -302,16 +309,21 @@ class PhantomVpnService : VpnService() {
         }
     }
 
-    private fun stopLocked(report: Boolean = true) {
+    /**
+     * Tear down the dependency chain in order: isolated sing-box -> Xray -> TUN.
+     * The next profile must not begin until the former Go worker has exited.
+     */
+    private fun stopLocked(report: Boolean = true): Boolean {
         running = false
         trafficJob?.cancel()
         trafficJob = null
         releaseWakeLock()
+        singBoxSession = null
+        val previousBridge = singBoxBridge
+        singBoxBridge = null
+        val workerStopped = runCatching { previousBridge?.stop() }.isSuccess
         runCatching { controller?.stopLoop() }
         controller = null
-        singBoxSession = null
-        runCatching { singBoxBridge?.stop() }
-        singBoxBridge = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         prefs.edit().putBoolean("vpn_running", false)
@@ -321,6 +333,7 @@ class PhantomVpnService : VpnService() {
             setState(STATUS_DISCONNECTED)
             updateNotification("VPN отключён")
         }
+        return workerStopped
     }
 
     /** Only the running Xray core is queried; no root access, server API or device-wide counters. */
@@ -461,9 +474,15 @@ class PhantomVpnService : VpnService() {
         }
         trafficJob?.cancel()
         releaseWakeLock()
-        runCatching { controller?.stopLoop() }
+        // onDestroy runs on Android main thread. Retire worker in an independent
+        // cleanup thread so no synchronous IPC wait can stall the UI.
         singBoxSession = null
-        runCatching { singBoxBridge?.stop() }
+        val oldWorker = singBoxBridge
+        singBoxBridge = null
+        if (oldWorker != null) {
+            Thread({ runCatching { oldWorker.stop() } }, "Phantom-SingBox-Cleanup").start()
+        }
+        runCatching { controller?.stopLoop() }
         runCatching { vpnInterface?.close() }
         ioScope.cancel()
         super.onDestroy()
