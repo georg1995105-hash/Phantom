@@ -1,6 +1,20 @@
 package xyz.wraithnet.phantom.service
 
 import android.util.Log
+import android.content.Context
+import android.content.Intent
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.Bundle
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.Message
+import android.os.Messenger
+import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import android.os.Process
 import org.junit.Assert.assertNotEquals
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -96,4 +110,86 @@ class DualCoreNativeSmokeTest {
             }
         }
     }
+    /**
+     * Regression for the v0.2.18 lease defect: a temporary Binder unbind
+     * MUST NOT stop the native core while the started lease is still held.
+     */
+    @Test fun startedWorkerSurvivesTransientClientUnbind() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val session = UUID.randomUUID().toString()
+        val link = "tuic://00000000-0000-0000-0000-000000000001:testPassword@" +
+            "127.0.0.1:25443?sni=example.org&alpn=h3"
+        val lease = Intent(context, SingBoxWorkerService::class.java).apply {
+            action = SingBoxWorkerService.ACTION_LEASE
+            putExtra(SingBoxWorkerService.KEY_SESSION, session)
+        }
+        assertTrue("Android refused started lease", context.startService(lease) != null)
+
+        fun bind(): Pair<Messenger, ServiceConnection> {
+            val connected = CountDownLatch(1)
+            var peer: Messenger? = null
+            val connection = object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                    peer = Messenger(binder)
+                    connected.countDown()
+                }
+                override fun onServiceDisconnected(name: ComponentName) {
+                    connected.countDown()
+                }
+            }
+            assertTrue("Could not bind worker",
+                context.bindService(Intent(context, SingBoxWorkerService::class.java),
+                    connection, Context.BIND_AUTO_CREATE or Context.BIND_IMPORTANT))
+            assertTrue("Worker bind timed out", connected.await(15, TimeUnit.SECONDS))
+            return (peer ?: error("Worker returned no Binder")) to connection
+        }
+
+        fun send(peer: Messenger, action: Int, linkOrNull: String? = null): Pair<Int, Int> {
+            val done = CountDownLatch(1)
+            val result = AtomicInteger(-1)
+            val port = AtomicInteger(-1)
+            val receiver = Messenger(object : Handler(Looper.getMainLooper()) {
+                override fun handleMessage(msg: Message) {
+                    result.set(msg.what)
+                    port.set(msg.arg1)
+                    done.countDown()
+                }
+            })
+            peer.send(Message.obtain(null, action).apply {
+                data = Bundle().apply {
+                    putString(SingBoxWorkerService.KEY_SESSION, session)
+                    linkOrNull?.let { putString(SingBoxWorkerService.KEY_PROFILE, it) }
+                }
+                replyTo = receiver
+            })
+            assertTrue("Worker did not answer $action", done.await(40, TimeUnit.SECONDS))
+            return result.get() to port.get()
+        }
+
+        var connection: ServiceConnection? = null
+        try {
+            val (first, firstConnection) = bind()
+            connection = firstConnection
+            val (started, port) = send(first, SingBoxWorkerService.MSG_START, link)
+            assertTrue("First native worker did not start", started == SingBoxWorkerService.MSG_STARTED)
+            assertTrue("Initial local SOCKS5 absent", LocalSocks5Probe.check(port).ready)
+            context.unbindService(firstConnection)
+            connection = null
+            Thread.sleep(1000)
+            // The service stays alive because its explicit started lease is held.
+            val (second, secondConnection) = bind()
+            connection = secondConnection
+            val (pong, state) = send(second, SingBoxWorkerService.MSG_PING)
+            assertTrue("Rebound worker did not answer PING", pong == SingBoxWorkerService.MSG_PONG)
+            assertTrue("Native core was stopped on temporary unbind", state == 1)
+            assertTrue("SOCKS5 died on temporary unbind", LocalSocks5Probe.check(port).ready)
+            second.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP).apply {
+                data = Bundle().apply { putString(SingBoxWorkerService.KEY_SESSION, session) }
+            })
+        } finally {
+            connection?.let { runCatching { context.unbindService(it) } }
+            context.stopService(Intent(context, SingBoxWorkerService::class.java))
+        }
+    }
+
 }
