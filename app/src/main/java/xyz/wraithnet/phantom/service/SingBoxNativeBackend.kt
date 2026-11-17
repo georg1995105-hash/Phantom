@@ -43,8 +43,8 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
                     tempPath = cache.absolutePath
                     debug = false
                     logMaxLines = 200
-                    appVersion = "15"
-                    appMarketingVersion = "0.2.14"
+                    appVersion = "17"
+                    appMarketingVersion = "0.2.15"
                 })
                 prepared = true
             }
