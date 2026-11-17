@@ -2,6 +2,9 @@ package xyz.wraithnet.phantom.service
 
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -144,7 +147,7 @@ internal class SingBoxBridge(
             }
             return actualPort
         } catch (e: Exception) {
-            stop()
+            runCatching { stop() }
             throw e
         }
     }
@@ -217,11 +220,35 @@ internal class SingBoxBridge(
         }
     }
 
+    private fun workerAlive(pid: Int): Boolean {
+        if (pid <= 0) return false
+        return try {
+            // Signal zero checks whether THIS PID still exists; it never kills.
+            Os.kill(pid, 0)
+            true
+        } catch (e: ErrnoException) {
+            e.errno != OsConstants.ESRCH
+        }
+    }
+
+    /** Wait for an isolated native runtime to actually exit before restarting. */
+    private fun waitForExit(pid: Int, timeoutMs: Long): Boolean {
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        while (workerAlive(pid) && android.os.SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(40)
+        }
+        return !workerAlive(pid)
+    }
+
     fun stop() {
+        check(Looper.myLooper() != Looper.getMainLooper()) {
+            "Остановка sing-box должна выполняться в фоновом потоке"
+        }
         val oldConnection: ServiceConnection?
         val oldRemote: Messenger?
         val hadStartedLease: Boolean
         val wasBound: Boolean
+        val previousPid: Int
         synchronized(this) {
             stopping = true
             oldConnection = connection
@@ -232,30 +259,53 @@ internal class SingBoxBridge(
             startedLease = false
             wasBound = bound
             bound = false
+            previousPid = workerPid
             workerPid = -1
         }
-        // STOP names its session; a late command must never terminate a
-        // replacement connection. The started lease prevents onDestroy before
-        // STOP is processed, and onUnbind handles missing STOP defensively.
-        var stopSent = false
+
+        // START and STOP are serialized by the main VPN mutex.
+        // A write-only STOP is insufficient: it can race with the next START.
+        val answered = CountDownLatch(1)
+        var sent = false
         if (hadStartedLease && oldRemote != null) {
-            stopSent = runCatching {
+            val receiver = Messenger(object : Handler(Looper.getMainLooper()) {
+                override fun handleMessage(message: Message) {
+                    if (message.what == SingBoxWorkerService.MSG_STOPPED) answered.countDown()
+                }
+            })
+            sent = runCatching {
                 oldRemote.send(Message.obtain(null, SingBoxWorkerService.MSG_STOP).apply {
                     data = android.os.Bundle().apply {
                         putString(SingBoxWorkerService.KEY_SESSION, sessionId)
                     }
+                    replyTo = receiver
                 })
                 true
             }.getOrDefault(false)
         }
+        if (sent) answered.await(1500, TimeUnit.MILLISECONDS)
         if (wasBound && oldConnection != null) {
             runCatching { context.unbindService(oldConnection) }
         }
-        if (hadStartedLease && !stopSent) {
-            // Only if IPC was unavailable; normally STOP self-releases the lease.
-            // Main VPN serializes starts/stops under a mutex.
-            runCatching {
-                context.stopService(Intent(context, SingBoxWorkerService::class.java))
+        // If the worker crashed during STOP or Binder was lost, release the
+        // started lease so Android cannot keep an orphan service alive.
+        if (hadStartedLease && (!sent || previousPid <= 0)) {
+            runCatching { context.stopService(Intent(context, SingBoxWorkerService::class.java)) }
+        }
+        if (previousPid > 0 && !waitForExit(previousPid, 1800)) {
+            // Only kill our own known :singbox process, never a recycled PID.
+            val ownWorker = runCatching {
+                context.getSystemService(ActivityManager::class.java)
+                    .runningAppProcesses?.any {
+                        it.pid == previousPid &&
+                            it.processName == "${context.packageName}:singbox"
+                    } == true
+            }.getOrDefault(false)
+            if (ownWorker) {
+                Process.killProcess(previousPid)
+            }
+            check(waitForExit(previousPid, 1200)) {
+                "Не удалось завершить старый процесс sing-box"
             }
         }
     }
