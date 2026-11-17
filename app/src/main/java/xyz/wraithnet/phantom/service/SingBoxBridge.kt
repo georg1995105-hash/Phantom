@@ -1,9 +1,12 @@
 package xyz.wraithnet.phantom.service
 
+import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -28,6 +31,7 @@ internal class SingBoxBridge(
     private val onUnexpectedExit: () -> Unit = {},
 ) {
     private val sessionId = UUID.randomUUID().toString()
+    private val sessionCreatedAt = System.currentTimeMillis()
     @Volatile private var remote: Messenger? = null
     @Volatile private var stopping = false
     @Volatile var workerPid: Int = -1
@@ -145,16 +149,47 @@ internal class SingBoxBridge(
         }
     }
 
+    /**
+     * Android can kill a child Go process without delivering a Java exception.
+     * Ask the OS for the reason of THIS session's worker death rather than
+     * reporting a missing SOCKS listener as a remote TUIC server failure.
+     * Only coarse OS reason codes are exposed; crash traces are never copied.
+     */
+    private fun recentAndroidExit(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return ""
+        return runCatching {
+            val activity = context.getSystemService(ActivityManager::class.java)
+            val exit = activity.getHistoricalProcessExitReasons(context.packageName, 0, 16)
+                .firstOrNull {
+                    it.processName == "${context.packageName}:singbox" &&
+                        it.timestamp >= sessionCreatedAt - 1_000L
+                } ?: return@runCatching ""
+            val reason = when (exit.reason) {
+                ApplicationExitInfo.REASON_CRASH -> "сбой Android/Java"
+                ApplicationExitInfo.REASON_CRASH_NATIVE -> "сбой нативного движка"
+                ApplicationExitInfo.REASON_ANR -> "процесс не отвечал"
+                ApplicationExitInfo.REASON_LOW_MEMORY -> "нехватка памяти"
+                ApplicationExitInfo.REASON_SIGNALED -> "системный сигнал ${exit.status}"
+                ApplicationExitInfo.REASON_USER_REQUESTED -> "остановлен системой или пользователем"
+                ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "ограничение ресурсов"
+                else -> "код причины Android: ${exit.reason}"
+            }
+            "; Android: $reason"
+        }.getOrDefault("")
+    }
+
     /** Read-only remote health status. Never includes server addresses or credentials. */
     fun workerStatus(): String {
-        val peer = remote ?: return "дочерний процесс не подключён"
+        val peer = remote ?: return "дочерний процесс не подключён" + recentAndroidExit()
         val answer = CountDownLatch(1)
         val state = AtomicInteger(-1)
+        val answeredPid = AtomicInteger(-1)
         val lastReason = AtomicReference("")
         val recipient = Messenger(object : Handler(Looper.getMainLooper()) {
             override fun handleMessage(message: Message) {
                 if (message.what == SingBoxWorkerService.MSG_PONG) {
                     state.set(message.arg1)
+                    answeredPid.set(message.arg2)
                     lastReason.set(message.data.getString(SingBoxWorkerService.KEY_STOP_REASON).orEmpty())
                 }
                 answer.countDown()
@@ -165,14 +200,20 @@ internal class SingBoxBridge(
                 replyTo = recipient
             })
             if (!answer.await(2, TimeUnit.SECONDS)) "дочерний процесс не отвечает"
-            else when (state.get()) {
-                1 -> "движок запущен, локальный SOCKS5 недоступен"
-                0 -> "движок sing-box остановлен: " +
-                    (lastReason.get().ifBlank { "причина не сообщена" })
-                else -> "дочерний процесс вернул неизвестное состояние"
+            else {
+                val replaced = workerPid > 0 && answeredPid.get() != workerPid
+                when {
+                    replaced -> "Android создал новый процесс sing-box вместо запущенного" +
+                        recentAndroidExit()
+                    state.get() == 1 -> "движок запущен, локальный SOCKS5 недоступен"
+                    state.get() == 0 -> "движок sing-box остановлен: " +
+                        (lastReason.get().ifBlank { "причина не сообщена" }) +
+                        recentAndroidExit()
+                    else -> "дочерний процесс вернул неизвестное состояние"
+                }
             }
         } catch (e: Exception) {
-            "связь с дочерним процессом потеряна"
+            "связь с дочерним процессом потеряна" + recentAndroidExit()
         }
     }
 
