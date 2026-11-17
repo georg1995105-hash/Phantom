@@ -65,6 +65,7 @@ class SingBoxWorkerService : VpnService() {
                                     backend.stop()
                                     activeSessionId = null
                                 }
+                                replyClosed(recipient)
                                 return@submit
                             }
                             val reply = Message.obtain(null, MSG_STARTED, port, Process.myPid())
