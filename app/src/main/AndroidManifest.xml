@@ -93,6 +93,11 @@
             android:name=".service.SingBoxCoreService"
             android:process=":singbox"
             android:exported="false" />
+        <!-- A separate OS process is mandatory: Xray and sing-box have independent Go runtimes. -->
+        <service
+            android:name=".service.SingBoxWorkerService"
+            android:process=":singbox"
+            android:exported="false" />
         <service
             android:name=".service.PhantomQuickTileService"
             android:label="Phantom VPN"
