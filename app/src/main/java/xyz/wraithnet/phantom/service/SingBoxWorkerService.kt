@@ -60,6 +60,11 @@ class SingBoxWorkerService : VpnService() {
                     }
                 }
                 MSG_STOP -> executor.execute { runCatching { backend.stop() } }
+                MSG_PING -> {
+                    val reply = Message.obtain(null, MSG_PONG,
+                        if (!destroyed && backend.isRunning) 1 else 0, Process.myPid())
+                    runCatching { message.replyTo?.send(reply) }
+                }
             }
         }
     })
@@ -78,6 +83,8 @@ class SingBoxWorkerService : VpnService() {
         const val MSG_STOP = 2
         const val MSG_STARTED = 3
         const val MSG_ERROR = 4
+        const val MSG_PING = 5
+        const val MSG_PONG = 6
         const val KEY_PROFILE = "profile"
         const val KEY_ERROR = "error"
     }
