@@ -46,6 +46,11 @@ class DualCoreNativeSmokeTest {
             }
             Log.i("PhantomNativeSmoke", "SOCKS_READY=$ready")
             assertTrue("sing-box native SOCKS did not bind", ready)
+            repeat(4) { iteration ->
+                val result = LocalSocks5Probe.check(port)
+                Log.i("PhantomNativeSmoke", "SOCKS_HANDSHAKE_${iteration}=${result.ready}")
+                assertTrue("Local SOCKS5 handshake failed: ${result.reason}", result.ready)
+            }
         } finally {
             bridge.stop()
         }
@@ -65,6 +70,11 @@ class DualCoreNativeSmokeTest {
                 assertTrue("Restarted sing-box listener not reachable", socket.isConnected)
             }
             Log.i("PhantomNativeSmoke", "SECOND_SOCKS_READY")
+            repeat(4) { iteration ->
+                val result = LocalSocks5Probe.check(secondPort)
+                Log.i("PhantomNativeSmoke", "RESTARTED_SOCKS_HANDSHAKE_${iteration}=${result.ready}")
+                assertTrue("Restarted SOCKS5 handshake failed: ${result.reason}", result.ready)
+            }
         } finally {
             restarted.stop()
         }
