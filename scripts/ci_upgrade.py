@@ -105,6 +105,13 @@ adb("install", "-r", native)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 tap("Серверы")
 node("Убрать из избранного")
+tap("Настройки")
+tap("Тема оформления")
+tap_in_list("Тёмно-зелёная")
+adb("shell", "input", "keyevent", "4")
+node("Тёмно-зелёная")
+screenshot("forest-settings")
+tap("Серверы")
 # Switch the real Android VPN between the TUIC and AnyTLS loopback peers. Android
 # establishes a real TUN. The production connectivity check verifies HTTPS.
 adb("shell", "svc", "wifi", "enable")
@@ -119,12 +126,14 @@ tap("Главная")
 adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
 tap("Подключить VPN")
 node("Подключено")
+screenshot("forest-home-connected")
 adb("shell", "input", "keyevent", "KEYCODE_SLEEP")
 time.sleep(4)
 adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
 node("Подключено")
 tap("Серверы")
+screenshot("forest-servers")
 tap("AndroidCheckB")
 tap("Главная")
 node("AndroidCheckB")
@@ -151,9 +160,22 @@ time.sleep(1)
 adb("shell", "cmd", "statusbar", "click-tile", component)
 adb("shell", "cmd", "statusbar", "collapse")
 node("Подключено", attempts=20)
-vpn_state = adb("shell", "dumpsys", "vpn_management")
-if "com.android.settings" not in vpn_state:
-    raise AssertionError("Android VPN did not report the selected allowed application")
+def app_uid(package):
+    packages = adb("shell", "pm", "list", "packages", "-U", package)
+    return re.search(r"package:" + re.escape(package) + r" uid:(\d+)", packages).group(1)
+
+
+# Android programs kernel policy routes by UID. Its service dump need not
+# include package names. Check the actual selected UID and a control UID.
+rules = adb("shell", "ip", "-4", "rule", "show")
+vpn_ranges = [tuple(map(int, m.groups())) for line in rules.splitlines()
+              if re.search(r"lookup tun\d+", line)
+              for m in [re.search(r"uidrange (\d+)-(\d+)", line)] if m]
+allowed = int(app_uid("com.android.settings"))
+excluded = int(app_uid(PACKAGE))
+if not any(low <= allowed <= high for low, high in vpn_ranges) or any(
+        low <= excluded <= high for low, high in vpn_ranges):
+    raise AssertionError(f"Unexpected per-app routes for {allowed}/{excluded}: {rules}")
 adb("shell", "cmd", "statusbar", "expand-settings")
 time.sleep(1)
 adb("shell", "cmd", "statusbar", "click-tile", component)
@@ -171,6 +193,7 @@ adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.int
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", url]))
 tap("Подписка")
 node("OfflineSubscriptionCheck", attempts=20)
+screenshot("forest-subscriptions")
 for action in ("Купить подписку Phantom", "Продлить подписку Phantom"):
     adb("logcat", "-c")
     tap_in_list(action)

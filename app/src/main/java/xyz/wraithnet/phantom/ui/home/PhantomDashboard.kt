@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -32,17 +34,34 @@ import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.data.*
 import java.util.Locale
 
+private val crown = ImageVector.Builder("Корона", 24.dp, 24.dp, 24f, 24f).apply {
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 1.6f,
+        strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round) {
+        moveTo(2.5f, 7f)
+        lineTo(8f, 11f)
+        lineTo(12f, 4f)
+        lineTo(16f, 11f)
+        lineTo(21.5f, 7f)
+        lineTo(19f, 17f)
+        lineTo(5f, 17f)
+        close()
+        moveTo(5.5f, 20f)
+        lineTo(18.5f, 20f)
+    }
+}.build()
+
 internal enum class Destination(val title: String, val icon: ImageVector) {
     HOME("Главная", Icons.Default.Home),
     SERVERS("Серверы", Icons.Default.Storage),
-    SUBSCRIPTIONS("Подписка", Icons.Default.WorkspacePremium),
+    SUBSCRIPTIONS("Подписка", crown),
     SETTINGS("Настройки", Icons.Default.Settings)
 }
 
 @Composable
 internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
     val c = MaterialTheme.colorScheme
-    NavigationBar(containerColor = c.surface, tonalElevation = 0.dp) {
+    NavigationBar(modifier = Modifier.clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+        containerColor = c.surface, tonalElevation = 0.dp) {
         Destination.entries.forEach { page ->
             NavigationBarItem(selected = current == page, onClick = { select(page) },
                 icon = { Icon(page.icon, null) }, label = { Text(page.title, fontSize = 11.sp, maxLines = 1) },
@@ -89,7 +108,10 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(gap))
-            Box(Modifier.size(150.dp).border(1.dp, ring.copy(alpha = .42f), CircleShape)
+            val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
+                c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
+                ring.copy(alpha = .35f)))
+            Box(Modifier.size(150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
                 .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
                     if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
                 .border(1.dp, ring.copy(alpha = .7f), CircleShape).clickable(enabled = !starting, onClick = toggle),
@@ -99,12 +121,18 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     Modifier.size(62.dp), tint = c.onSurface)
             }
             Spacer(Modifier.height(16.dp))
-            Text(when (status) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (connected) {
+                    Icon(Icons.Default.CheckCircle, null, Modifier.size(17.dp), tint = c.primary)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(when (status) {
                 "connected" -> "Подключено"
                 "starting" -> "Подключение…"
                 "error" -> "Соединение не установлено"
                 else -> "Отключено"
             }, color = if (connected) c.primary else c.onBackground, fontWeight = FontWeight.SemiBold)
+            }
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
             Spacer(Modifier.height(24.dp))
             Panel {
@@ -221,7 +249,8 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
         item {
             Panel {
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("♛", fontSize = 36.sp, color = c.primary)
+                    Icon(crown, null, Modifier.size(40.dp), tint = c.onSurface)
+                    Spacer(Modifier.height(6.dp))
                     Text(item?.title ?: "Нет добавленных подписок", fontWeight = FontWeight.SemiBold)
                     if (remote.size > 1) Box {
                         TextButton(onClick = { menu = true }) { Text("Выбрать подписку") }
