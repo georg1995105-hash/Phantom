@@ -18,7 +18,6 @@ import xyz.wraithnet.phantom.data.LatencyProbe
 @Composable
 fun PingSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    var mode by remember { mutableStateOf(LatencyProbe.mode(context)) }
     var timeout by remember { mutableFloatStateOf(LatencyProbe.timeoutMs(context) / 1000f) }
     BackHandler { onBack() }
 
@@ -37,23 +36,12 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Modifier.fillMaxSize().padding(inset).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
-            Text("Способ проверки", fontSize = 14.sp,
+            Text("Проверка пинга", fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-            listOf(
-                LatencyProbe.TCP to "TCP · быстро",
-                LatencyProbe.PROXY to "Через VPN-прокси · проверка соединения"
-            ).forEach { (value, label) ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                    .clickable { mode = value }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = mode == value, onClick = { mode = value })
-                    Spacer(Modifier.width(8.dp))
-                    Text(label)
-                }
-            }
             Text(
-                if (mode == LatencyProbe.TCP)
-                    "TCP проверяет доступность порта, но не подтверждает работу VPN. Hysteria2 использует UDP."
-                else "Проверка через Xray может быть медленнее, но оценивает реальное подключение.",
+                "TCP-профили проверяются обычным TCP-соединением. Для Hysteria2, TUIC и XHTTP/H3 " +
+                    "отображается только задержка, подтверждённая работающим VPN. " +
+                    "Проверка не переключает сервер и не перезапускает VPN.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             HorizontalDivider()
@@ -64,7 +52,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
-                    LatencyProbe.configure(context, mode, timeout.toInt())
+                    LatencyProbe.configure(context, LatencyProbe.TCP, timeout.toInt())
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()
