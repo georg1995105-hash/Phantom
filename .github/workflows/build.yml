@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
@@ -132,6 +133,21 @@ jobs:
           cat peers.log
           exit 1
 
+      - name: Download signed 0.3.0 upgrade baseline
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 44376933692
+          name: phantom-arm64-v8a
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: previous-release/
+
+      - name: Stage baseline APK for the actual 0.3.0 -> 0.3.1 upgrade
+        if: github.event_name == 'pull_request'
+        run: |
+          cp previous-release/phantom-arm64-v8a-release.apk previous.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify previous.apk
+
       - name: Enable emulator hardware acceleration
         if: github.event_name == 'pull_request'
         run: |
@@ -176,8 +192,8 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && 'v0.3.0' || inputs.release_tag }}
-          name: PHANTOM VPN 0.3.0
+          tag_name: ${{ github.event_name == 'push' && 'v0.3.1' || inputs.release_tag }}
+          name: PHANTOM VPN 0.3.1
           files: app/build/outputs/apk/release/phantom-*-release.apk
           prerelease: true
           body_path: RELEASE_NOTES.md

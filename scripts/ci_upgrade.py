@@ -84,6 +84,7 @@ node("Отключено")
 screenshot("home")
 tap("Серверы")
 node("UpgradeCheck")
+node("Проверить пинг")
 tap("В избранное")
 screenshot("servers")
 tap("Подписка")
@@ -194,6 +195,16 @@ adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.int
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", url]))
 tap("Подписка")
 node("OfflineSubscriptionCheck", attempts=20)
+node("Обновить подписку")
+tap("Обновить подписку")
+time.sleep(4)
+try:
+    node("Данные могут быть устаревшими", attempts=1)
+except AssertionError:
+    pass
+else:
+    raise AssertionError("Online subscription refresh failed")
+node("OfflineSubscriptionCheck")
 screenshot("forest-subscriptions")
 for action in ("Купить подписку Phantom", "Продлить подписку Phantom"):
     adb("logcat", "-c")
@@ -205,7 +216,7 @@ for action in ("Купить подписку Phantom", "Продлить под
     adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
-tap("Обновить сведения")
+tap("Обновить подписку")
 node("Данные могут быть устаревшими", attempts=36)
 tap("Серверы")
 node("OfflineSubscriptionCheck")

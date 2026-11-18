@@ -28,6 +28,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import xyz.wraithnet.phantom.R
@@ -173,7 +176,8 @@ private fun Caption(text: String) {
 
 @Composable
 internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
-    pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>, favorite: (String) -> Unit,
+    pinnedId: String?, favorites: Set<String>, latency: Map<String, LatencyProbe.PingResult>,
+    probing: Set<String>, checkPing: () -> Unit, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     val rows = remember(subscriptions, favorites) {
@@ -183,6 +187,15 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            OutlinedButton(onClick = checkPing, enabled = rows.isNotEmpty() && probing.isEmpty(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                if (probing.isNotEmpty()) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Default.Speed, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (probing.isNotEmpty()) "Проверка пинга…" else "Проверить пинг")
+            }
+        }
         if (rows.none { it.second.name.contains("Автовыбор", true) }) {
             ProfileSelection.resolve(subscriptions, null, null, pinnedId)?.let { (owner, server) ->
                 item {
@@ -221,7 +234,7 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                             Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Caption(protocolLabel(server))
                         }
-                        Caption(latency[id]?.takeIf { it > 0 }?.let { "$it мс" } ?: "—")
+                        Caption(latency[id]?.label ?: "—")
                         if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary)
                     }
@@ -276,12 +289,21 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                         sizeLabel(item.downloadBytes + item.uploadBytes) else "—"
                     val limit = item.totalBytes?.let { if (it == 0L) "∞" else sizeLabel(it) } ?: "—"
                     Text("Трафик   $used / $limit")
-                    Caption("Последнее обновление " + timeLabel(item.updatedAt))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Последнее обновление " + timeLabel(item.updatedAt),
+                            modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            color = c.onSurfaceVariant)
+                        IconButton(onClick = { refresh(item) }, enabled = item.id !in refreshing,
+                            modifier = Modifier.size(48.dp).semantics {
+                                contentDescription = "Обновить подписку"
+                            }) {
+                            if (item.id in refreshing)
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Refresh, contentDescription = null)
+                        }
+                    }
                     if (item.id in failed || System.currentTimeMillis() - item.updatedAt >= item.updateIntervalSeconds * 1000)
                         Caption("Данные могут быть устаревшими")
-                    TextButton(onClick = { refresh(item) }, enabled = item.id !in refreshing) {
-                        Text(if (item.id in refreshing) "Обновление…" else "Обновить сведения")
-                    }
                 }
             }
         }
@@ -289,7 +311,11 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
             Button(onClick = { shop(true) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text("Продлить подписку Phantom")
             }
-            Caption("В магазине откройте «Моя подписка» и выберите продление.")
+            Text("В магазине выберите „Моя подписка“ → „Продлить“",
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                textAlign = TextAlign.Center, softWrap = true,
+                style = MaterialTheme.typography.bodySmall,
+                color = c.onSurfaceVariant)
         }
         item { OutlinedButton(onClick = { shop(false) }, modifier = Modifier.fillMaxWidth()) { Text("Купить подписку Phantom") } }
         item { OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth()) { Text("Добавить подписку или ключ") } }

@@ -112,7 +112,7 @@ fun HomeScreen(
     val selected = selectedMatch?.second
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
-    val latencies = remember { mutableStateMapOf<String, Long>() }
+    val latencies = remember { mutableStateMapOf<String, LatencyProbe.PingResult>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
@@ -141,12 +141,16 @@ fun HomeScreen(
     }
     fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
 
-    // For QUIC/UDP, show only real HTTPS latency measured over the active tunnel.
+    // Never retain a VPN measurement after a disconnect or server transition.
     LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
-        if (vpnStatus == "connected") {
+        if (vpnStatus != "connected") {
+            latencies.keys.toList().filter { latencies[it]?.source == "VPN" }
+                .forEach { latencies.remove(it) }
+        } else {
             selectedMatch?.let { (owner, server) ->
                 val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
-                if (rtt > 0L) latencies[pingKey(owner, server)] = rtt
+                if (rtt > 0L)
+                    latencies[pingKey(owner, server)] = LatencyProbe.PingResult(rtt, "VPN")
             }
         }
     }
@@ -274,6 +278,7 @@ fun HomeScreen(
         }
     }
 
+    val pingLimit = remember { Semaphore(3) }
     fun probeSubscription(item: Subscription) {
         if (item.id in probing) return
         probing = probing + item.id
@@ -281,22 +286,19 @@ fun HomeScreen(
             try {
                 val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
                 coroutineScope {
-                    val limit = Semaphore(3)
                     servers.map { server ->
                         async {
-                            val ping = limit.withPermit {
-                                runCatching { LatencyProbe.measure(context.applicationContext, server) }
-                                    .getOrNull() ?: -1L
+                            val result = pingLimit.withPermit {
+                                runCatching { LatencyProbe.measureResult(context.applicationContext, server) }
+                                    .getOrNull()
                             }
-                            latencies[pingKey(item, server)] = ping
-                            pingKey(item, server) to ping
+                            val key = pingKey(item, server)
+                            if (result != null) latencies[key] = result else latencies.remove(key)
                         }
-                    }.awaitAll().forEach { (serverKey, delayMs) ->
-                        latencies[serverKey] = delayMs
-                    }
+                    }.awaitAll()
                 }
-                val checked = servers.count { (latencies[pingKey(item, it)] ?: -1L) > 0L }
-                val needsTunnel = servers.any { ProtocolSupport.needsConnectedPing(it.scheme) }
+                val checked = servers.count { latencies[pingKey(item, it)] != null }
+                val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
                 snackbar.showSnackbar(when {
                     checked > 0 -> "Проверка задержки завершена"
                     needsTunnel -> "Для точного пинга TUIC/Hysteria2 подключите сервер"
@@ -407,6 +409,7 @@ fun HomeScreen(
                     }, choose = { tab = Destination.SERVERS },
                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
+                    probing = probing, checkPing = { subscriptions.forEach(::probeSubscription) },
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
