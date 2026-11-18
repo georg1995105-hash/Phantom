@@ -406,7 +406,7 @@ fun HomeScreen(
                         }
                     }, choose = { tab = Destination.SERVERS },
                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null)
-                Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, favorites, latencies,
+                Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -720,6 +720,8 @@ fun HomeScreen(
             confirmButton = { TextButton(onClick = {
                 if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
                 persist(subscriptions.filterNot { it.id == id })
+                favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
+                prefs.edit().putStringSet("favorite_servers", favorites).apply()
                 deleteId = null
             }) { Text("Удалить") } },
             dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Отмена") } }

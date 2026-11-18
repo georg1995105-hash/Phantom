@@ -145,7 +145,7 @@ private fun Caption(text: String) {
 
 @Composable
 internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
-    favorites: Set<String>, latency: Map<String, Long>, favorite: (String) -> Unit,
+    pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     val rows = remember(subscriptions, favorites) {
@@ -155,6 +155,23 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (rows.none { it.second.name.contains("Автовыбор", true) }) {
+            ProfileSelection.resolve(subscriptions, null, null, pinnedId)?.let { (owner, server) ->
+                item {
+                    Panel {
+                        Row(Modifier.fillMaxWidth().clickable { choose(owner, server) }.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Автовыбор", fontWeight = FontWeight.SemiBold)
+                                Caption("По умолчанию · " + displayServerName(server))
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (rows.size > 5) item {
             OutlinedTextField(query, { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                 leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Найти сервер") })
@@ -221,6 +238,7 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val expiry = item.expiresAt?.takeIf { it > 0 }
                     Text(when {
+                        item.expiresAt == 0L -> "Без ограничения срока"
                         expiry == null -> "Срок действия не указан"
                         expiry <= System.currentTimeMillis() / 1000 -> "Срок истёк " + dateLabel(expiry)
                         else -> "Действует до " + dateLabel(expiry)

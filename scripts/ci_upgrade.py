@@ -21,10 +21,12 @@ def node(label):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
         for item in root.iter("node"):
-            if label in (item.get("text"), item.get("content-desc")):
+            values = (item.get("text", "") + "\n" + item.get("content-desc", "")).splitlines()
+            if label in values:
                 return item
         time.sleep(0.5)
-    raise AssertionError(f"Missing UI element {label!r}")
+    visible = [n.get("text") or n.get("content-desc") for n in root.iter("node")]
+    raise AssertionError(f"Missing UI element {label!r}, visible: {list(filter(None, visible))}")
 
 
 def tap(label):

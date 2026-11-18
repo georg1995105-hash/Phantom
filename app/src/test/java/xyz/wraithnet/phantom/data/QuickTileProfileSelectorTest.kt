@@ -18,6 +18,11 @@ class QuickTileProfileSelectorTest {
         assertEquals(first.raw, QuickTileProfileSelector.choose(listOf(sub), null)?.raw)
     }
 
+    @Test fun sameIdInTwoImportsUsesTheSelectedSubscription() {
+        val other = sub.copy(id = "2", servers = listOf(first.copy(raw = "second-source")))
+        assertEquals("second-source", QuickTileProfileSelector.choose(listOf(sub, other), "a", "2")?.raw)
+    }
+
     @Test fun noSubscriptionNeverStartsEmptyTunnel() {
         assertNull(QuickTileProfileSelector.choose(emptyList(), "a"))
     }
