@@ -1,10 +1,14 @@
 package xyz.wraithnet.phantom.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
@@ -134,6 +138,25 @@ object LatencyProbe {
         }.getOrNull()
     }
 
+    /** Avoid routing direct TCP probes through the selected VPN. */
+    private fun physicalNetwork(context: Context): Network? {
+        val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
+        return cm.allNetworks.mapNotNull { network ->
+            val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
+            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
+                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            ) return@mapNotNull null
+            val priority = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
+                else -> 3
+            }
+            priority to network
+        }.minByOrNull { it.first }?.second
+    }
+
     suspend fun measure(context: Context, server: ServerProfile): Long =
         measureResult(context, server)?.milliseconds ?: -1L
 
@@ -147,9 +170,29 @@ object LatencyProbe {
             val (host, port) = endpoint(server) ?: return@withContext null
             val timeout = timeoutMs(context)
             val task = tcpExecutor.submit<Long> {
+                // Loopback is used by offline instrumentation tests only.
+                val local = host.equals("localhost", true) || host == "127.0.0.1" ||
+                    host == "::1" || host == "[::1]"
+                val physical = if (local) null else physicalNetwork(context)
+                    ?: return@submit -1L
+                val addresses = if (local) InetAddress.getAllByName(host)
+                    else physical!!.getAllByName(host)
                 val begin = System.nanoTime()
-                Socket().use { it.connect(InetSocketAddress(host, port), timeout) }
-                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin).coerceAtLeast(1L)
+                for (address in addresses) {
+                    val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin)
+                    val remaining = (timeout.toLong() - elapsed).toInt()
+                    if (remaining <= 0) break
+                    try {
+                        (if (local) Socket() else physical!!.socketFactory.createSocket()).use {
+                            it.connect(InetSocketAddress(address, port), remaining)
+                        }
+                        return@submit TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin)
+                            .coerceAtLeast(1L)
+                    } catch (_: java.io.IOException) {
+                        // Try another address within the same deadline.
+                    }
+                }
+                -1L
             }
             val millis = try {
                 task.get(timeout.toLong() + 500L, TimeUnit.MILLISECONDS)

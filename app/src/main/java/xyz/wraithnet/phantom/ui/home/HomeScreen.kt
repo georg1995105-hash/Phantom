@@ -87,6 +87,9 @@ fun HomeScreen(
     downloadBytes: Long = -1L,
     uploadBytes: Long = -1L,
     connectedSinceElapsed: Long = 0L,
+    latencyMs: Long = -1L,
+    latencyProfileHash: Int = Int.MIN_VALUE,
+    latencyVersion: Int = 0,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
     onThemeChange: (PhantomThemeMode) -> Unit = {},
@@ -141,17 +144,34 @@ fun HomeScreen(
     }
     fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
 
-    // Never retain a VPN measurement after a disconnect or server transition.
+    // Cached VPN RTT belongs only to the actually running profile.
     LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
-        if (vpnStatus != "connected") {
-            latencies.keys.toList().filter { latencies[it]?.source == "VPN" }
-                .forEach { latencies.remove(it) }
-        } else {
-            selectedMatch?.let { (owner, server) ->
-                val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
-                if (rtt > 0L)
-                    latencies[pingKey(owner, server)] = LatencyProbe.PingResult(rtt, "VPN")
-            }
+        val current = selectedMatch?.takeIf {
+            vpnStatus == "connected" &&
+                prefs.getString("vpn_last_profile", null) == it.second.raw
+        }
+        val currentKey = current?.let { (owner, server) -> pingKey(owner, server) }
+        latencies.keys.toList().filter {
+            latencies[it]?.source == "VPN" && it != currentKey
+        }.forEach { latencies.remove(it) }
+        current?.let { (owner, server) ->
+            val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
+            if (rtt > 0L) latencies[pingKey(owner, server)] =
+                LatencyProbe.PingResult(rtt, "VPN")
+        }
+    }
+
+    // Live on-demand HTTPS result from the existing Xray core.
+    LaunchedEffect(latencyVersion) {
+        if (latencyVersion == 0) return@LaunchedEffect
+        selectedMatch?.takeIf {
+            vpnStatus == "connected" &&
+                it.second.raw.hashCode() == latencyProfileHash &&
+                prefs.getString("vpn_last_profile", null) == it.second.raw
+        }?.let { (owner, server) ->
+            val key = pingKey(owner, server)
+            if (latencyMs > 0L) latencies[key] = LatencyProbe.PingResult(latencyMs, "VPN")
+            else latencies.remove(key)
         }
     }
 
@@ -281,27 +301,42 @@ fun HomeScreen(
     val pingLimit = remember { Semaphore(3) }
     fun probeSubscription(item: Subscription) {
         if (item.id in probing) return
+        val connected = selectedMatch?.takeIf {
+            it.first.id == item.id && vpnStatus == "connected" &&
+                prefs.getString("vpn_last_profile", null) == it.second.raw
+        }
         probing = probing + item.id
         scope.launch {
             try {
+                if (connected != null) {
+                    runCatching {
+                        context.startService(Intent(context, PhantomVpnService::class.java)
+                            .setAction(PhantomVpnService.ACTION_MEASURE_LATENCY)
+                            .putExtra(PhantomVpnService.EXTRA_PROFILE, connected.second.raw))
+                    }
+                }
                 val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
                 coroutineScope {
                     servers.map { server ->
                         async {
-                            val result = pingLimit.withPermit {
-                                runCatching { LatencyProbe.measureResult(context.applicationContext, server) }
-                                    .getOrNull()
+                            // Do not replace actual VPN RTT with a bare TCP port check.
+                            if (connected?.second?.id != server.id) {
+                                val result = pingLimit.withPermit {
+                                    runCatching { LatencyProbe.measureResult(context.applicationContext, server) }
+                                        .getOrNull()
+                                }
+                                val key = pingKey(item, server)
+                                if (result != null) latencies[key] = result else latencies.remove(key)
                             }
-                            val key = pingKey(item, server)
-                            if (result != null) latencies[key] = result else latencies.remove(key)
                         }
                     }.awaitAll()
                 }
                 val checked = servers.count { latencies[pingKey(item, it)] != null }
                 val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
                 snackbar.showSnackbar(when {
-                    checked > 0 -> "Проверка задержки завершена"
-                    needsTunnel -> "Для точного пинга TUIC/Hysteria2 подключите сервер"
+                    connected != null -> "TCP проверен; пинг VPN обновится после HTTPS-проверки"
+                    checked > 0 -> "TCP-проверка завершена (не проверка VPN-протокола)"
+                    needsTunnel -> "Для проверки UDP/H3 подключите нужный сервер"
                     else -> "Не получено ни одного результата проверки"
                 })
             } catch (e: Exception) {

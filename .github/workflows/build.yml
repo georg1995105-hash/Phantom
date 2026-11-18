@@ -137,12 +137,12 @@ jobs:
         if: github.event_name != 'push'
         uses: actions/download-artifact@v4
         with:
-          run-id: 44376933692
+          run-id: 44386288113
           name: phantom-arm64-v8a
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: previous-release/
 
-      - name: Stage baseline APK for the actual 0.3.0 -> 0.3.1 upgrade
+      - name: Stage baseline APK for the actual 0.3.1 -> 0.3.2 upgrade
         if: github.event_name != 'push'
         run: |
           cp previous-release/phantom-arm64-v8a-release.apk previous.apk
@@ -192,8 +192,8 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && 'v0.3.1' || inputs.release_tag }}
-          name: PHANTOM VPN 0.3.1
+          tag_name: ${{ github.event_name == 'push' && 'v0.3.2' || inputs.release_tag }}
+          name: PHANTOM VPN 0.3.2
           files: app/build/outputs/apk/release/phantom-*-release.apk
           prerelease: true
           body_path: RELEASE_NOTES.md

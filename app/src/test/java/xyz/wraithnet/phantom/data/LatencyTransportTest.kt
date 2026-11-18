@@ -42,6 +42,11 @@ class LatencyTransportTest {
         assertTrue(LatencyProbe.needsTunnel(server))
     }
 
+    @Test fun tcpAndVpnLabelsDoNotMisrepresentSource() {
+        assertEquals("TCP · 66 мс", LatencyProbe.PingResult(66, "TCP").label)
+        assertEquals("VPN · 66 мс", LatencyProbe.PingResult(66, "VPN").label)
+    }
+
     @Test fun tuicAndHysteria2RequireConnectedVerification() {
         for (scheme in listOf("tuic", "hy2", "hysteria2")) {
             val server = ServerProfile(id=scheme, name=scheme, scheme=scheme,

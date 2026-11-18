@@ -152,6 +152,33 @@ class PhantomVpnService : VpnService() {
                 }
             }
             ACTION_QUERY -> sendStatus(state)
+            ACTION_MEASURE_LATENCY -> {
+                val requested = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
+                if (requested.isNotBlank()) ioScope.launch {
+                    mutex.withLock {
+                        // Use the connected core only. Never start a second VPN or core.
+                        if (!running || state != STATUS_CONNECTED ||
+                            prefs.getString("vpn_last_profile", null) != requested) return@withLock
+                        val active = controller ?: return@withLock
+                        var delayMs = -1L
+                        for (url in listOf(
+                            "https://www.gstatic.com/generate_204",
+                            "https://cp.cloudflare.com/generate_204",
+                            "https://example.com/",
+                        )) {
+                            val ms = runCatching { active.measureDelay(url) }.getOrDefault(-1L)
+                            if (ms > 0L) { delayMs = ms; break }
+                        }
+                        if (!running || prefs.getString("vpn_last_profile", null) != requested)
+                            return@withLock
+                        prefs.edit().putLong("vpn_last_latency_ms", delayMs)
+                            .putInt("vpn_last_latency_profile_hash", requested.hashCode()).apply()
+                        sendBroadcast(Intent(ACTION_LATENCY).setPackage(packageName)
+                            .putExtra(EXTRA_LATENCY_MS, delayMs)
+                            .putExtra(EXTRA_LATENCY_PROFILE_HASH, requested.hashCode()))
+                    }
+                }
+            }
             ACTION_TRAFFIC_ON -> ioScope.launch {
                 mutex.withLock { if (running) startTrafficReports() }
             }
@@ -525,6 +552,10 @@ class PhantomVpnService : VpnService() {
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
         const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
+        const val ACTION_MEASURE_LATENCY = "xyz.wraithnet.phantom.MEASURE_LATENCY"
+        const val ACTION_LATENCY = "xyz.wraithnet.phantom.VPN_LATENCY"
+        const val EXTRA_LATENCY_MS = "latency_ms"
+        const val EXTRA_LATENCY_PROFILE_HASH = "latency_profile_hash"
         const val ACTION_TRAFFIC = "xyz.wraithnet.phantom.VPN_TRAFFIC"
         const val ACTION_TRAFFIC_ON = "xyz.wraithnet.phantom.TRAFFIC_ON"
         const val ACTION_TRAFFIC_OFF = "xyz.wraithnet.phantom.TRAFFIC_OFF"

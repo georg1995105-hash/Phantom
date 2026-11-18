@@ -299,7 +299,8 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                             }) {
                             if (item.id in refreshing)
                                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Default.Refresh, contentDescription = null)
+                            else Icon(Icons.Default.Refresh, contentDescription = null,
+                                modifier = Modifier.size(24.dp), tint = c.primary)
                         }
                     }
                     if (item.id in failed || System.currentTimeMillis() - item.updatedAt >= item.updateIntervalSeconds * 1000)
