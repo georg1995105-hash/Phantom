@@ -113,7 +113,8 @@ fun HomeScreen(
     val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
     val selected = selectedMatch?.second
     var refreshing by remember { mutableStateOf(setOf<String>()) }
-    var probing by remember { mutableStateOf(setOf<String>()) }
+    val inFlightProfiles = remember { mutableStateMapOf<String, List<ServerProfile>>() }
+    val probing = inFlightProfiles.keys.toSet()
     val latencies = remember { mutableStateMapOf<String, LatencyProbe.PingResult>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
@@ -314,12 +315,12 @@ fun HomeScreen(
 
     val pingLimit = remember { Semaphore(3) }
     fun probeSubscription(item: Subscription, notify: Boolean = true) {
-        if (item.id in probing) return
+        if (inFlightProfiles.containsKey(item.id)) return
         val connected = selectedMatch?.takeIf {
             it.first.id == item.id && vpnStatus == "connected" &&
                 prefs.getString("vpn_last_profile", null) == it.second.raw
         }
-        probing = probing + item.id
+        inFlightProfiles[item.id] = item.servers
         scope.launch {
             try {
                 if (connected != null) {
@@ -340,7 +341,11 @@ fun HomeScreen(
                                         .getOrNull()
                                 }
                                 val key = pingKey(item, server)
-                                if (result != null) latencies[key] = result else latencies.remove(key)
+                                val sameProfile = subscriptions.find { it.id == item.id }?.servers
+                                    ?.any { it.id == server.id && it.raw == server.raw } == true
+                                if (sameProfile && latencies[key]?.source != "VPN") {
+                                    if (result != null) latencies[key] = result else latencies.remove(key)
+                                }
                             }
                         }
                     }.awaitAll()
@@ -348,30 +353,32 @@ fun HomeScreen(
                 val checked = servers.count { latencies[pingKey(item, it)] != null }
                 val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
                 if (notify) snackbar.showSnackbar(when {
-                    connected != null -> "TCP проверен; пинг VPN обновится после HTTPS-проверки"
-                    checked > 0 -> "TCP-проверка завершена (не проверка VPN-протокола)"
+                    connected != null -> "Задержка VPN обновится после HTTPS-проверки"
+                    checked > 0 -> "Проверка задержки завершена"
                     needsTunnel -> "Для проверки UDP/H3 подключите нужный сервер"
                     else -> "Не получено ни одного результата проверки"
                 })
             } catch (e: Exception) {
                 if (notify) snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
-                probing = probing - item.id
+                inFlightProfiles.remove(item.id)
             }
         }
     }
 
-    // On first entry to Servers automatically populate reachable delays.
-    // Reopen/recomposition won't flood the network; changed endpoints recheck.
-    val autoPingRevisions = remember { mutableSetOf<String>() }
-    LaunchedEffect(tab, subscriptions) {
-        if (tab == Destination.SERVERS) {
+    // Both the PING shortcut and normal tab entry run this same scan.
+    // If a refresh replaces profiles during a scan, wait for that owner's old
+    // job before measuring the new snapshot. Recomposition alone does no I/O.
+    var scanned by remember { mutableStateOf(emptyMap<String, List<ServerProfile>>()) }
+    LaunchedEffect(tab, subscriptions, probing) {
+        if (tab != Destination.SERVERS) {
+            scanned = emptyMap()
+        } else {
             subscriptions.forEach { item ->
-                val revision = item.servers.fold(1) { acc, server ->
-                    31 * acc + server.raw.hashCode()
-                }
-                val id = "${item.id}:$revision"
-                if (item.servers.isNotEmpty() && autoPingRevisions.add(id)) {
+                if (inFlightProfiles[item.id] == item.servers) {
+                    scanned = scanned + (item.id to item.servers)
+                } else if (item.id !in probing && scanned[item.id] != item.servers) {
+                    scanned = scanned + (item.id to item.servers)
                     probeSubscription(item, notify = false)
                 }
             }
@@ -516,25 +523,11 @@ fun HomeScreen(
                         }
                     },
                     subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
-                    subscriptionAvailable = selectedMatch != null)
+                    subscriptionAvailable = selectedMatch != null,
+                    onPing = { tab = Destination.SERVERS },
+                    pingAvailable = subscriptions.any { it.servers.isNotEmpty() })
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
-                    probing = probing, checkPing = {
-                        // A global scan has one result, not competing snackbars
-                        // from individual subscriptions (some may be unreachable).
-                        val owners = subscriptions.toList()
-                        owners.forEach { probeSubscription(it, notify = false) }
-                        scope.launch {
-                            while (owners.any { it.id in probing }) delay(100L)
-                            val checked = owners.sumOf { owner ->
-                                owner.servers.count { server ->
-                                    latencies[pingKey(owner, server)] != null
-                                }
-                            }
-                            snackbar.showSnackbar(if (checked > 0)
-                                "Проверка завершена: результаты для $checked серверов"
-                            else "Нет результатов проверки. UDP/H3 требует подключения")
-                        }
-                    },
+                    probing = probing,
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -550,7 +543,7 @@ fun HomeScreen(
                         } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                     }, add = { tab = Destination.SUBSCRIPTIONS; showImportMenu = true })
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
-                    selectedMatch?.first?.id, refreshing, refreshFailed, { scope.launch { refresh(it) } },
+                    selectedMatch?.first?.id, refreshFailed,
                     { activeSubMenu = it.id }, { item -> probeSubscription(item) },
                     probing, { showImportMenu = true },
                     shop = { renew ->

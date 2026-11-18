@@ -15,7 +15,7 @@ import java.net.URI
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
-/** Non-invasive checks: TCP connect for TCP profiles, verified active VPN latency for UDP/H3. */
+/** Measure a TCP handshake, a QUIC version response, or HTTPS through the active VPN. */
 object LatencyProbe {
     const val TCP = "tcp"
     const val PROXY = "proxy"
@@ -24,8 +24,8 @@ object LatencyProbe {
         val label: String get() = "$source · $milliseconds мс"
     }
 
-    private val tcpExecutor = Executors.newFixedThreadPool(4) { runnable ->
-        Thread(runnable, "phantom-tcp-ping").apply { isDaemon = true }
+    private val probeExecutor = Executors.newFixedThreadPool(4) { runnable ->
+        Thread(runnable, "phantom-latency").apply { isDaemon = true }
     }
 
     // This option is retained for compatibility with previous preferences.
@@ -46,7 +46,7 @@ object LatencyProbe {
     /** A verified HTTPS request executed through precisely this connected profile. */
     fun lastVerifiedTunnelLatency(context: Context, server: ServerProfile): Long {
         val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("vpn_running", false) ||
+        if (!prefs.getBoolean("vpn_running", false) || prefs.getString("vpn_last_profile", null) != server.raw ||
             prefs.getInt("vpn_last_latency_profile_hash", Int.MIN_VALUE) != server.raw.hashCode()
         ) return -1L
         return prefs.getLong("vpn_last_latency_ms", -1L).takeIf { it > 0L } ?: -1L
@@ -66,6 +66,12 @@ object LatencyProbe {
     internal fun needsTunnel(server: ServerProfile): Boolean {
         if (ProtocolSupport.needsConnectedPing(server.scheme)) return true
         val raw = server.raw.trim()
+        if (raw.startsWith("vmess://", ignoreCase = true)) return runCatching {
+            val vmess = JSONObject(ShareLinkCodec.base64Text(raw.substringAfter("://").substringBefore('#')))
+            val network = vmess.optString("net").lowercase()
+            network in setOf("kcp", "mkcp", "quic", "h3") ||
+                network in setOf("xhttp", "splithttp", "http") && isH3(vmess.optString("alpn"))
+        }.getOrDefault(true)
         if (raw.startsWith("{")) return runCatching {
             val root = JSONObject(raw)
             val outbounds = root.optJSONArray("outbounds")
@@ -79,8 +85,8 @@ object LatencyProbe {
                 val h3 = isH3(stream?.optJSONObject("tlsSettings")?.optJSONArray("alpn")) ||
                     isH3(stream?.optJSONObject("realitySettings")?.optJSONArray("alpn"))
                 protocol in setOf("hysteria", "hysteria2", "hy2", "tuic") ||
-                    network in setOf("hysteria", "hysteria2", "quic", "h3") ||
-                    (network in setOf("xhttp", "http") && h3)
+                    network in setOf("hysteria", "hysteria2", "quic", "h3", "mkcp", "kcp") ||
+                    (network in setOf("xhttp", "splithttp", "http") && h3)
             }
         }.getOrDefault(true)
 
@@ -93,9 +99,32 @@ object LatencyProbe {
                     ShareLinkCodec.percentDecode(segment.substringAfter('=', ""))
             }
             val network = (query["type"] ?: query["transport"] ?: query["network"]).orEmpty().lowercase()
-            network in setOf("xhttp", "http") && isH3(query["alpn"].orEmpty())
+            network in setOf("kcp", "mkcp", "quic", "h3") || network in setOf("xhttp", "splithttp", "http") && isH3(query["alpn"].orEmpty())
         }.getOrDefault(false)
     }
+
+    // A mixed/balanced or masked profile cannot be attributed to one plain QUIC peer.
+    private fun canProbeQuic(server: ServerProfile): Boolean = runCatching {
+        val raw = server.raw.trim()
+        if (raw.startsWith("{")) {
+            val root = JSONObject(raw)
+            val list = root.optJSONArray("outbounds")
+            val candidates = if (list == null) listOf(root) else
+                (0 until list.length()).mapNotNull { list.optJSONObject(it) }.filter {
+                    it.optString("protocol") !in setOf("freedom", "blackhole", "dns")
+                }
+            val proxy = candidates.singleOrNull() ?: return@runCatching false
+            val stream = proxy.optJSONObject("streamSettings")
+            stream?.optJSONObject("finalmask")?.optJSONArray("udp") == null &&
+                stream?.optString("network") !in setOf("kcp", "mkcp")
+        } else if (raw.startsWith("vmess://", ignoreCase = true)) {
+            val vmess = JSONObject(ShareLinkCodec.base64Text(raw.substringAfter("://").substringBefore('#')))
+            vmess.optString("net").lowercase() !in setOf("kcp", "mkcp")
+        } else {
+            val query = URI(raw).rawQuery.orEmpty().lowercase()
+            !Regex("(?:^|&)(?:obfs=|(?:type|transport|network)=(?:kcp|mkcp))").containsMatchIn(query)
+        }
+    }.getOrDefault(false)
 
     internal fun endpoint(server: ServerProfile): Pair<String, Int>? {
         return runCatching {
@@ -182,19 +211,19 @@ object LatencyProbe {
         }.minByOrNull { it.first }?.second
     }
 
-    suspend fun measure(context: Context, server: ServerProfile): Long =
-        measureResult(context, server)?.milliseconds ?: -1L
+    suspend fun measure(context: Context, server: ServerProfile): Long {
+        val verified = lastVerifiedTunnelLatency(context, server)
+        return if (verified > 0) verified else measureResult(context, server)?.milliseconds ?: -1L
+    }
 
     /** Does not select a profile, start a VPN, or invoke a second native core. */
     suspend fun measureResult(context: Context, server: ServerProfile): PingResult? =
         withContext(Dispatchers.IO) {
-            if (needsTunnel(server)) {
-                val verified = lastVerifiedTunnelLatency(context, server)
-                return@withContext if (verified > 0L) PingResult(verified, "VPN") else null
-            }
+            val udp = needsTunnel(server)
+            if (udp && !canProbeQuic(server)) return@withContext null
             val (host, port) = endpoint(server) ?: return@withContext null
             val timeout = timeoutMs(context)
-            val task = tcpExecutor.submit<Long> {
+            val task = probeExecutor.submit<Long> {
                 // Loopback is used by offline instrumentation tests only.
                 val local = host.equals("localhost", true) || host == "127.0.0.1" ||
                     host == "::1" || host == "[::1]"
@@ -208,10 +237,13 @@ object LatencyProbe {
                     val remaining = (timeout.toLong() - elapsed).toInt()
                     if (remaining <= 0) break
                     try {
-                        (if (local) Socket() else physical!!.socketFactory.createSocket()).use {
+                        val attempt = System.nanoTime()
+                        if (udp) {
+                            if (!QuicRtt.measure(physical, address, port, remaining)) continue
+                        } else (if (local) Socket() else physical!!.socketFactory.createSocket()).use {
                             it.connect(InetSocketAddress(address, port), remaining)
                         }
-                        return@submit TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin)
+                        return@submit TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - attempt)
                             .coerceAtLeast(1L)
                     } catch (_: java.io.IOException) {
                         // Try another address within the same deadline.
@@ -225,6 +257,6 @@ object LatencyProbe {
                 task.cancel(true)
                 -1L
             }
-            if (millis > 0L) PingResult(millis, "TCP") else null
+            if (millis > 0L) PingResult(millis, if (udp) "QUIC" else "TCP") else null
         }
 }

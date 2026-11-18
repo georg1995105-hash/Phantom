@@ -7,6 +7,17 @@ class LatencyTransportTest {
     private fun json(raw: String) = ServerProfile(
         id = "test", name = "Transport", scheme = "xray", raw = raw)
 
+    @Test fun quicVersionNegotiationRequiresBothMatchingIdsAndSupportedVersion() {
+        val dst = byteArrayOf(7, 8)
+        val src = byteArrayOf(3, 4)
+        val packet = byteArrayOf(0x80.toByte(), 0, 0, 0, 0, 2, 3, 4, 2, 7, 8, 0, 0, 0, 1)
+        assertTrue(QuicRtt.matches(packet, packet.size, dst, src))
+        assertFalse(QuicRtt.matches(packet, packet.size, src, dst))
+        assertFalse(QuicRtt.matches(packet, packet.size - 1, dst, src))
+        packet[14] = 0
+        assertFalse(QuicRtt.matches(packet, packet.size, dst, src))
+    }
+
     @Test fun tcpVlessFromXrayJsonCanUseTcp() {
         val server = json("""{"outbounds":[{"protocol":"vless",
             "settings":{"vnext":[{"address":"tcp.example.org","port":443}]},

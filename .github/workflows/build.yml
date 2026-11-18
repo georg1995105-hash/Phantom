@@ -20,10 +20,13 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Setup JDK 21
         uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
@@ -53,7 +56,8 @@ jobs:
           curl --retry 3 -fSL -o app/libs/libbox-original.aar \
             https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar
           echo "d2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  app/libs/libbox-original.aar" | sha256sum -c -
-          python3 -m pip install --no-cache-dir --user "lief==1.0.0"
+          echo 'lief==1.0.0 --hash=sha256:41ff868f5328fc8e5237a9e1f4718590e0ee9180c1422b3e4948b7116ba4517c' > "$RUNNER_TEMP/lief.txt"
+          python3 -m pip install --no-cache-dir --user --only-binary=:all: --no-deps --require-hashes -r "$RUNNER_TEMP/lief.txt"
           python3 scripts/isolate_libbox_aar.py app/libs/libbox-original.aar app/libs/libbox-isolated.aar
           rm app/libs/libbox-original.aar
           unzip -l app/libs/libbox-isolated.aar | grep -E 'lib(box|sbjni).so' | head -4
@@ -121,17 +125,6 @@ jobs:
             rm -f app/keystore.jks
           fi
 
-      - name: Compare production signing certificates
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.2.24/phantom-arm64-v8a-release.apk
-          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          for apk in previous.apk app/build/outputs/apk/release/phantom-arm64-v8a-release.apk; do
-            "$signer" verify --print-certs "$apk" | grep 'certificate SHA-256 digest:' > "$apk.cert"
-          done
-          diff previous.apk.cert app/build/outputs/apk/release/phantom-arm64-v8a-release.apk.cert
-          cat previous.apk.cert
-
       - name: Prepare loopback protocol peers
         if: github.event_name != 'push'
         run: |
@@ -151,21 +144,19 @@ jobs:
           cat peers.log
           exit 1
 
-      - name: Download signed 0.3.3 upgrade baseline
-        if: github.event_name != 'push'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          run-id: 44411066365
-          name: phantom-arm64-v8a
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: previous-release/
-
-      - name: Stage baseline APK for the actual 0.3.3 -> 0.3.4 upgrade
+      - name: Verify signed 0.3.4 baseline and upgrade signer
         if: github.event_name != 'push'
         run: |
-          cp previous-release/phantom-arm64-v8a-release.apk previous.apk
+          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.4/phantom-arm64-v8a-release.apk
+          echo '84c663077b5b76e158ac7384f2737f65587a9377679732b066508ae77a72d7e9  previous.apk' | sha256sum -c -
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          "$signer" verify previous.apk
+          cert='Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
+          "$signer" verify --print-certs previous.apk | grep -Fx "$cert"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            for apk in app/build/outputs/apk/release/phantom-*-release.apk; do
+              "$signer" verify --print-certs "$apk" | grep -Fx "$cert"
+            done
+          fi
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             # Re-sign the baseline with this run's ephemeral CI key so the
             # Android upgrade test still checks real in-place user data.
@@ -223,13 +214,15 @@ jobs:
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read
     steps:
       - name: Checkout release notes
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
 
       - name: Download verified signed APKs
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -249,12 +242,12 @@ jobs:
           test -s release-assets/phantom-x86_64-release.apk
           sha256sum release-assets/phantom-*-release.apk
 
-      - name: Publish test release
+      - name: Publish official release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: PHANTOM VPN 0.3.4
+          name: PHANTOM VPN ${{ inputs.release_tag }}
           files: release-assets/phantom-*-release.apk
-          prerelease: true
+          prerelease: false
           body_path: RELEASE_NOTES.md

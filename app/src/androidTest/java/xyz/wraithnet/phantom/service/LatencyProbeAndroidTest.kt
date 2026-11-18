@@ -47,6 +47,18 @@ class LatencyProbeAndroidTest {
         }
     }
 
+    @Test fun disconnectedQuicPeersReportTheirOwnUdpRoundTrip() = runBlocking {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        org.junit.Assume.assumeTrue("Requires CI peers", "peers.json" in assets.list("").orEmpty())
+        val cases = JSONObject(assets.open("peers.json").bufferedReader().use { it.readText() })
+        for (name in listOf("tuic", "hysteria2", "VLESS-XHTTP-H3")) {
+            val profile = xyz.wraithnet.phantom.data.SubscriptionParser.parse(cases.getString(name)).servers.single()
+            val result = LatencyProbe.measureResult(context, profile)
+            assertEquals(name, "QUIC", result?.source)
+            assertTrue(name, (result?.milliseconds ?: 0L) > 0L)
+        }
+    }
+
     @Test fun xrayJsonHysteria2AndXhttpH3DoNotInventTcpPing() = runBlocking {
         val hysteria = ServerProfile("hysteria", "Hysteria2 JSON", "xray", raw = JSONObject()
             .put("outbounds", org.json.JSONArray().put(JSONObject()
