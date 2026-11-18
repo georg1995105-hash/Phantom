@@ -193,6 +193,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'push' && 'v0.3.3' || inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           name: PHANTOM VPN 0.3.3
           files: app/build/outputs/apk/release/phantom-*-release.apk
           prerelease: true
