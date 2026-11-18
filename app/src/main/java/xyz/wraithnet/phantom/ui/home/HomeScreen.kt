@@ -406,6 +406,8 @@ fun HomeScreen(
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
     var showOtaSheet by remember { mutableStateOf(false) }
+    // Only an explicit check from Settings may open the update sheet over Settings.
+    var otaManuallyRequested by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
     var lastOtaAttempt by remember { mutableLongStateOf(0L) }
 
@@ -423,7 +425,10 @@ fun HomeScreen(
                     otaDismissed = false
                 }
                 availableUpdate = result
-                if (result != null && !otaDismissed) showOtaSheet = true
+                if (result != null && !otaDismissed) {
+                    otaManuallyRequested = false
+                    showOtaSheet = true
+                }
                 otaError = null
             } catch (_: Exception) {
                 // Existing VPN functionality must not depend on the update service.
@@ -444,6 +449,7 @@ fun HomeScreen(
                 otaError = null
                 if (result != null) {
                     otaDismissed = false
+                    otaManuallyRequested = true
                     showOtaSheet = true
                 } else {
                     showOtaSheet = false
@@ -593,7 +599,8 @@ fun HomeScreen(
             )
         }
     }
-    if (showOtaSheet && availableUpdate != null && tab != Destination.SETTINGS &&
+    if (showOtaSheet && availableUpdate != null &&
+        (tab != Destination.SETTINGS || otaManuallyRequested) &&
         !showImportMenu && activeSubMenu == null && importMode == null) {
         val release = availableUpdate!!
         ModalBottomSheet(
