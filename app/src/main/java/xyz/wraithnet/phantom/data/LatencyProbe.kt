@@ -143,15 +143,30 @@ object LatencyProbe {
      * VPN server is reachable. A real socket is the source of truth here.
      * Only use physical networks; prefer validated links when available.
      */
-    internal fun physicalNetworkRank(caps: NetworkCapabilities): Int? {
-        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) ||
-            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        ) return null
-        val validation = if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 0 else 10
+    internal fun physicalNetworkRank(caps: NetworkCapabilities): Int? = physicalNetworkRank(
+        notVpn = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN),
+        internet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
+        validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+        wifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+        cellular = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+        ethernet = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET),
+    )
+
+    /** Pure counterpart for deterministic ranking tests without constructing Android system capabilities. */
+    internal fun physicalNetworkRank(
+        notVpn: Boolean,
+        internet: Boolean,
+        validated: Boolean,
+        wifi: Boolean,
+        cellular: Boolean,
+        ethernet: Boolean,
+    ): Int? {
+        if (!notVpn || !internet) return null
+        val validation = if (validated) 0 else 10
         val transport = when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
+            wifi -> 0
+            cellular -> 1
+            ethernet -> 2
             else -> 3
         }
         return validation + transport
