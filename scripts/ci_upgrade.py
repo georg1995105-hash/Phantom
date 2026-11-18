@@ -2,6 +2,7 @@
 from pathlib import Path
 import re
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -25,8 +26,8 @@ def report_crash(kind, error, traceback):
 sys.excepthook = report_crash
 
 
-def node(label):
-    for _ in range(8):
+def node(label, attempts=8):
+    for _ in range(attempts):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
         for item in root.iter("node"):
@@ -41,6 +42,18 @@ def node(label):
 def tap(label):
     left, top, right, bottom = map(int, re.findall(r"\d+", node(label).get("bounds")))
     adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+
+
+def tap_in_list(label):
+    for _ in range(4):
+        try:
+            node(label, attempts=1)
+        except AssertionError:
+            adb("shell", "input", "swipe", "500", "1650", "500", "800", "320")
+        else:
+            tap(label)
+            return
+    tap(label)
 
 
 def screenshot(name):
@@ -118,3 +131,57 @@ node("AndroidCheckB")
 node("Подключено")
 tap("Отключить VPN")
 node("Отключено")
+
+# Select an installed system app through the real split-tunneling screen.
+tap("Настройки")
+tap("Туннелирование")
+tap("Через VPN только выбранные")
+tap("Показывать системные приложения")
+tap("Поиск приложений")
+adb("shell", "input", "text", "com.android.settings")
+adb("shell", "input", "keyevent", "4")
+tap_in_list("com.android.settings · Система")
+tap("Применить")
+node("Туннелирование")
+tap("Главная")
+component = PACKAGE + "/.service.PhantomQuickTileService"
+adb("shell", "cmd", "statusbar", "add-tile", component)
+adb("shell", "cmd", "statusbar", "expand-settings")
+time.sleep(1)
+adb("shell", "cmd", "statusbar", "click-tile", component)
+adb("shell", "cmd", "statusbar", "collapse")
+node("Подключено", attempts=20)
+vpn_state = adb("shell", "dumpsys", "vpn_management")
+if "com.android.settings" not in vpn_state:
+    raise AssertionError("Android VPN did not report the selected allowed application")
+adb("shell", "cmd", "statusbar", "expand-settings")
+time.sleep(1)
+adb("shell", "cmd", "statusbar", "click-tile", component)
+adb("shell", "cmd", "statusbar", "collapse")
+node("Отключено")
+
+# Use HTTPS from the checked-out public commit, with no subscriber credentials.
+sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+# Pull request workflows check out a generated merge commit. Use the head
+# commit for the externally retrievable raw file.
+with open(os.environ["GITHUB_EVENT_PATH"]) as event_file:
+    sha = json.load(event_file).get("pull_request", {}).get("head", {}).get("sha", sha)
+url = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/{sha}/scripts/fixtures/import-subscription.txt"
+adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
+                        "-t", "text/plain", "--es", "android.intent.extra.TEXT", url]))
+tap("Подписка")
+node("OfflineSubscriptionCheck", attempts=20)
+for action in ("Купить подписку Phantom", "Продлить подписку Phantom"):
+    adb("logcat", "-c")
+    tap_in_list(action)
+    time.sleep(1)
+    activity_log = adb("logcat", "-d", "-s", "ActivityTaskManager:I")
+    if "go.veor.pro" not in activity_log or "android.intent.action.VIEW" not in activity_log:
+        raise AssertionError(f"Browser handoff failed for {action}")
+    adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+adb("shell", "svc", "wifi", "disable")
+adb("shell", "svc", "data", "disable")
+tap("Обновить сведения")
+node("Данные могут быть устаревшими", attempts=36)
+tap("Серверы")
+node("OfflineSubscriptionCheck")
