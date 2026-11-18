@@ -340,14 +340,17 @@ fun HomeScreen(
     var otaDismissed by remember { mutableStateOf(false) }
     var showOtaSheet by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
+    var lastOtaAttempt by remember { mutableLongStateOf(0L) }
 
-    // Auto-check on launch/foreground (max once per six hours); no settings detour.
+    // Retry after network failures on a later foreground, instead of suppressing OTA for six hours.
     LaunchedEffect(refreshVersion) {
         val now = System.currentTimeMillis()
-        if (now - lastOtaCheck >= 6L * 60 * 60 * 1000L) {
-            lastOtaCheck = now
+        if (now - lastOtaCheck >= 6L * 60 * 60 * 1000L &&
+            now - lastOtaAttempt >= 2L * 60 * 1000L) {
+            lastOtaAttempt = now
             try {
                 val result = PhantomUpdates.check(context)
+                lastOtaCheck = System.currentTimeMillis()
                 if (result?.version != availableUpdate?.version) {
                     otaFile = null
                     otaDismissed = false
