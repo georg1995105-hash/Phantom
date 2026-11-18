@@ -18,16 +18,25 @@ class LatencyProbeAndroidTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun physicalTcpDoesNotRequireAndroidInternetValidation() {
-        val network = NetworkCapabilities().apply {
-            addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-        }
-        assertEquals(10, LatencyProbe.physicalNetworkRank(network))
-        network.addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-        assertEquals(0, LatencyProbe.physicalNetworkRank(network))
-        network.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-        assertNull("A VPN Network must never be selected", LatencyProbe.physicalNetworkRank(network))
+        val unvalidated = NetworkCapabilities.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+        assertEquals(10, LatencyProbe.physicalNetworkRank(unvalidated))
+        val validated = NetworkCapabilities.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+        assertEquals(0, LatencyProbe.physicalNetworkRank(validated))
+        val vpn = NetworkCapabilities.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        assertNull("A VPN Network must never be selected", LatencyProbe.physicalNetworkRank(vpn))
     }
 
     @Test fun reachableTcpProfileHasExplicitTcpSourceWithoutChangingVpn() = runBlocking {
