@@ -86,8 +86,7 @@ internal fun Panel(selected: Boolean = false, content: @Composable ColumnScope.(
 }
 
 @Composable
-internal fun PageTitle(page: Destination, onCheckUpdate: (() -> Unit)? = null,
-    updateChecking: Boolean = false) {
+internal fun PageTitle(page: Destination) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page == Destination.HOME) {
@@ -97,27 +96,13 @@ internal fun PageTitle(page: Destination, onCheckUpdate: (() -> Unit)? = null,
         }
         Text(if (page == Destination.HOME) "Phantom" else page.title,
             style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        if (page == Destination.HOME && onCheckUpdate != null) {
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = onCheckUpdate, enabled = !updateChecking,
-                modifier = Modifier.heightIn(min = 48.dp).semantics {
-                    contentDescription = "Проверить обновления приложения"
-                }) {
-                if (updateChecking) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(4.dp))
-                Text("Обновить", fontSize = 13.sp)
-            }
-        }
     }
 }
 
 @Composable
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
-    seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?) {
+    seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
+    onCheckUpdate: () -> Unit, updateChecking: Boolean) {
     val c = MaterialTheme.colorScheme
     val connected = status == "connected"
     val starting = status == "starting"
@@ -140,20 +125,38 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     Modifier.size(62.dp), tint = c.onSurface)
             }
             Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // Keep the update action next to the connection state, not in the app header.
+            // Weighted status text wraps cleanly on narrower phones.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center) {
                 if (connected) {
                     Icon(Icons.Default.CheckCircle, null, Modifier.size(17.dp), tint = c.primary)
                     Spacer(Modifier.width(6.dp))
                 }
                 Text(when (status) {
-                "connected" -> "Подключено"
-                "starting" -> "Подключение…"
-                "error" -> "Соединение не установлено"
-                else -> "Отключено"
-            }, color = if (connected) c.primary else c.onBackground, fontWeight = FontWeight.SemiBold)
+                    "connected" -> "Подключено"
+                    "starting" -> "Подключение…"
+                    "error" -> "Соединение не установлено"
+                    else -> "Отключено"
+                }, color = if (connected) c.primary else c.onBackground,
+                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onCheckUpdate, enabled = !updateChecking,
+                    modifier = Modifier.heightIn(min = 48.dp).semantics {
+                        contentDescription = "Проверить обновления приложения"
+                    }) {
+                    if (updateChecking) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null,
+                            modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text("Обновить", fontSize = 13.sp)
+                }
             }
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(12.dp))
             Panel {
                 Row(Modifier.fillMaxWidth().clickable(onClick = choose).padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically) {

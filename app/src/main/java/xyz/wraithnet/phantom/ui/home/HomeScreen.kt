@@ -485,10 +485,7 @@ fun HomeScreen(
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
-            Box(Modifier.statusBarsPadding()) {
-                PageTitle(tab, onCheckUpdate = if (tab == Destination.HOME) ::checkAppUpdateNow else null,
-                    updateChecking = otaChecking)
-            }
+            Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
         },
         bottomBar = { TabBar(tab) { tab = it } }
     ) { inner ->
@@ -506,7 +503,8 @@ fun HomeScreen(
                             else -> onStartVpn(selected.raw)
                         }
                     }, choose = { tab = Destination.SERVERS },
-                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null)
+                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
+                    onCheckUpdate = ::checkAppUpdateNow, updateChecking = otaChecking)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     probing = probing, checkPing = {
                         // A global scan has one result, not competing snackbars
