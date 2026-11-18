@@ -109,16 +109,22 @@ jobs:
           KEYSTORE_ALIAS: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEYSTORE_ALIAS || 'ci-ephemeral' }}
           KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEY_PASSWORD || 'phantom-ci-only-2026' }}
         run: |
-          for abi in arm64-v8a x86_64; do
+          for abi in arm64-v8a armeabi-v7a x86_64 x86 universal; do
             dir=app/build/outputs/apk/release
             unsigned="$dir/app-$abi-release-unsigned.apk"
             signed="$dir/phantom-$abi-release.apk"
-            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p 4 "$unsigned" "aligned-$abi.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 "$unsigned" "aligned-$abi.apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
               --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
               --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
               --out "$signed" "aligned-$abi.apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
+            rm "aligned-$abi.apk"
+          done
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            for lib in libgojni.so libbox.so; do
+              unzip -Z1 "$dir/phantom-universal-release.apk" "lib/$abi/$lib" > /dev/null
+            done
           done
           # Never keep the production signing material on the test runner.
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -186,6 +192,20 @@ jobs:
           script: |
             bash scripts/ci_emulator.sh
 
+      - name: Test universal APK with an Android TV remote
+        if: github.event_name != 'push'
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 30
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          avd-name: phantom-tv
+          disk-size: 3072M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: python3 scripts/ci_tv.py
+
       - name: Upload upgrade screenshots
         if: github.event_name != 'push' && success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -194,20 +214,14 @@ jobs:
           path: upgrade-screens/
           retention-days: 7
 
-      - name: Upload APK artifact
+      - name: Upload verified release APKs
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          # Test-signed builds must not be mistaken for production APKs.
-          name: ${{ github.event_name == 'workflow_dispatch' && 'phantom-arm64-v8a' || 'ci-test-only-arm64-v8a' }}
-          path: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
-          retention-days: 30
-
-      - name: Upload x86_64 APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ${{ github.event_name == 'workflow_dispatch' && 'phantom-x86_64' || 'ci-test-only-x86_64' }}
-          path: app/build/outputs/apk/release/phantom-x86_64-release.apk
-          retention-days: 30
+          name: phantom-release
+          path: app/build/outputs/apk/release/phantom-*-release.apk
+          compression-level: 0
+          retention-days: 2
 
   # This job never executes project code or receives signing keys.
   # It publishes only the already-signed, tested build artifacts.
@@ -238,8 +252,9 @@ jobs:
           set -euo pipefail
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
-          test -s release-assets/phantom-arm64-v8a-release.apk
-          test -s release-assets/phantom-x86_64-release.apk
+          for abi in arm64-v8a armeabi-v7a x86_64 x86 universal; do
+            test -s "release-assets/phantom-$abi-release.apk"
+          done
           sha256sum release-assets/phantom-*-release.apk
 
       - name: Publish official release

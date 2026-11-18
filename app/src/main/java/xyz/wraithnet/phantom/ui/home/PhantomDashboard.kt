@@ -18,6 +18,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -66,7 +68,7 @@ internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
     NavigationBar(modifier = Modifier.clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
         containerColor = c.surface, tonalElevation = 0.dp) {
         Destination.entries.forEach { page ->
-            NavigationBarItem(selected = current == page, onClick = { select(page) },
+            NavigationBarItem(modifier = Modifier.tvFocusRing(), selected = current == page, onClick = { select(page) },
                 icon = { Icon(page.icon, null) }, label = { Text(page.title, fontSize = 11.sp, maxLines = 1) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = c.primary,
                     selectedTextColor = c.primary, indicatorColor = c.primaryContainer,
@@ -105,6 +107,8 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
     subscriptionAvailable: Boolean, onPing: () -> Unit, pingAvailable: Boolean) {
     val c = MaterialTheme.colorScheme
+    val tv = isTelevision()
+    val initialFocus = remember { FocusRequester() }
     val connected = status == "connected"
     val starting = status == "starting"
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
@@ -116,15 +120,16 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
                 c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
                 ring.copy(alpha = .35f)))
-            Box(Modifier.size(150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
+            Box(Modifier.size(if (tv) 104.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
                 .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
                     if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
-                .border(1.dp, ring.copy(alpha = .7f), CircleShape).clickable(enabled = !starting, onClick = toggle),
+                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape).clickable(enabled = !starting, onClick = toggle),
                 contentAlignment = Alignment.Center) {
                 if (starting) CircularProgressIndicator(Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
                 Icon(Icons.Default.PowerSettingsNew, if (connected) "Отключить VPN" else "Подключить VPN",
                     Modifier.size(62.dp), tint = c.onSurface)
             }
+            LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
             Spacer(Modifier.height(16.dp))
             // Refresh the selected VPN subscription next to the connection state.
             // Weighted status text wraps cleanly on narrower phones.
@@ -144,7 +149,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 Spacer(Modifier.width(8.dp))
                 TextButton(onClick = onRefreshSubscription,
                     enabled = subscriptionAvailable && !subscriptionRefreshing,
-                    modifier = Modifier.heightIn(min = 48.dp).semantics {
+                    modifier = Modifier.tvFocusRing().heightIn(min = 48.dp).semantics {
                         contentDescription = "Обновить выбранную подписку"
                     }) {
                     if (subscriptionRefreshing) {
@@ -158,7 +163,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 }
                 TextButton(onClick = onPing, enabled = pingAvailable,
                     contentPadding = PaddingValues(horizontal = 6.dp),
-                    modifier = Modifier.heightIn(min = 48.dp)) {
+                    modifier = Modifier.tvFocusRing().heightIn(min = 48.dp)) {
                     Icon(Icons.Default.Speed, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("PING", fontSize = 13.sp)
@@ -167,7 +172,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
             Spacer(Modifier.height(12.dp))
             Panel {
-                Row(Modifier.fillMaxWidth().clickable(onClick = choose).padding(16.dp),
+                Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     if (server != null) Text(CountryFlags.flag(server), fontSize = 28.sp)
                     else Icon(Icons.Default.Storage, null)
@@ -218,7 +223,7 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
             ProfileSelection.resolve(subscriptions, null, null, pinnedId)?.let { (owner, server) ->
                 item {
                     Panel {
-                        Row(Modifier.fillMaxWidth().clickable { choose(owner, server) }.padding(16.dp),
+                        Row(Modifier.fillMaxWidth().tvFocusRing().clickable { choose(owner, server) }.padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(12.dp))
@@ -237,7 +242,7 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
             val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
             Panel(chosen) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 60.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).clickable { choose(owner, server) }.padding(12.dp),
+                    Row(Modifier.weight(1f).tvFocusRing().clickable { choose(owner, server) }.padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         if (server.name.contains("Автовыбор", true)) Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
                         else Text(CountryFlags.flag(server), fontSize = 23.sp)
@@ -254,7 +259,7 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                         if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary)
                     }
-                    IconButton(onClick = { favorite(id) }) {
+                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { favorite(id) }) {
                         Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
                             if (id in favorites) "Убрать из избранного" else "В избранное")
                     }
@@ -332,12 +337,12 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
         items(subscriptions, key = { it.id }) { sub ->
             Panel {
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).clickable { if (sub in remote) inspected = sub.id else manage(sub) }) {
+                    Column(Modifier.weight(1f).tvFocusRing().clickable { if (sub in remote) inspected = sub.id else manage(sub) }) {
                         Text(sub.title)
                         Caption(if (sub in remote) "Подписка · серверов: ${sub.servers.size}" else "Импортированная конфигурация")
                     }
-                    IconButton(onClick = { probe(sub) }, enabled = sub.id !in probing) { Icon(Icons.Default.Speed, "Измерить задержку") }
-                    IconButton(onClick = { manage(sub) }) { Icon(Icons.Default.MoreVert, "Управление") }
+                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { probe(sub) }, enabled = sub.id !in probing) { Icon(Icons.Default.Speed, "Измерить задержку") }
+                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { manage(sub) }) { Icon(Icons.Default.MoreVert, "Управление") }
                 }
             }
         }

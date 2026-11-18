@@ -7,7 +7,7 @@
 - Kotlin + Jetpack Compose (Material 3)
 - Ядра: **Xray-core** (через `libv2ray.aar` из [AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite)) и **sing-box** (через `libbox`, добавляется на шаге 8)
 - Один `VpnService`, одновременно работает одно ядро
-- Мин. SDK 26 (Android 8.0), target SDK 35, **arm64-v8a и x86_64** (отдельные APK)
+- Мин. SDK 26 (Android 8.0), target SDK 35, **arm64-v8a, armeabi-v7a, x86_64 и x86**. Для телефона и Android TV скачайте [единый APK](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk). Android выбирает нужные библиотеки при установке.
 
 ## Протоколы
 
@@ -24,13 +24,7 @@ VLESS (REALITY, XHTTP, gRPC, WS, HTTPUpgrade), VMess, Trojan, Shadowsocks (вк�
 
 APK собирается в GitHub Actions (`.github/workflows/build.yml`).
 
-**Первый запуск** автоматически:
-1. Генерирует keystore.
-2. Кладёт его в GitHub Secrets (`APP_KEYSTORE_BASE64`, `APP_KEYSTORE_PASSWORD`, `APP_KEYSTORE_ALIAS`, `APP_KEY_PASSWORD`).
-3. Скачивает `libv2ray.aar`.
-4. Собирает release APK, подписывает, выкладывает в артефактах `phantom-arm64-v8a` и `phantom-x86_64`.
-
-**Повторные запуски** используют сохранённый keystore.
+Для ручной установки выпускается `phantom-universal-release.apk`. Для OTA клиент выбирает меньший APK по списку архитектур Android. Идентификатор приложения и сертификат общие. Для PR используется временный ключ. Официальные APK подписываются в ручном релизном workflow.
 
 ## План
 
