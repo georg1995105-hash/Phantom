@@ -54,7 +54,7 @@ internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
 }
 
 @Composable
-private fun Panel(selected: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+internal fun Panel(selected: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val c = MaterialTheme.colorScheme
     Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 2.dp,
         color = c.surface, border = BorderStroke(1.dp, if (selected) c.primary else c.outline.copy(alpha = .35f))) {
