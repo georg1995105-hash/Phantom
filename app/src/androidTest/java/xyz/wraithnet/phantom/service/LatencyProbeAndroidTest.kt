@@ -2,7 +2,6 @@ package xyz.wraithnet.phantom.service
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import android.net.NetworkCapabilities
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -18,25 +17,22 @@ class LatencyProbeAndroidTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun physicalTcpDoesNotRequireAndroidInternetValidation() {
-        val unvalidated = NetworkCapabilities.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-        assertEquals(10, LatencyProbe.physicalNetworkRank(unvalidated))
-        val validated = NetworkCapabilities.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-        assertEquals(0, LatencyProbe.physicalNetworkRank(validated))
-        val vpn = NetworkCapabilities.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
-            .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
-        assertNull("A VPN Network must never be selected", LatencyProbe.physicalNetworkRank(vpn))
+        assertEquals(10, LatencyProbe.physicalNetworkRank(
+            notVpn = true, internet = true, validated = false,
+            wifi = true, cellular = false, ethernet = false,
+        ))
+        assertEquals(0, LatencyProbe.physicalNetworkRank(
+            notVpn = true, internet = true, validated = true,
+            wifi = true, cellular = false, ethernet = false,
+        ))
+        assertNull("A VPN Network must never be selected", LatencyProbe.physicalNetworkRank(
+            notVpn = false, internet = true, validated = false,
+            wifi = false, cellular = false, ethernet = false,
+        ))
+        assertNull("A network without internet must be excluded", LatencyProbe.physicalNetworkRank(
+            notVpn = true, internet = false, validated = true,
+            wifi = true, cellular = false, ethernet = false,
+        ))
     }
 
     @Test fun reachableTcpProfileHasExplicitTcpSourceWithoutChangingVpn() = runBlocking {
