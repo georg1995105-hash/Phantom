@@ -86,7 +86,12 @@ def prepare(directory, xray, singbox):
             link = f"{protocol}://{auth}@{host}:{port}?{query}"
         s_in.append(inbound)
         cases[protocol] = link
-    for file, config in (("x.json", {"inbounds": x_in, "outbounds": [{"protocol": "freedom"}]}),
+    # All peers bind only to runner loopback. Xray denies private destinations
+    # by default, so permit precisely the HTTP probe and block everything else.
+    origin_only = {"protocol": "freedom", "settings": {"finalRules": [
+        {"action": "allow", "ip": ["127.0.0.1/32"], "port": "34301", "network": "tcp"},
+        {"action": "block"}]}}
+    for file, config in (("x.json", {"inbounds": x_in, "outbounds": [origin_only]}),
                          ("s.json", {"inbounds": s_in, "outbounds": [{"type": "direct"}]})):
         (directory / file).write_text(json.dumps(config))
     return cases, [

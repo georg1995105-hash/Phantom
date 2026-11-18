@@ -151,8 +151,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            bash scripts/ci_native_smoke.sh
-            python3 scripts/ci_upgrade.py previous.apk app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
+            bash scripts/ci_emulator.sh
 
       - name: Upload upgrade screenshots
         if: github.event_name == 'pull_request' && success()

@@ -17,6 +17,12 @@ class ProtocolPeerIntegrationTest {
         org.junit.Assume.assumeTrue("Requires CI protocol peers", "peers.json" in assets.list("").orEmpty())
         val cases = JSONObject(assets.open("peers.json").bufferedReader().use { it.readText() })
         val context = instrumentation.targetContext
+        // An authorized app is required for the real sing-box socket protect()
+        // callback, even when this test omits the Android TUN inbound.
+        val grant = instrumentation.uiAutomation.executeShellCommand(
+            "appops set ${context.packageName} ACTIVATE_VPN allow")
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(grant).use { it.readBytes() }
+        org.junit.Assert.assertNull("VPN consent was not granted", android.net.VpnService.prepare(context))
         XrayEnvironment.initialize(context)
         val failures = mutableListOf<String>()
         for (name in cases.keys()) {
@@ -34,7 +40,7 @@ class ProtocolPeerIntegrationTest {
                 assertTrue("$name did not reach the server-side origin (delay=$delay)", delay > 0)
                 android.util.Log.i("PhantomProtocolTest", "$name PASS")
             } catch (error: Throwable) {
-                failures.add("$name: ${error.javaClass.simpleName}")
+                failures.add("$name: ${error.message?.take(300)}")
             } finally {
                 bridge?.stop()
             }
