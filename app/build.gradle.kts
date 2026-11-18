@@ -12,28 +12,25 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.2.24"
+        versionCode = 30
+        versionName = "0.3.3"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
-        ndk {
-            // Production remains arm64. The CI-only emulator runs x86_64
-            // to exercise both Go/JNI runtimes on real Android.
-            abiFilters += if (project.hasProperty("nativeSmoke")) {
-                listOf("x86_64")
-            } else {
-                listOf("arm64-v8a")
-            }
+        if (project.hasProperty("nativeSmoke")) {
+            ndk { abiFilters += "x86_64" }
         }
     }
 
     splits {
         abi {
-            isEnable = false
+            isEnable = !project.hasProperty("nativeSmoke")
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
         }
     }
 

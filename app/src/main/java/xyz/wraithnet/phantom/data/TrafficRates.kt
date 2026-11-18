@@ -4,10 +4,23 @@ import java.util.Locale
 
 data class TrafficRate(val downloadBytesPerSecond: Long, val uploadBytesPerSecond: Long)
 
+data class TrafficBytes(val download: Long = 0, val upload: Long = 0) {
+    operator fun plus(other: TrafficBytes) = TrafficBytes(
+        download + other.download.coerceAtMost(Long.MAX_VALUE - download),
+        upload + other.upload.coerceAtMost(Long.MAX_VALUE - upload)
+    )
+
+    fun rate(elapsedMs: Long): TrafficRate? = if (elapsedMs <= 0) null else TrafficRate(
+        (download.toDouble() * 1000 / elapsedMs).toLong(),
+        (upload.toDouble() * 1000 / elapsedMs).toLong()
+    )
+}
+
 /** Decode delta counters returned by pinned AndroidLibXrayLite QueryAllOutboundTrafficStats. */
 object TrafficRates {
-    fun fromXrayReport(report: String, elapsedMs: Long): TrafficRate? {
-        if (elapsedMs <= 0L) return null
+    fun fromXrayReport(report: String, elapsedMs: Long): TrafficRate? = bytesFromReport(report)?.rate(elapsedMs)
+
+    fun bytesFromReport(report: String): TrafficBytes? {
         var upload = 0L
         var download = 0L
         for (entry in report.split(';')) {
@@ -23,10 +36,7 @@ object TrafficRates {
                 else -> return null
             }
         }
-        return TrafficRate(
-            (download.toDouble() * 1000.0 / elapsedMs).toLong(),
-            (upload.toDouble() * 1000.0 / elapsedMs).toLong()
-        )
+        return TrafficBytes(download, upload)
     }
 
     /** Compact UI rates in decimal kilobits/second, like other Android VPN clients. */

@@ -32,11 +32,13 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class DualCoreNativeSmokeTest {
-    private fun workerAliveForTest(context: Context, pid: Int): Boolean =
-        context.getSystemService(android.app.ActivityManager::class.java)
-            .runningAppProcesses?.any {
-                it.pid == pid && it.processName == "${context.packageName}:singbox"
-            } == true
+    private fun workerAliveForTest(pid: Int): Boolean = try {
+        android.system.Os.kill(pid, 0)
+        true
+    } catch (error: android.system.ErrnoException) {
+        if (error.errno != android.system.OsConstants.ESRCH) throw error
+        false
+    }
 
     @Test fun bothGoRuntimesLoadAndNativeSocksStarts() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -82,7 +84,7 @@ class DualCoreNativeSmokeTest {
             val previousPid = bridge.workerPid
             bridge.stop()
             assertTrue("Old Go worker still runs after STOP",
-                previousPid > 0 && !workerAliveForTest(context, previousPid))
+                previousPid > 0 && !workerAliveForTest(previousPid))
         }
         // The same app must switch back to TUIC after a stop without retaining
         // the previous worker's Go runtime or a stale local SOCKS listener.
@@ -121,7 +123,7 @@ class DualCoreNativeSmokeTest {
             } finally {
                 fastSwitch.stop()
                 assertTrue("Old process survived STOP at cycle $cycle",
-                    !workerAliveForTest(context, lastPid))
+                    !workerAliveForTest(lastPid))
             }
         }
     }
@@ -183,14 +185,14 @@ class DualCoreNativeSmokeTest {
                     assertTrue(
                         "Worker PID died after SOCKS5 CONNECT " +
                             "session=$session request=$request",
-                        workerAliveForTest(context, pid)
+                        workerAliveForTest(pid)
                     )
                 }
             } finally {
                 runCatching { bridge.stop() }
             }
             assertTrue("Worker PID not retired after session $session",
-                pid > 0 && !workerAliveForTest(context, pid))
+                pid > 0 && !workerAliveForTest(pid))
         }
     }
 

@@ -41,10 +41,13 @@ class MainActivity : ComponentActivity() {
     private var pendingProfile: String? = null
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
-    private val downloadRate = mutableLongStateOf(-1L)
-    private val uploadRate = mutableLongStateOf(-1L)
+    private val downloadBytes = mutableLongStateOf(-1L)
+    private val uploadBytes = mutableLongStateOf(-1L)
     private val connectedSinceElapsed = mutableLongStateOf(0L)
     private val refreshVersion = mutableIntStateOf(0)
+    private val latestLatency = mutableLongStateOf(-1L)
+    private val latestLatencyProfileHash = mutableIntStateOf(Int.MIN_VALUE)
+    private val latestLatencyVersion = mutableIntStateOf(0)
     private val externalImport = mutableStateOf<String?>(null)
 
     private val vpnPermission = registerForActivityResult(
@@ -62,8 +65,15 @@ class MainActivity : ComponentActivity() {
     private val vpnReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == PhantomVpnService.ACTION_TRAFFIC) {
-                downloadRate.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_DOWNLOAD_BPS, -1L)
-                uploadRate.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_UPLOAD_BPS, -1L)
+                downloadBytes.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_DOWNLOAD_BYTES, -1L)
+                uploadBytes.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_UPLOAD_BYTES, -1L)
+                return
+            }
+            if (intent?.action == PhantomVpnService.ACTION_LATENCY) {
+                latestLatency.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_LATENCY_MS, -1L)
+                latestLatencyProfileHash.intValue = intent.getIntExtra(
+                    PhantomVpnService.EXTRA_LATENCY_PROFILE_HASH, Int.MIN_VALUE)
+                latestLatencyVersion.intValue++
                 return
             }
             vpnStatus.value = intent?.getStringExtra(PhantomVpnService.EXTRA_STATUS)
@@ -72,8 +82,8 @@ class MainActivity : ComponentActivity() {
             connectedSinceElapsed.longValue = intent?.getLongExtra(
                 PhantomVpnService.EXTRA_CONNECTED_SINCE, 0L) ?: 0L
             if (vpnStatus.value != PhantomVpnService.STATUS_CONNECTED) {
-                downloadRate.longValue = -1L
-                uploadRate.longValue = -1L
+                downloadBytes.longValue = -1L
+                uploadBytes.longValue = -1L
             }
         }
     }
@@ -91,6 +101,7 @@ class MainActivity : ComponentActivity() {
         ContextCompat.registerReceiver(
             this, vpnReceiver, IntentFilter(PhantomVpnService.ACTION_STATUS).apply {
                 addAction(PhantomVpnService.ACTION_TRAFFIC)
+                addAction(PhantomVpnService.ACTION_LATENCY)
             }, ContextCompat.RECEIVER_NOT_EXPORTED,
         )
         setContent {
@@ -99,10 +110,10 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(
                     runCatching {
                         PhantomThemeMode.valueOf(
-                            preferences.getString("theme", PhantomThemeMode.AUTO.name)
-                                ?: PhantomThemeMode.AUTO.name
+                            preferences.getString("theme", PhantomThemeMode.FOREST.name)
+                                ?: PhantomThemeMode.FOREST.name
                         )
-                    }.getOrDefault(PhantomThemeMode.AUTO)
+                    }.getOrDefault(PhantomThemeMode.FOREST)
                 )
             }
             val lightBars = theme == PhantomThemeMode.LIGHT ||
@@ -127,9 +138,12 @@ class MainActivity : ComponentActivity() {
                     onExternalImportConsumed = { externalImport.value = null },
                     vpnStatus = vpnStatus.value,
                     vpnError = vpnError.value,
-                    downloadRate = downloadRate.longValue,
-                    uploadRate = uploadRate.longValue,
+                    downloadBytes = downloadBytes.longValue,
+                    uploadBytes = uploadBytes.longValue,
                     connectedSinceElapsed = connectedSinceElapsed.longValue,
+                    latencyMs = latestLatency.longValue,
+                    latencyProfileHash = latestLatencyProfileHash.intValue,
+                    latencyVersion = latestLatencyVersion.intValue,
                     onStartVpn = ::requestVpn,
                     onStopVpn = ::stopVpnService,
                     onThemeChange = { next ->

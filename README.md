@@ -7,7 +7,7 @@
 - Kotlin + Jetpack Compose (Material 3)
 - Ядра: **Xray-core** (через `libv2ray.aar` из [AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite)) и **sing-box** (через `libbox`, добавляется на шаге 8)
 - Один `VpnService`, одновременно работает одно ядро
-- Мин. SDK 26 (Android 8.0), target SDK 35, **arm64-v8a**
+- Мин. SDK 26 (Android 8.0), target SDK 35, **arm64-v8a и x86_64** (отдельные APK)
 
 ## Протоколы
 
@@ -28,7 +28,7 @@ APK собирается в GitHub Actions (`.github/workflows/build.yml`).
 1. Генерирует keystore.
 2. Кладёт его в GitHub Secrets (`APP_KEYSTORE_BASE64`, `APP_KEYSTORE_PASSWORD`, `APP_KEYSTORE_ALIAS`, `APP_KEY_PASSWORD`).
 3. Скачивает `libv2ray.aar`.
-4. Собирает release APK, подписывает, выкладывает как артефакт `phantom-arm64-v8a`.
+4. Собирает release APK, подписывает, выкладывает в артефактах `phantom-arm64-v8a` и `phantom-x86_64`.
 
 **Повторные запуски** используют сохранённый keystore.
 

@@ -15,14 +15,14 @@ object PhantomBackup {
     private const val VERSION = 1
 
     private val textKeys = setOf(
-        "theme", "selected_server_id", "pinned_sub_id",
+        "theme", "selected_subscription_id", "selected_server_id", "pinned_sub_id",
         "fragment_lengths", "fragment_delays", "app_route_mode",
         VpnDnsSettings.MODE_KEY, VpnDnsSettings.PRIMARY_KEY, VpnDnsSettings.SECONDARY_KEY
     )
     private val booleanKeys = setOf(
         "keep_active", "fragmentation_enabled", "connect_on_boot", PhantomHttp.DNS_FALLBACK_KEY
     )
-    private const val PACKAGE_KEY = "app_route_packages"
+    private val setKeys = listOf("app_route_packages", "favorite_servers")
 
     data class Snapshot(
         val subscriptions: JSONArray,
@@ -68,12 +68,12 @@ object PhantomBackup {
                 require(settings.opt(key) is Boolean) { "Некорректная настройка: $key" }
             }
         }
-        if (settings.has(PACKAGE_KEY)) {
-            val array = settings.optJSONArray(PACKAGE_KEY)
-                ?: throw IllegalArgumentException("Неверный список приложений")
+        for (key in setKeys.filter(settings::has)) {
+            val array = settings.optJSONArray(key)
+                ?: throw IllegalArgumentException("Неверный список в настройках")
             require(array.length() <= 5000 && (0 until array.length()).all {
                 array.opt(it) is String
-            }) { "Повреждённый список приложений" }
+            }) { "Повреждённый список в настройках" }
         }
         if (settings.has("theme")) {
             require(settings.getString("theme") in setOf("AUTO","LIGHT","GRAPHITE","NIGHT","FOREST")) {
@@ -160,9 +160,9 @@ object PhantomBackup {
             val value = all[key]
             if (value is Boolean) settings.put(key, value)
         }
-        @Suppress("UNCHECKED_CAST")
-        val packages = all[PACKAGE_KEY] as? Set<String>
-        if (packages != null) settings.put(PACKAGE_KEY, JSONArray(packages.sorted()))
+        for (key in setKeys) {
+            settingsPrefs.getStringSet(key, null)?.let { settings.put(key, JSONArray(it.sorted())) }
+        }
         return encode(
             dataPrefs.getString("subscriptions", "[]") ?: "[]",
             settings,
@@ -196,9 +196,9 @@ object PhantomBackup {
             for (key in booleanKeys) {
                 if (snapshot.settings.has(key)) edit.putBoolean(key, snapshot.settings.getBoolean(key))
             }
-            if (snapshot.settings.has(PACKAGE_KEY)) {
-                val list = snapshot.settings.getJSONArray(PACKAGE_KEY)
-                edit.putStringSet(PACKAGE_KEY, (0 until list.length())
+            for (key in setKeys.filter(snapshot.settings::has)) {
+                val list = snapshot.settings.getJSONArray(key)
+                edit.putStringSet(key, (0 until list.length())
                     .map { list.getString(it) }.toSet())
             }
             check(edit.commit()) { "Не удалось сохранить настройки" }

@@ -12,7 +12,7 @@ enum class PhantomThemeMode(val title: String) {
     AUTO("Авто"),
     LIGHT("Светлая"),
     GRAPHITE("Графит"),
-    NIGHT("Ночная"),
+    NIGHT("Тёмно-синяя"),
     FOREST("Тёмно-зелёная"),
 }
 
@@ -53,33 +53,33 @@ private val GraphiteColors = darkColorScheme(
 )
 
 private val NightColors = darkColorScheme(
-    primary = Color(0xFFB0A5EA),
-    onPrimary = Color(0xFF211C40),
-    primaryContainer = Color(0xFF312C53),
+    primary = Color(0xFF98C7F2),
+    onPrimary = Color(0xFF102942),
+    primaryContainer = Color(0xFF173958),
     onPrimaryContainer = Color(0xFFEDEAFF),
     secondary = Color(0xFFABA4CD),
     onSecondary = Color(0xFF292440),
-    background = Color(0xFF0C0E18),
+    background = Color(0xFF091321),
     onBackground = Color(0xFFEDECF5),
-    surface = Color(0xFF1A1D2C),
+    surface = Color(0xFF142538),
     onSurface = Color(0xFFEDECF5),
-    surfaceVariant = Color(0xFF292C41),
+    surfaceVariant = Color(0xFF223951),
     onSurfaceVariant = Color(0xFFAFB3C9),
     outline = Color(0xFF515672)
 )
 
 private val ForestColors = darkColorScheme(
-    primary = Color(0xFF82D8AF),
+    primary = Color(0xFF5EE2B3),
     onPrimary = Color(0xFF0F3123),
     primaryContainer = Color(0xFF264639),
     onPrimaryContainer = Color(0xFFE0F6E9),
     secondary = Color(0xFF9CC4AC),
     onSecondary = Color(0xFF193A2A),
-    background = Color(0xFF0F1B18),
+    background = Color(0xFF050F10),
     onBackground = Color(0xFFE2F0E9),
-    surface = Color(0xFF1B2C26),
+    surface = Color(0xFF101D1E),
     onSurface = Color(0xFFE2F0E9),
-    surfaceVariant = Color(0xFF29443A),
+    surfaceVariant = Color(0xFF203635),
     onSurfaceVariant = Color(0xFFABCABD),
     outline = Color(0xFF436B5B),
     error = Color(0xFFFFB6AD)

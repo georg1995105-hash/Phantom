@@ -34,6 +34,7 @@ import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
+import xyz.wraithnet.phantom.data.TrafficBytes
 import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
@@ -53,6 +54,7 @@ class PhantomVpnService : VpnService() {
     private var singBoxBridge: SingBoxBridge? = null
     private var singBoxSession: Any? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var sessionBytes: TrafficBytes? = null
     private var trafficJob: Job? = null
     private var handoverJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -150,6 +152,33 @@ class PhantomVpnService : VpnService() {
                 }
             }
             ACTION_QUERY -> sendStatus(state)
+            ACTION_MEASURE_LATENCY -> {
+                val requested = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
+                if (requested.isNotBlank()) ioScope.launch {
+                    mutex.withLock {
+                        // Use the connected core only. Never start a second VPN or core.
+                        if (!running || state != STATUS_CONNECTED ||
+                            prefs.getString("vpn_last_profile", null) != requested) return@withLock
+                        val active = controller ?: return@withLock
+                        var delayMs = -1L
+                        for (url in listOf(
+                            "https://www.gstatic.com/generate_204",
+                            "https://cp.cloudflare.com/generate_204",
+                            "https://example.com/",
+                        )) {
+                            val ms = runCatching { active.measureDelay(url) }.getOrDefault(-1L)
+                            if (ms > 0L) { delayMs = ms; break }
+                        }
+                        if (!running || prefs.getString("vpn_last_profile", null) != requested)
+                            return@withLock
+                        prefs.edit().putLong("vpn_last_latency_ms", delayMs)
+                            .putInt("vpn_last_latency_profile_hash", requested.hashCode()).apply()
+                        sendBroadcast(Intent(ACTION_LATENCY).setPackage(packageName)
+                            .putExtra(EXTRA_LATENCY_MS, delayMs)
+                            .putExtra(EXTRA_LATENCY_PROFILE_HASH, requested.hashCode()))
+                    }
+                }
+            }
             ACTION_TRAFFIC_ON -> ioScope.launch {
                 mutex.withLock { if (running) startTrafficReports() }
             }
@@ -309,6 +338,7 @@ class PhantomVpnService : VpnService() {
             check(command == null || command == commandEpoch.get()) {
                 "Подключение заменено новым действием"
             }
+            sessionBytes = TrafficBytes()
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
@@ -365,13 +395,17 @@ class PhantomVpnService : VpnService() {
                 mutex.withLock {
                     if (!running) return@withLock
                     val report = runCatching {
-                        controller?.queryAllOutboundTrafficStats().orEmpty()
-                    }.getOrDefault("")
+                        controller?.queryAllOutboundTrafficStats()
+                    }.getOrNull()
                     val now = SystemClock.elapsedRealtime()
-                    val rate = TrafficRates.fromXrayReport(report, now - lastAt)
+                    val delta = report?.let(TrafficRates::bytesFromReport)
+                    sessionBytes = delta?.let { sessionBytes?.plus(it) }
+                    val rate = delta?.rate(now - lastAt)
                     lastAt = now
                     sendBroadcast(
                         Intent(ACTION_TRAFFIC).setPackage(packageName)
+                            .putExtra(EXTRA_DOWNLOAD_BYTES, sessionBytes?.download ?: -1L)
+                            .putExtra(EXTRA_UPLOAD_BYTES, sessionBytes?.upload ?: -1L)
                             .putExtra(EXTRA_DOWNLOAD_BPS, rate?.downloadBytesPerSecond ?: -1L)
                             .putExtra(EXTRA_UPLOAD_BPS, rate?.uploadBytesPerSecond ?: -1L)
                     )
@@ -518,9 +552,15 @@ class PhantomVpnService : VpnService() {
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
         const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
+        const val ACTION_MEASURE_LATENCY = "xyz.wraithnet.phantom.MEASURE_LATENCY"
+        const val ACTION_LATENCY = "xyz.wraithnet.phantom.VPN_LATENCY"
+        const val EXTRA_LATENCY_MS = "latency_ms"
+        const val EXTRA_LATENCY_PROFILE_HASH = "latency_profile_hash"
         const val ACTION_TRAFFIC = "xyz.wraithnet.phantom.VPN_TRAFFIC"
         const val ACTION_TRAFFIC_ON = "xyz.wraithnet.phantom.TRAFFIC_ON"
         const val ACTION_TRAFFIC_OFF = "xyz.wraithnet.phantom.TRAFFIC_OFF"
+        const val EXTRA_DOWNLOAD_BYTES = "session_download_bytes"
+        const val EXTRA_UPLOAD_BYTES = "session_upload_bytes"
         const val EXTRA_DOWNLOAD_BPS = "download_bytes_per_second"
         const val EXTRA_UPLOAD_BPS = "upload_bytes_per_second"
         const val EXTRA_CONNECTED_SINCE = "connected_since_elapsed"

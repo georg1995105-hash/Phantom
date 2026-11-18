@@ -138,11 +138,12 @@ class PhantomQuickTileService : TileService() {
         const val ACTION_CONNECT_FROM_TILE = "xyz.wraithnet.phantom.CONNECT_FROM_TILE"
 
         fun selectedProfile(context: Context): String? {
-            val selectedId = context.getSharedPreferences(
+            val preferences = context.getSharedPreferences(
                 "phantom_preferences", Context.MODE_PRIVATE
-            ).getString("selected_server_id", null)
+            )
             return QuickTileProfileSelector
-                .choose(SubscriptionStore(context).read(), selectedId)?.raw
+                .choose(SubscriptionStore(context).read(), preferences.getString("selected_server_id", null),
+                    preferences.getString("selected_subscription_id", null), preferences.getString("pinned_sub_id", null))?.raw
         }
 
         /** The tile can also be added manually from Android's Edit tiles screen. */

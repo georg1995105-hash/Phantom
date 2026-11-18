@@ -76,7 +76,7 @@ fun ThemeGalleryScreen(
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.NIGHT, selected, systemDark, onChoose,
-                    "Глубокие тёмные оттенки с фиолетовым акцентом")
+                    "Глубокий синий фон и светло-голубые акценты")
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.FOREST, selected, systemDark, onChoose,
