@@ -504,7 +504,13 @@ fun HomeScreen(
                         }
                     }, choose = { tab = Destination.SERVERS },
                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
-                    onCheckUpdate = ::checkAppUpdateNow, updateChecking = otaChecking)
+                    onRefreshSubscription = {
+                        selectedMatch?.first?.let { owner ->
+                            scope.launch { refresh(owner) }
+                        }
+                    },
+                    subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
+                    subscriptionAvailable = selectedMatch != null)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     probing = probing, checkPing = {
                         // A global scan has one result, not competing snackbars
@@ -552,7 +558,9 @@ fun HomeScreen(
                         }
                     })
                 Destination.SETTINGS -> PhantomSettings(
-                    onThemeChange = onThemeChange, onBackupRestored = {
+                    onThemeChange = onThemeChange,
+                    onCheckAppUpdate = ::checkAppUpdateNow,
+                    onBackupRestored = {
                         applySubscriptions(store.read())
                         selectedId = prefs.getString("selected_server_id", null)
                         selectedSubId = prefs.getString("selected_subscription_id", null)
@@ -907,6 +915,7 @@ internal fun dateLabel(seconds: Long): String =
 @Composable
 private fun PhantomSettings(
     onThemeChange: (PhantomThemeMode) -> Unit,
+    onCheckAppUpdate: () -> Unit,
     onBackupRestored: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1109,6 +1118,9 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
                 if (group == "about") {
+                    funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt) {
+                        onCheckAppUpdate()
+                    }
                     funActionRow("Компоненты и лицензии", Icons.Default.Layers) { showComponents = true }
                     funActionRow("Журнал VPN", Icons.Default.List) { showLog = true }
                 }
