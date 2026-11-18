@@ -17,7 +17,7 @@ class LatencyProbeAndroidTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun reachableTcpProfileHasExplicitTcpSourceWithoutChangingVpn() = runBlocking {
-        ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { listener ->
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { listener ->
             val profile = ServerProfile("tcp", "Local TCP", "vless", raw =
                 "vless://00000000-0000-4000-8000-000000000001@127.0.0.1:${listener.localPort}#Local")
             assertFalse(LatencyProbe.needsTunnel(profile))
