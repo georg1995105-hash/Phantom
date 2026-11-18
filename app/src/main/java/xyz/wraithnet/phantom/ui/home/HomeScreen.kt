@@ -138,11 +138,26 @@ fun HomeScreen(
             }
         }
     }
-    fun persist(list: List<Subscription>) {
+    fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
+
+    /** Do not carry an old RTT over to a new endpoint with the same JSON remark/id. */
+    fun applySubscriptions(list: List<Subscription>) {
+        val previous = subscriptions.flatMap { owner ->
+            owner.servers.map { server -> pingKey(owner, server) to server.raw }
+        }.toMap()
+        val incoming = list.flatMap { owner ->
+            owner.servers.map { server -> pingKey(owner, server) to server.raw }
+        }.toMap()
+        latencies.keys.toList().filter { key ->
+            incoming[key] == null || previous[key] != incoming[key]
+        }.forEach { latencies.remove(it) }
         subscriptions = list
+    }
+
+    fun persist(list: List<Subscription>) {
+        applySubscriptions(list)
         store.write(list)
     }
-    fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
 
     // Cached VPN RTT belongs only to the actually running profile.
     LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
@@ -349,7 +364,7 @@ fun HomeScreen(
 
     LaunchedEffect(refreshVersion) {
         val stored = store.read()
-        if (stored != subscriptions) subscriptions = stored
+        if (stored != subscriptions) applySubscriptions(stored)
     }
 
     // Refresh stale subscriptions while the UI exists; manual refresh is always available.
@@ -494,7 +509,7 @@ fun HomeScreen(
                     })
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange, onBackupRestored = {
-                        subscriptions = store.read()
+                        applySubscriptions(store.read())
                         selectedId = prefs.getString("selected_server_id", null)
                         selectedSubId = prefs.getString("selected_subscription_id", null)
                         pinnedSubId = prefs.getString("pinned_sub_id", null)
