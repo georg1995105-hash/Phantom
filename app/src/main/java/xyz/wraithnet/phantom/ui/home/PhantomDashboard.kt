@@ -102,7 +102,8 @@ internal fun PageTitle(page: Destination) {
 @Composable
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
-    onCheckUpdate: () -> Unit, updateChecking: Boolean) {
+    onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
+    subscriptionAvailable: Boolean) {
     val c = MaterialTheme.colorScheme
     val connected = status == "connected"
     val starting = status == "starting"
@@ -125,7 +126,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     Modifier.size(62.dp), tint = c.onSurface)
             }
             Spacer(Modifier.height(16.dp))
-            // Keep the update action next to the connection state, not in the app header.
+            // Refresh the selected VPN subscription next to the connection state.
             // Weighted status text wraps cleanly on narrower phones.
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center) {
@@ -141,11 +142,12 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 }, color = if (connected) c.primary else c.onBackground,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(8.dp))
-                TextButton(onClick = onCheckUpdate, enabled = !updateChecking,
+                TextButton(onClick = onRefreshSubscription,
+                    enabled = subscriptionAvailable && !subscriptionRefreshing,
                     modifier = Modifier.heightIn(min = 48.dp).semantics {
-                        contentDescription = "Проверить обновления приложения"
+                        contentDescription = "Обновить выбранную подписку"
                     }) {
-                    if (updateChecking) {
+                    if (subscriptionRefreshing) {
                         CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(Icons.Default.Refresh, contentDescription = null,
