@@ -27,13 +27,28 @@ sys.excepthook = report_crash
 
 
 def node(label, attempts=8):
-    for _ in range(attempts):
+    launcher_recovered = False
+    # Native JNI tests can temporarily exhaust the shared CI emulator and
+    # cause a *system Pixel Launcher* ANR, independent of Phantom. Recover
+    # only that specific system dialog, never an app crash or missing UI.
+    for _ in range(max(attempts, 20) if label == "UpgradeCheck" else attempts):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
         for item in root.iter("node"):
             values = (item.get("text", "") + "\n" + item.get("content-desc", "")).splitlines()
             if label in values:
                 return item
+        visible_text = " ".join((item.get("text") or "") for item in root.iter("node"))
+        if (label == "UpgradeCheck" and not launcher_recovered and
+                "Pixel Launcher isn't responding" in visible_text):
+            dismiss = next((item for item in root.iter("node")
+                if item.get("text") == "Close app"), None)
+            if dismiss is not None:
+                left, top, right, bottom = map(int, re.findall(r"\d+", dismiss.get("bounds", "")))
+                adb("shell", "input", "tap", str((left + right) // 2),
+                    str((top + bottom) // 2))
+                adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+                launcher_recovered = True
         time.sleep(0.5)
     visible = [n.get("text") or n.get("content-desc") for n in root.iter("node")]
     raise AssertionError(f"Missing UI element {label!r}, visible: {list(filter(None, visible))}")
