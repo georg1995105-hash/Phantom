@@ -16,6 +16,15 @@ def adb(*args):
     return subprocess.check_output(["adb", *args], text=True)
 
 
+def report_crash(kind, error, traceback):
+    sys.__excepthook__(kind, error, traceback)
+    print(adb("logcat", "-b", "crash", "-d", "-t", "180"), flush=True)
+    print(adb("shell", "dumpsys", "activity", "exit-info", PACKAGE)[:5000], flush=True)
+
+
+sys.excepthook = report_crash
+
+
 def node(label):
     for _ in range(8):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
