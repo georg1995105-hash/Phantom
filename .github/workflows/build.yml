@@ -69,6 +69,17 @@ jobs:
           echo "304ac8a1cbcc8166e4f5a4f32955e4d0fb77a1bd713583e371b30ee27f3659d8  app/src/main/assets/geoip.dat" | sha256sum -c -
           echo "269f7740e328b592376ea99f2adb12f83d5bc17b024e584c8a7b3706ba5c789d  app/src/main/assets/geosite.dat" | sha256sum -c -
 
+      - name: Verify release notes match APK version
+        run: |
+          VERSION=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
+          test -n "$VERSION"
+          grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
+
+      - name: Build release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
         run: |
@@ -88,17 +99,6 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > app/keystore.jks
           test -s app/keystore.jks
 
-      - name: Verify release notes match APK version
-        run: |
-          VERSION=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
-          test -n "$VERSION"
-          grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
-
-      - name: Build release APK
-        run: |
-          chmod +x gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
-
       - name: Sign APK
         env:
           KEYSTORE_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEYSTORE_PASSWORD || 'phantom-ci-only-2026' }}
@@ -116,6 +116,10 @@ jobs:
               --out "$signed" "aligned-$abi.apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
           done
+          # Never keep the production signing material on the test runner.
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            rm -f app/keystore.jks
+          fi
 
       - name: Compare production signing certificates
         if: github.event_name == 'workflow_dispatch'
@@ -202,14 +206,15 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: phantom-arm64-v8a
+          # Test-signed builds must not be mistaken for production APKs.
+          name: ${{ github.event_name == 'workflow_dispatch' && 'phantom-arm64-v8a' || 'ci-test-only-arm64-v8a' }}
           path: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
           retention-days: 30
 
       - name: Upload x86_64 APK
         uses: actions/upload-artifact@v4
         with:
-          name: phantom-x86_64
+          name: ${{ github.event_name == 'workflow_dispatch' && 'phantom-x86_64' || 'ci-test-only-x86_64' }}
           path: app/build/outputs/apk/release/phantom-x86_64-release.apk
           retention-days: 30
 
