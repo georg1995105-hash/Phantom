@@ -116,6 +116,25 @@ jobs:
           diff previous.apk.cert app/build/outputs/apk/release/phantom-arm64-v8a-release.apk.cert
           cat previous.apk.cert
 
+      - name: Prepare loopback protocol peers
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p "$RUNNER_TEMP/peers"
+          cd "$RUNNER_TEMP/peers"
+          curl -fsSL --retry 3 -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.11.9/Xray-linux-64.zip
+          curl -fsSL --retry 3 -o singbox.tgz https://github.com/SagerNet/sing-box/releases/download/v1.14.4/sing-box-1.14.4-linux-amd64.tar.gz
+          echo 'b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82  xray.zip' | sha256sum -c -
+          echo '699a1b510aa4396b2176d32d1181920399ebf1e267835da6f3b598d0f7c24968  singbox.tgz' | sha256sum -c -
+          unzip -q xray.zip xray
+          tar -xf singbox.tgz --strip-components=1 sing-box-1.14.4-linux-amd64/sing-box
+          python3 "$GITHUB_WORKSPACE/scripts/ci_protocol_peers.py" "$PWD/xray" "$PWD/sing-box" "$GITHUB_WORKSPACE/app/src/androidTest/assets/peers.json" > peers.log 2>&1 &
+          for attempt in {1..15}; do
+            if curl -fsS http://127.0.0.1:34301/ready; then exit 0; fi
+            sleep 1
+          done
+          cat peers.log
+          exit 1
+
       - name: Enable emulator hardware acceleration
         if: github.event_name == 'pull_request'
         run: |

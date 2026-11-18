@@ -164,7 +164,7 @@ object XrayConfigBuilder {
                     (q["alpn"] ?: "h3").split(",").forEach { put(it) }
                 })
                 .put("fingerprint", q["fp"] ?: "chrome")
-                .put("allowInsecure", q["insecure"] == "1" || q["insecure"] == "true"))
+                .apply { applyCertificateOptions(q) })
         val finalmask = JSONObject().put("quicParams", JSONObject().put("keepAlivePeriod", 15))
         if (q["obfs"]?.lowercase() == "salamander") {
             val password = q["obfs-password"].orEmpty()
@@ -305,9 +305,21 @@ object XrayConfigBuilder {
 
     private fun tls(query: Map<String, String>) = JSONObject()
         .put("serverName", query["sni"] ?: query["serverName"] ?: "")
-        .put("allowInsecure", query["allowInsecure"] == "1" || query["allowInsecure"] == "true")
+        .apply { applyCertificateOptions(query) }
         .put("alpn", JSONArray().apply { query["alpn"]?.split(',')?.forEach { put(it) } })
         .put("fingerprint", query["fp"] ?: "chrome")
+
+    private fun JSONObject.applyCertificateOptions(query: Map<String, String>) {
+        val pin = query["pcs"] ?: query["pinSHA256"] ?: query["pinnedPeerCertSha256"]
+        pin?.takeIf { it.isNotBlank() }?.let { put("pinnedPeerCertSha256", it) }
+        query["vcn"]?.takeIf { it.isNotBlank() }?.let { put("verifyPeerCertByName", it) }
+        val insecure = listOf("allowInsecure", "insecure", "allow_insecure").any {
+            query[it] == "1" || query[it].equals("true", ignoreCase = true)
+        }
+        require(!insecure || !pin.isNullOrBlank()) {
+            "Ядру нужен проверяемый сертификат. Запросите ссылку с отпечатком SHA-256 или доверенным сертификатом."
+        }
+    }
 
     private fun reality(query: Map<String, String>) = JSONObject()
         .put("serverName", query["sni"] ?: query["serverName"] ?: "")
