@@ -99,10 +99,10 @@ class MainActivity : ComponentActivity() {
                 mutableStateOf(
                     runCatching {
                         PhantomThemeMode.valueOf(
-                            preferences.getString("theme", PhantomThemeMode.AUTO.name)
-                                ?: PhantomThemeMode.AUTO.name
+                            preferences.getString("theme", PhantomThemeMode.FOREST.name)
+                                ?: PhantomThemeMode.FOREST.name
                         )
-                    }.getOrDefault(PhantomThemeMode.AUTO)
+                    }.getOrDefault(PhantomThemeMode.FOREST)
                 )
             }
             val lightBars = theme == PhantomThemeMode.LIGHT ||

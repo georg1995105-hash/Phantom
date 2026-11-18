@@ -84,23 +84,6 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
 
-      - name: Enable emulator hardware acceleration
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
-
-      - name: Run dual Go runtime JNI smoke test on Android
-        if: github.event_name == 'pull_request'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          disable-animations: true
-          script: bash scripts/ci_native_smoke.sh
-
       - name: Sign APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
@@ -122,6 +105,36 @@ jobs:
           $ANDROID_HOME/build-tools/35.0.0/apksigner verify "$SIGNED"
           ls -lh "$SIGNED"
 
+      - name: Compare production signing certificates
+        if: github.event_name == 'pull_request'
+        run: |
+          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.2.24/phantom-arm64-v8a-release.apk
+          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          for apk in previous.apk app/build/outputs/apk/release/phantom-arm64-v8a-release.apk; do
+            "$signer" verify --print-certs "$apk" | grep 'certificate SHA-256 digest:' > "$apk.cert"
+          done
+          diff previous.apk.cert app/build/outputs/apk/release/phantom-arm64-v8a-release.apk.cert
+          cat previous.apk.cert
+
+      - name: Enable emulator hardware acceleration
+        if: github.event_name == 'pull_request'
+        run: |
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
+
+      - name: Run dual Go runtime JNI smoke test on Android
+        if: github.event_name == 'pull_request'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            bash scripts/ci_native_smoke.sh
+            python3 scripts/ci_upgrade.py previous.apk app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -133,8 +146,8 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && 'v0.2.24' || inputs.release_tag }}
-          name: PHANTOM VPN 0.2.24
+          tag_name: ${{ github.event_name == 'push' && 'v0.3.0' || inputs.release_tag }}
+          name: PHANTOM VPN 0.3.0
           files: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
           prerelease: true
           body_path: RELEASE_NOTES.md

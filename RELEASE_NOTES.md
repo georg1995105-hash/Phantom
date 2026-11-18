@@ -1,4 +1,10 @@
-# PHANTOM VPN 0.2.24
+# PHANTOM VPN 0.3.0
+
+- Четыре вкладки: подключение, серверы, подписки и настройки.
+- Избранные серверы и поиск по импортированным профилям.
+- Покупка и продление Phantom открываются в официальном магазине.
+
+## PHANTOM VPN 0.2.24
 
 - Исправлена подтверждённая первопричина аварийного завершения sing-box: Android-обработчик PlatformInterface.findConnectionOwner ранее отсутствовал, а динамический Java proxy возвращал null. В libbox 1.14.4 experimental/libbox/service.go:197 Go немедленно разыменовывал result.UserId, из-за чего при реальном SOCKS5 CONNECT происходил panic: nil pointer dereference и завершение Go-процесса.
 - Теперь обработчик всегда возвращает непустой ConnectionOwner с UserId=-1 (владелец не определён). Схема Phantom использует Xray для маршрутизации по приложениям; sing-box выступает отдельным SOCKS5→TUIC/AnyTLS транспортом и не должен выполнять Android process attribution.

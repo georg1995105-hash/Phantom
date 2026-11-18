@@ -48,6 +48,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -138,7 +139,6 @@ fun HomeScreen(
     var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
     val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
     val selected = selectedMatch?.second
-    var expandedIds by remember { mutableStateOf(subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()) }
     var refreshing by remember { mutableStateOf(setOf<String>()) }
     var probing by remember { mutableStateOf(setOf<String>()) }
     var pingCompleted by remember { mutableIntStateOf(0) }
@@ -148,7 +148,9 @@ fun HomeScreen(
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
-    var showSettings by remember { mutableStateOf(false) }
+    var tab by rememberSaveable { mutableStateOf(Destination.HOME) }
+    var favorites by remember { mutableStateOf(prefs.getStringSet("favorite_servers", emptySet()).orEmpty().toSet()) }
+    var refreshFailed by remember { mutableStateOf(emptySet<String>()) }
     var deleteId by remember { mutableStateOf<String?>(null) }
     val lastAttempt = remember { mutableMapOf<String, Long>() }
     var connectedSeconds by remember { mutableLongStateOf(0L) }
@@ -232,7 +234,6 @@ fun HomeScreen(
                     expiresAt = downloaded?.expiresAt
                 )
                 persist(subscriptions + subscription)
-                expandedIds = expandedIds + subscription.id
                 if (selected == null) {
                     selectedId = subscription.servers.firstOrNull()?.id
                     selectedSubId = subscription.id
@@ -290,12 +291,14 @@ fun HomeScreen(
                 expiresAt = remote.expiresAt ?: item.expiresAt
             )
             persist(subscriptions.map { if (it.id == item.id) updated else it })
+            refreshFailed = refreshFailed - item.id
             if (!quiet) {
                 softTap()
                 snackbar.showSnackbar("Подписка обновлена")
             }
         } catch (e: Exception) {
-            if (!quiet) snackbar.showSnackbar(e.message ?: "Не удалось обновить подписку")
+            refreshFailed = refreshFailed + item.id
+            if (!quiet) snackbar.showSnackbar("Не удалось обновить подписку. Сохранённые серверы доступны.")
         } finally {
             refreshing = refreshing - item.id
         }
@@ -412,414 +415,69 @@ fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = showSettings) { showSettings = false }
-
-    if (showSettings) {
-        PhantomSettings(
-            onBack = { showSettings = false },
-            onThemeChange = onThemeChange,
-            onBackupRestored = {
-                subscriptions = store.read()
-                selectedId = prefs.getString("selected_server_id", null)
-                selectedSubId = prefs.getString("selected_subscription_id", null)
-                pinnedSubId = prefs.getString("pinned_sub_id", null)
-                expandedIds = subscriptions.firstOrNull()?.let { setOf(it.id) } ?: emptySet()
-                runCatching {
-                    PhantomThemeMode.valueOf(prefs.getString("theme", "AUTO") ?: "AUTO")
-                }.getOrNull()?.let(onThemeChange)
-                showSettings = false
-                scope.launch { snackbar.showSnackbar("Резервная копия восстановлена") }
-            }
-        )
-        return
-    }
-
-    val standalone = subscriptions.filter { item ->
-        !item.source.startsWith("http://", true) &&
-            !item.source.startsWith("https://", true) && item.servers.size == 1
-    }
-    val regular = subscriptions.filterNot { sub -> standalone.any { it.id == sub.id } }
-    // One compact card holds every standalone key. A pinned key moves the group first.
-    val displayItems: List<Subscription?> = buildList {
-        addAll(regular)
-        if (standalone.isNotEmpty()) add(null)
-    }.sortedByDescending { item ->
-        if (item == null) standalone.any { it.id == pinnedSubId }
-        else item.id == pinnedSubId
-    }
+    BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { showSettings = true }) {
-                    Icon(Icons.Default.Settings, "Настройки", Modifier.size(24.dp))
-                }
-                Spacer(Modifier.weight(1f))
-            }
+            if (tab != Destination.SETTINGS) Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
         },
-        bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.background) {
-                Row(
-                    Modifier.fillMaxWidth().navigationBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Button(
-                        onClick = { softTap(); add(pasteText()) },
-                        enabled = !importBusy,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(7.dp))
-                        Text("Вставить")
-                    }
-                    OutlinedButton(
-                        onClick = { softTap(); showImportMenu = true },
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(7.dp))
-                        Text("Добавить")
-                    }
-                }
-            }
-        }
+        bottomBar = { TabBar(tab) { tab = it } }
     ) { inner ->
-        Box(Modifier.fillMaxSize().padding(inner)) {
-            LazyColumn(
-                Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, bottom = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            item(key = "connection-metrics") {
-                val isConnected = vpnStatus == "connected"
-                val left = if (isConnected) TrafficRates.labelBits(uploadRate) else "0 Кбит/с"
-                val right = if (isConnected) TrafficRates.labelBits(downloadRate) else "0 Кбит/с"
-                val timer = String.format(Locale.ROOT, "%02d:%02d:%02d",
-                    connectedSeconds / 3600L, (connectedSeconds / 60L) % 60L,
-                    connectedSeconds % 60L)
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 3.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                        Text("↑ " + left, color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        Text(timer, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground)
-                    }
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                        Text("↓ " + right, color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    }
-                }
-            }
-            item {
-                Column(
-                    Modifier.fillMaxWidth().padding(top = 0.dp, bottom = 0.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    val connected = vpnStatus == "connected"
-                    Box(
-                        Modifier.size(144.dp)
-                            .border(1.5.dp, if (connected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outline, CircleShape)
-                            .padding(9.dp).clip(CircleShape)
-                            .background(Brush.linearGradient(
-                                listOf(MaterialTheme.colorScheme.primaryContainer,
-                                    MaterialTheme.colorScheme.surfaceVariant)))
-                            .clickable(enabled = vpnStatus != "starting") {
-                                when {
-                                    connected -> { softTap(); onStopVpn() }
-                                    selected == null -> scope.launch { snackbar.showSnackbar("Сначала добавьте подписку") }
-                                    else -> { softTap(); onStartVpn(selected.raw) }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.PowerSettingsNew, "Подключить или отключить",
-                            Modifier.size(56.dp),
-                            tint = if (connected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface)
-                    }
-                    Spacer(Modifier.height(9.dp))
-                    Text(when (vpnStatus) {
-                        "connected" -> "Подключено"
-                        "starting" -> "Подключение…"
-                        "error" -> "Соединение не установлено"
-                        else -> "Отключено"
-                    }, style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (vpnStatus == "error") MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onBackground)
-                    if (vpnStatus == "error" && vpnError.isNotBlank()) {
-                        TextButton(onClick = { showErrorDetails = true }) {
-                            Text("Причина ошибки", fontSize = 12.sp)
+        val colors = MaterialTheme.colorScheme
+        Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
+            .background(Brush.linearGradient(listOf(colors.background,
+                colors.surface, colors.background)))) {
+            when (tab) {
+                Destination.HOME -> ConnectionPage(vpnStatus, selected, downloadRate, uploadRate, connectedSeconds,
+                    toggle = {
+                        softTap()
+                        when {
+                            vpnStatus == "connected" -> onStopVpn()
+                            selected == null -> { tab = Destination.SUBSCRIPTIONS; showImportMenu = true }
+                            else -> onStartVpn(selected.raw)
                         }
-                    } else if (selected != null) {
-                        Spacer(Modifier.height(3.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(CountryFlags.flag(selected), fontSize = 19.sp)
-                            Spacer(Modifier.width(7.dp))
-                            Text(displayServerName(selected), fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }, choose = { tab = Destination.SERVERS },
+                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null)
+                Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, favorites, latencies,
+                    favorite = { id ->
+                        favorites = if (id in favorites) favorites - id else favorites + id
+                        prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                    }, choose = { owner, server ->
+                        if (ProtocolSupport.isSupported(server.scheme)) {
+                            val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id
+                            softTap()
+                            selectedId = server.id
+                            selectedSubId = owner.id
+                            prefs.edit().putString("selected_server_id", server.id)
+                                .putString("selected_subscription_id", owner.id).apply()
+                            if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
+                        } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
+                    }, add = { tab = Destination.SUBSCRIPTIONS; showImportMenu = true })
+                Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
+                    selectedMatch?.first?.id, refreshing, refreshFailed, { scope.launch { refresh(it) } },
+                    { activeSubMenu = it.id }, ::probeSubscription, probing, { showImportMenu = true },
+                    shop = { renew ->
+                        val url = if (renew) "https://go.veor.pro/" else "https://go.veor.pro/#plans"
+                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                            .addCategory(Intent.CATEGORY_BROWSABLE)
+                        try {
+                            context.startActivity(intent)
+                        } catch (_: android.content.ActivityNotFoundException) {
+                            scope.launch { snackbar.showSnackbar("Установите браузер для открытия магазина") }
                         }
-                    }
-                }
-            }
-            if (subscriptions.isEmpty()) {
-                item {
-                    Card(shape = panelShape,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                        Column(Modifier.fillMaxWidth().padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Подписок пока нет", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(7.dp))
-                            Text("Ссылка подписки или отдельный ключ VPN",
-                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.height(12.dp))
-
-                        }
-                    }
-                }
-            }
-            items(displayItems, key = { it?.id ?: "__standalone_keys__" }) { item ->
-                if (item == null) {
-                    Card(
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.5.dp,
-                            MaterialTheme.colorScheme.outline.copy(alpha = .72f)),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                    ) {
-                        Column {
-                            Text(
-                                "Отдельные ключи",
-                                modifier = Modifier.fillMaxWidth()
-                                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            standalone.sortedByDescending { it.id == pinnedSubId }
-                                .forEach { single ->
-                                    val server = single.servers.single()
-                                    val chosen = selectedMatch?.let { (owner, profile) ->
-                                        owner.id == single.id && profile.id == server.id
-                                    } == true
-                                    HorizontalDivider(
-                                        color = MaterialTheme.colorScheme.outline.copy(alpha = .16f))
-                                    Row(
-                                        Modifier.fillMaxWidth()
-                                            .background(if (chosen)
-                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f)
-                                                else Color.Transparent)
-                                            .heightIn(min = 65.dp)
-                                            .padding(start = 14.dp, end = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            Modifier.weight(1f).clickable {
-                                                softTap()
-                                                selectedId = server.id
-                                                selectedSubId = single.id
-                                                prefs.edit().putString("selected_server_id", server.id)
-                                                    .putString("selected_subscription_id", single.id).apply()
-                                                if (!chosen && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
-                                            }.padding(vertical = 10.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(CountryFlags.flag(server), fontSize = 23.sp)
-                                            Spacer(Modifier.width(12.dp))
-                                            Column(Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(displayServerName(server), fontSize = 15.sp,
-                                                        maxLines = 1,
-                                                        fontWeight = if (chosen)
-                                                            FontWeight.SemiBold else FontWeight.Medium,
-                                                        modifier = Modifier.weight(1f))
-                                                    if (pinnedSubId == single.id) {
-                                                        Icon(Icons.Default.PushPin, "Закреплено",
-                                                            Modifier.size(16.dp),
-                                                            tint = MaterialTheme.colorScheme.primary)
-                                                    }
-                                                }
-                                                Text(protocolLabel(server), fontSize = 11.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                            latencies[pingKey(single, server)]?.takeIf { it > 0 }?.let { delayMs ->
-                                                Text("${delayMs} мс", fontSize = 12.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                Spacer(Modifier.width(8.dp))
-                                            }
-                                            if (chosen) Icon(Icons.Default.CheckCircle, "Выбран",
-                                                Modifier.size(18.dp),
-                                                tint = MaterialTheme.colorScheme.primary)
-                                        }
-                                        IconButton(
-                                            onClick = { activeSubMenu = single.id },
-                                            modifier = Modifier.size(40.dp)
-                                        ) {
-                                            Icon(Icons.Default.MoreVert, "Меню ключа",
-                                                Modifier.size(21.dp))
-                                        }
-                                    }
-                                }
-                        }
-                    }
-                } else {
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.5.dp,
-                        MaterialTheme.colorScheme.outline.copy(alpha = .72f)),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Column {
-                        Row(
-                            Modifier.fillMaxWidth().padding(start = 7.dp, end = 7.dp, top = 9.dp, bottom = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            IconButton(
-                                onClick = { expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id },
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(if (item.id in expandedIds) Icons.Default.ExpandLess
-                                    else Icons.Default.ExpandMore, "Свернуть или развернуть",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Column(Modifier.weight(1f).padding(start = 5.dp).clickable {
-                                expandedIds = if (item.id in expandedIds) expandedIds - item.id else expandedIds + item.id
-                            }) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(item.title, style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold, maxLines = 1,
-                                        modifier = Modifier.weight(1f))
-                                    if (pinnedSubId == item.id) {
-                                        Spacer(Modifier.width(6.dp))
-                                        Icon(Icons.Default.PushPin, "Закреплено сверху",
-                                            Modifier.size(17.dp), tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                }
-                                Text("Обновлено " + timeLabel(item.updatedAt),
-                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (item.source.startsWith("https://", ignoreCase = true) ||
-                                item.source.startsWith("http://", ignoreCase = true)) {
-                                IconButton(onClick = { scope.launch { refresh(item) } },
-                                    enabled = item.id !in refreshing, modifier = Modifier.size(40.dp)) {
-                                    if (item.id in refreshing) CircularProgressIndicator(
-                                        Modifier.size(17.dp), strokeWidth = 2.dp)
-                                    else Icon(Icons.Default.Refresh, "Обновить подписку", Modifier.size(21.dp))
-                                }
-                            }
-                            IconButton(onClick = { probeSubscription(item) },
-                                enabled = item.id !in probing, modifier = Modifier.size(40.dp)) {
-                                if (item.id in probing) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.Speed, "Проверить пинг", Modifier.size(21.dp))
-                            }
-                            IconButton(onClick = { activeSubMenu = item.id }, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.Default.MoreVert, "Меню подписки", Modifier.size(22.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        if (item.totalBytes != null || item.expiresAt != null) {
-                            Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                item.totalBytes?.let { total ->
-                                    val used = (item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)
-                                    val limit = if (total > 0) sizeLabel(total) else "∞"
-                                    Text(sizeLabel(used) + " / " + limit,
-                                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                item.expiresAt?.let {
-                                    Text("До " + dateLabel(it), fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                            val total = item.totalBytes
-                            if (total != null && total > 0L) {
-                                val used = (item.uploadBytes ?: 0L) + (item.downloadBytes ?: 0L)
-                                LinearProgressIndicator(
-                                    progress = { (used.toFloat() / total.toFloat()).coerceIn(0f, 1f) },
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                                        .height(3.dp).clip(CircleShape)
-                                )
-                            }
-                        }
-                        if (item.id in expandedIds) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .3f))
-                            item.servers.forEach { server ->
-                                val supported = ProtocolSupport.isSupported(server.scheme)
-                                val singleDirect = !item.source.startsWith("http", ignoreCase = true) &&
-                                    item.servers.size == 1
-                                val chosen = selectedMatch?.let { (owner, profile) ->
-                                    owner.id == item.id && profile.id == server.id
-                                } == true
-                                Row(
-                                    Modifier.fillMaxWidth()
-                                        .background(if (chosen)
-                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f)
-                                            else Color.Transparent)
-                                        .clickable {
-                                            if (supported) {
-                                                softTap()
-                                                selectedId = server.id
-                                                selectedSubId = item.id
-                                                prefs.edit().putString("selected_server_id", server.id)
-                                                    .putString("selected_subscription_id", item.id).apply()
-                                                if (!chosen && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
-                                            } else {
-                                                scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                                            }
-                                        }
-                                        .heightIn(min = 62.dp)
-                                        .padding(horizontal = 16.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(CountryFlags.flag(server), fontSize = 23.sp)
-                                    Spacer(Modifier.width(11.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(displayServerName(server), fontSize = 15.sp,
-                                            fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Medium,
-                                            maxLines = 1)
-                                        Spacer(Modifier.height(3.dp))
-                                        Text(protocolLabel(server), fontSize = 10.sp,
-                                            maxLines = 1, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    latencies[pingKey(item, server)]?.let { ms ->
-                                        Text(if (ms >= 0) ms.toString() + " мс" else "—",
-                                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.width(7.dp))
-                                    }
-                                    if (!singleDirect) {
-                                        if (chosen) Icon(Icons.Default.CheckCircle, "Выбран",
-                                            Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                        else if (supported) Box(Modifier.size(16.dp)
-                                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
-                                    }
-
-                                }
-                                HorizontalDivider(Modifier.padding(start = 48.dp),
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = .15f))
-                            }
-                        }
-                    }
-                }
-                }
-            }
-
-
+                    })
+                Destination.SETTINGS -> PhantomSettings(onBack = { tab = Destination.HOME },
+                    onThemeChange = onThemeChange, onBackupRestored = {
+                        subscriptions = store.read()
+                        selectedId = prefs.getString("selected_server_id", null)
+                        selectedSubId = prefs.getString("selected_subscription_id", null)
+                        pinnedSubId = prefs.getString("pinned_sub_id", null)
+                        favorites = prefs.getStringSet("favorite_servers", emptySet()).orEmpty().toSet()
+                        runCatching { PhantomThemeMode.valueOf(prefs.getString("theme", "FOREST") ?: "FOREST") }
+                            .getOrNull()?.let(onThemeChange)
+                        tab = Destination.HOME
+                        scope.launch { snackbar.showSnackbar("Резервная копия восстановлена") }
+                    })
             }
             SnackbarHost(
                 hostState = snackbar,
@@ -842,7 +500,7 @@ fun HomeScreen(
             )
         }
     }
-    if (showOtaSheet && availableUpdate != null && !showSettings &&
+    if (showOtaSheet && availableUpdate != null && tab != Destination.SETTINGS &&
         !showImportMenu && activeSubMenu == null && importMode == null) {
         val release = availableUpdate!!
         ModalBottomSheet(
@@ -1101,7 +759,7 @@ fun HomeScreen(
     }
 }
 
-private fun displayServerName(server: ServerProfile): String =
+internal fun displayServerName(server: ServerProfile): String =
     server.name.trim().removePrefix(server.countryFlag)
         .removePrefix("🌐").removePrefix("📶").trim().ifBlank { server.name }
 
@@ -1122,7 +780,7 @@ private fun funActionRow(
     }
 }
 
-private fun protocolLabel(server: ServerProfile): String {
+internal fun protocolLabel(server: ServerProfile): String {
     if (server.scheme.lowercase() !in setOf("xray", "json")) return when (server.scheme.lowercase()) {
         "hysteria", "hysteria2", "hy2" -> "Hysteria2"
         else -> server.scheme.uppercase()
@@ -1144,7 +802,7 @@ private fun protocolLabel(server: ServerProfile): String {
     }.getOrDefault("Xray")
 }
 
-private fun sizeLabel(bytes: Long): String {
+internal fun sizeLabel(bytes: Long): String {
     if (bytes <= 0) return "0 Б"
     val units = listOf("Б", "КБ", "МБ", "ГБ", "ТБ")
     var value = bytes.toDouble()
@@ -1153,10 +811,10 @@ private fun sizeLabel(bytes: Long): String {
     return String.format(Locale.getDefault(), "%.1f %s", value, units[i])
 }
 
-private fun timeLabel(millis: Long): String =
+internal fun timeLabel(millis: Long): String =
     SimpleDateFormat("dd.MM, HH:mm", Locale.getDefault()).format(Date(millis))
 
-private fun dateLabel(seconds: Long): String =
+internal fun dateLabel(seconds: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(seconds * 1000L))
 
 @Composable
@@ -1169,8 +827,8 @@ private fun PhantomSettings(
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     var mode by remember {
         mutableStateOf(runCatching {
-            PhantomThemeMode.valueOf(prefs.getString("theme", "AUTO") ?: "AUTO")
-        }.getOrDefault(PhantomThemeMode.AUTO))
+            PhantomThemeMode.valueOf(prefs.getString("theme", "FOREST") ?: "FOREST")
+        }.getOrDefault(PhantomThemeMode.FOREST))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var bootConnect by remember { mutableStateOf(prefs.getBoolean(VpnBootPolicy.PREF_KEY, false)) }
