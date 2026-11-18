@@ -12,8 +12,10 @@ on:
   pull_request:
     branches: [main]
 
+# All untrusted PR code runs with a read-only token.
+# Only the dedicated publish job can create a GitHub Release.
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 jobs:
@@ -67,12 +69,24 @@ jobs:
           echo "304ac8a1cbcc8166e4f5a4f32955e4d0fb77a1bd713583e371b30ee27f3659d8  app/src/main/assets/geoip.dat" | sha256sum -c -
           echo "269f7740e328b592376ea99f2adb12f83d5bc17b024e584c8a7b3706ba5c789d  app/src/main/assets/geosite.dat" | sha256sum -c -
 
-      - name: Restore keystore from secrets
+      - name: Generate disposable CI signing key (no release secrets)
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          # A fresh, non-production key for EACH CI run.
+          # A PR cannot access or sign an APK with the production key.
+          keytool -genkeypair -noprompt -keystore app/keystore.jks \
+            -storepass phantom-ci-only-2026 -keypass phantom-ci-only-2026 \
+            -alias ci-ephemeral -keyalg RSA -keysize 3072 -validity 1 \
+            -dname "CN=Phantom CI Temporary,O=Tests"
+
+      - name: Restore production signing key (manual release only)
+        if: github.event_name == 'workflow_dispatch'
         env:
           KEYSTORE_B64: ${{ secrets.APP_KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_B64" | base64 -d > app/keystore.jks
-          ls -lh app/keystore.jks
+          test -n "$KEYSTORE_B64"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > app/keystore.jks
+          test -s app/keystore.jks
 
       - name: Verify release notes match APK version
         run: |
@@ -87,9 +101,9 @@ jobs:
 
       - name: Sign APK
         env:
-          KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
-          KEYSTORE_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.APP_KEY_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEYSTORE_PASSWORD || 'phantom-ci-only-2026' }}
+          KEYSTORE_ALIAS: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEYSTORE_ALIAS || 'ci-ephemeral' }}
+          KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEY_PASSWORD || 'phantom-ci-only-2026' }}
         run: |
           for abi in arm64-v8a x86_64; do
             dir=app/build/outputs/apk/release
@@ -104,7 +118,7 @@ jobs:
           done
 
       - name: Compare production signing certificates
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.2.24/phantom-arm64-v8a-release.apk
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
@@ -133,7 +147,7 @@ jobs:
           cat peers.log
           exit 1
 
-      - name: Download signed 0.3.0 upgrade baseline
+      - name: Download signed 0.3.2 upgrade baseline
         if: github.event_name != 'push'
         uses: actions/download-artifact@v4
         with:
@@ -146,7 +160,18 @@ jobs:
         if: github.event_name != 'push'
         run: |
           cp previous-release/phantom-arm64-v8a-release.apk previous.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify previous.apk
+          signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$signer" verify previous.apk
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # Re-sign the baseline with this run's ephemeral CI key so the
+            # Android upgrade test still checks real in-place user data.
+            # The production signing key never enters a PR runner.
+            "$signer" sign --ks app/keystore.jks --ks-key-alias ci-ephemeral \
+              --ks-pass pass:phantom-ci-only-2026 --key-pass pass:phantom-ci-only-2026 \
+              --out previous-ci.apk previous.apk
+            mv previous-ci.apk previous.apk
+            "$signer" verify previous.apk
+          fi
 
       - name: Enable emulator hardware acceleration
         if: github.event_name != 'push'
@@ -188,13 +213,43 @@ jobs:
           path: app/build/outputs/apk/release/phantom-x86_64-release.apk
           retention-days: 30
 
-      - name: Publish release (optional)
-        if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
+  # This job never executes project code or receives signing keys.
+  # It publishes only the already-signed, tested build artifacts.
+  publish:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+
+      - name: Download verified signed APKs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: phantom-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: Validate requested version and assets
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
+          test "$RELEASE_TAG" = "v$version"
+          test -s release-assets/phantom-arm64-v8a-release.apk
+          test -s release-assets/phantom-x86_64-release.apk
+          sha256sum release-assets/phantom-*-release.apk
+
+      - name: Publish test release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && 'v0.3.3' || inputs.release_tag }}
+          tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: PHANTOM VPN 0.3.3
-          files: app/build/outputs/apk/release/phantom-*-release.apk
+          files: release-assets/phantom-*-release.apk
           prerelease: true
           body_path: RELEASE_NOTES.md
