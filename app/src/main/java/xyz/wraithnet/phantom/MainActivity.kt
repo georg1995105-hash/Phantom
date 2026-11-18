@@ -41,8 +41,8 @@ class MainActivity : ComponentActivity() {
     private var pendingProfile: String? = null
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
-    private val downloadRate = mutableLongStateOf(-1L)
-    private val uploadRate = mutableLongStateOf(-1L)
+    private val downloadBytes = mutableLongStateOf(-1L)
+    private val uploadBytes = mutableLongStateOf(-1L)
     private val connectedSinceElapsed = mutableLongStateOf(0L)
     private val refreshVersion = mutableIntStateOf(0)
     private val externalImport = mutableStateOf<String?>(null)
@@ -62,8 +62,8 @@ class MainActivity : ComponentActivity() {
     private val vpnReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == PhantomVpnService.ACTION_TRAFFIC) {
-                downloadRate.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_DOWNLOAD_BPS, -1L)
-                uploadRate.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_UPLOAD_BPS, -1L)
+                downloadBytes.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_DOWNLOAD_BYTES, -1L)
+                uploadBytes.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_UPLOAD_BYTES, -1L)
                 return
             }
             vpnStatus.value = intent?.getStringExtra(PhantomVpnService.EXTRA_STATUS)
@@ -72,8 +72,8 @@ class MainActivity : ComponentActivity() {
             connectedSinceElapsed.longValue = intent?.getLongExtra(
                 PhantomVpnService.EXTRA_CONNECTED_SINCE, 0L) ?: 0L
             if (vpnStatus.value != PhantomVpnService.STATUS_CONNECTED) {
-                downloadRate.longValue = -1L
-                uploadRate.longValue = -1L
+                downloadBytes.longValue = -1L
+                uploadBytes.longValue = -1L
             }
         }
     }
@@ -127,8 +127,8 @@ class MainActivity : ComponentActivity() {
                     onExternalImportConsumed = { externalImport.value = null },
                     vpnStatus = vpnStatus.value,
                     vpnError = vpnError.value,
-                    downloadRate = downloadRate.longValue,
-                    uploadRate = uploadRate.longValue,
+                    downloadBytes = downloadBytes.longValue,
+                    uploadBytes = uploadBytes.longValue,
                     connectedSinceElapsed = connectedSinceElapsed.longValue,
                     onStartVpn = ::requestVpn,
                     onStopVpn = ::stopVpnService,

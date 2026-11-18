@@ -84,8 +84,8 @@ fun HomeScreen(
     onExternalImportConsumed: () -> Unit = {},
     vpnStatus: String = "disconnected",
     vpnError: String = "",
-    downloadRate: Long = -1L,
-    uploadRate: Long = -1L,
+    downloadBytes: Long = -1L,
+    uploadBytes: Long = -1L,
     connectedSinceElapsed: Long = 0L,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
@@ -396,7 +396,7 @@ fun HomeScreen(
             .background(Brush.linearGradient(listOf(colors.background,
                 colors.surface, colors.background)))) {
             when (tab) {
-                Destination.HOME -> ConnectionPage(vpnStatus, selected, downloadRate, uploadRate, connectedSeconds,
+                Destination.HOME -> ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
                     toggle = {
                         softTap()
                         when {

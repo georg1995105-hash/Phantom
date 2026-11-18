@@ -124,7 +124,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             Panel {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp)) {
                     val time = String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-                    listOf(TrafficRates.label(download) to "Входящий", TrafficRates.label(upload) to "Исходящий",
+                    listOf((if (download < 0) "—" else sizeLabel(download)) to "Входящий", (if (upload < 0) "—" else sizeLabel(upload)) to "Исходящий",
                         time to "Время").forEach { (value, label) ->
                         Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)

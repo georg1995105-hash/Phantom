@@ -1,6 +1,8 @@
 """Verify the signed production upgrade and its four destinations on the CI emulator."""
 from pathlib import Path
 import re
+import json
+import shlex
 import subprocess
 import sys
 import time
@@ -71,3 +73,31 @@ adb("shell", "am", "force-stop", PACKAGE)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 tap("Серверы")
 node("Убрать из избранного")
+
+
+# Exercise the installed APK with two disposable direct Xray profiles. Android
+# establishes a real TUN. The production connectivity check verifies HTTPS.
+adb("shell", "svc", "wifi", "enable")
+adb("shell", "svc", "data", "enable")
+profiles = [{"remarks": name, "outbounds": [{"tag": "proxy", "protocol": "freedom"}]}
+            for name in ("AndroidCheckA", "AndroidCheckB")]
+payload = json.dumps(profiles, separators=(",", ":"))
+adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
+                        "-t", "text/plain", "--es", "android.intent.extra.TEXT", payload]))
+tap("AndroidCheckA")
+tap("Главная")
+adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
+tap("Подключить VPN")
+node("Подключено")
+adb("shell", "input", "keyevent", "KEYCODE_SLEEP")
+time.sleep(4)
+adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
+adb("shell", "wm", "dismiss-keyguard")
+node("Подключено")
+tap("Серверы")
+tap("AndroidCheckB")
+tap("Главная")
+node("AndroidCheckB")
+node("Подключено")
+tap("Отключить VPN")
+node("Отключено")
