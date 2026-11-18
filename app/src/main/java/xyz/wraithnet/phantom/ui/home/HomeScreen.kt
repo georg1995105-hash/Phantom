@@ -299,7 +299,7 @@ fun HomeScreen(
     }
 
     val pingLimit = remember { Semaphore(3) }
-    fun probeSubscription(item: Subscription) {
+    fun probeSubscription(item: Subscription, notify: Boolean = true) {
         if (item.id in probing) return
         val connected = selectedMatch?.takeIf {
             it.first.id == item.id && vpnStatus == "connected" &&
@@ -333,14 +333,14 @@ fun HomeScreen(
                 }
                 val checked = servers.count { latencies[pingKey(item, it)] != null }
                 val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
-                snackbar.showSnackbar(when {
+                if (notify) snackbar.showSnackbar(when {
                     connected != null -> "TCP проверен; пинг VPN обновится после HTTPS-проверки"
                     checked > 0 -> "TCP-проверка завершена (не проверка VPN-протокола)"
                     needsTunnel -> "Для проверки UDP/H3 подключите нужный сервер"
                     else -> "Не получено ни одного результата проверки"
                 })
             } catch (e: Exception) {
-                snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
+                if (notify) snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
                 probing = probing - item.id
             }
@@ -447,7 +447,23 @@ fun HomeScreen(
                     }, choose = { tab = Destination.SERVERS },
                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
-                    probing = probing, checkPing = { subscriptions.forEach(::probeSubscription) },
+                    probing = probing, checkPing = {
+                        // A global scan has one result, not competing snackbars
+                        // from individual subscriptions (some may be unreachable).
+                        val owners = subscriptions.toList()
+                        owners.forEach { probeSubscription(it, notify = false) }
+                        scope.launch {
+                            while (owners.any { it.id in probing }) delay(100L)
+                            val checked = owners.sumOf { owner ->
+                                owner.servers.count { server ->
+                                    latencies[pingKey(owner, server)] != null
+                                }
+                            }
+                            snackbar.showSnackbar(if (checked > 0)
+                                "Проверка завершена: результаты для $checked серверов"
+                            else "Нет результатов проверки. UDP/H3 требует подключения")
+                        }
+                    },
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -464,7 +480,8 @@ fun HomeScreen(
                     }, add = { tab = Destination.SUBSCRIPTIONS; showImportMenu = true })
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
                     selectedMatch?.first?.id, refreshing, refreshFailed, { scope.launch { refresh(it) } },
-                    { activeSubMenu = it.id }, ::probeSubscription, probing, { showImportMenu = true },
+                    { activeSubMenu = it.id }, { item -> probeSubscription(item) },
+                    probing, { showImportMenu = true },
                     shop = { renew ->
                         val url = if (renew) "https://go.veor.pro/" else "https://go.veor.pro/#plans"
                         val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
