@@ -168,8 +168,9 @@ def app_uid(package):
 # Android programs kernel policy routes by UID. Its service dump need not
 # include package names. Check the actual selected UID and a control UID.
 rules = adb("shell", "ip", "-4", "rule", "show")
+vpn_tables = set(re.findall(r"oif tun\d+[^\n]*?lookup (\S+)", rules))
 vpn_ranges = [tuple(map(int, m.groups())) for line in rules.splitlines()
-              if re.search(r"lookup tun\d+", line)
+              if any(line.rstrip().endswith("lookup " + table) for table in vpn_tables)
               for m in [re.search(r"uidrange (\d+)-(\d+)", line)] if m]
 allowed = int(app_uid("com.android.settings"))
 excluded = int(app_uid(PACKAGE))
