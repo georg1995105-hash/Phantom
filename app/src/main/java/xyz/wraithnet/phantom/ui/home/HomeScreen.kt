@@ -406,6 +406,8 @@ fun HomeScreen(
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
     var showOtaSheet by remember { mutableStateOf(false) }
+    // Only an explicit check from Settings may open the update sheet over Settings.
+    var otaManuallyRequested by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
     var lastOtaAttempt by remember { mutableLongStateOf(0L) }
 
@@ -423,7 +425,10 @@ fun HomeScreen(
                     otaDismissed = false
                 }
                 availableUpdate = result
-                if (result != null && !otaDismissed) showOtaSheet = true
+                if (result != null && !otaDismissed) {
+                    otaManuallyRequested = false
+                    showOtaSheet = true
+                }
                 otaError = null
             } catch (_: Exception) {
                 // Existing VPN functionality must not depend on the update service.
@@ -444,6 +449,7 @@ fun HomeScreen(
                 otaError = null
                 if (result != null) {
                     otaDismissed = false
+                    otaManuallyRequested = true
                     showOtaSheet = true
                 } else {
                     showOtaSheet = false
@@ -504,7 +510,13 @@ fun HomeScreen(
                         }
                     }, choose = { tab = Destination.SERVERS },
                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
-                    onCheckUpdate = ::checkAppUpdateNow, updateChecking = otaChecking)
+                    onRefreshSubscription = {
+                        selectedMatch?.first?.let { owner ->
+                            scope.launch { refresh(owner) }
+                        }
+                    },
+                    subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
+                    subscriptionAvailable = selectedMatch != null)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     probing = probing, checkPing = {
                         // A global scan has one result, not competing snackbars
@@ -552,7 +564,9 @@ fun HomeScreen(
                         }
                     })
                 Destination.SETTINGS -> PhantomSettings(
-                    onThemeChange = onThemeChange, onBackupRestored = {
+                    onThemeChange = onThemeChange,
+                    onCheckAppUpdate = ::checkAppUpdateNow,
+                    onBackupRestored = {
                         applySubscriptions(store.read())
                         selectedId = prefs.getString("selected_server_id", null)
                         selectedSubId = prefs.getString("selected_subscription_id", null)
@@ -585,7 +599,8 @@ fun HomeScreen(
             )
         }
     }
-    if (showOtaSheet && availableUpdate != null && tab != Destination.SETTINGS &&
+    if (showOtaSheet && availableUpdate != null &&
+        (tab != Destination.SETTINGS || otaManuallyRequested) &&
         !showImportMenu && activeSubMenu == null && importMode == null) {
         val release = availableUpdate!!
         ModalBottomSheet(
@@ -907,6 +922,7 @@ internal fun dateLabel(seconds: Long): String =
 @Composable
 private fun PhantomSettings(
     onThemeChange: (PhantomThemeMode) -> Unit,
+    onCheckAppUpdate: () -> Unit,
     onBackupRestored: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1109,6 +1125,9 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
                 if (group == "about") {
+                    funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt) {
+                        onCheckAppUpdate()
+                    }
                     funActionRow("Компоненты и лицензии", Icons.Default.Layers) { showComponents = true }
                     funActionRow("Журнал VPN", Icons.Default.List) { showLog = true }
                 }
