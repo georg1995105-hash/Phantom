@@ -21,7 +21,7 @@ permissions:
 jobs:
   build:
     if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -56,7 +56,8 @@ jobs:
           curl --retry 3 -fSL -o app/libs/libbox-original.aar \
             https://github.com/singbox-android/libbox/releases/download/1.14.4/libbox.aar
           echo "d2685924a657705beda44e94c6dc499e781df1ad20d65474e3591ec2f8b96465  app/libs/libbox-original.aar" | sha256sum -c -
-          python3 -m pip install --no-cache-dir --user "lief==1.0.0"
+          echo 'lief==1.0.0 --hash=sha256:41ff868f5328fc8e5237a9e1f4718590e0ee9180c1422b3e4948b7116ba4517c' > "$RUNNER_TEMP/lief.txt"
+          python3 -m pip install --no-cache-dir --user --only-binary=:all: --no-deps --require-hashes -r "$RUNNER_TEMP/lief.txt"
           python3 scripts/isolate_libbox_aar.py app/libs/libbox-original.aar app/libs/libbox-isolated.aar
           rm app/libs/libbox-original.aar
           unzip -l app/libs/libbox-isolated.aar | grep -E 'lib(box|sbjni).so' | head -4
@@ -213,7 +214,7 @@ jobs:
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       actions: read

@@ -250,8 +250,8 @@ tap("Серверы")
 tap("OfflineSubscriptionCheck")
 tap("Главная")
 tap("Обновить выбранную подписку")
+node("Подписка обновлена")
 tap("Подписка")
-time.sleep(4)
 try:
     node("Данные могут быть устаревшими", attempts=1)
 except AssertionError:
