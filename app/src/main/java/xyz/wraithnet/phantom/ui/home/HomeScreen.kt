@@ -58,7 +58,6 @@ import xyz.wraithnet.phantom.data.ReleaseNotes
 import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
-import xyz.wraithnet.phantom.ui.update.PhantomUpdateSection
 import xyz.wraithnet.phantom.ui.settings.ComponentsScreen
 import xyz.wraithnet.phantom.ui.settings.BackupScreen
 import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
@@ -362,6 +361,23 @@ fun HomeScreen(
         }
     }
 
+    // On first entry to Servers automatically populate reachable delays.
+    // Reopen/recomposition won't flood the network; changed endpoints recheck.
+    val autoPingRevisions = remember { mutableSetOf<String>() }
+    LaunchedEffect(tab, subscriptions) {
+        if (tab == Destination.SERVERS) {
+            subscriptions.forEach { item ->
+                val revision = item.servers.fold(1) { acc, server ->
+                    31 * acc + server.raw.hashCode()
+                }
+                val id = "${item.id}:$revision"
+                if (item.servers.isNotEmpty() && autoPingRevisions.add(id)) {
+                    probeSubscription(item, notify = false)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(refreshVersion) {
         val stored = store.read()
         if (stored != subscriptions) applySubscriptions(stored)
@@ -383,6 +399,7 @@ fun HomeScreen(
     }
 
     var availableUpdate by remember { mutableStateOf<PhantomRelease?>(null) }
+    var otaChecking by remember { mutableStateOf(false) }
     var otaDownload by remember { mutableStateOf(false) }
     var otaProgress by remember { mutableIntStateOf(0) }
     var otaFile by remember { mutableStateOf<File?>(null) }
@@ -410,6 +427,32 @@ fun HomeScreen(
                 otaError = null
             } catch (_: Exception) {
                 // Existing VPN functionality must not depend on the update service.
+            }
+        }
+    }
+
+    fun checkAppUpdateNow() {
+        if (otaChecking || otaDownload) return
+        otaChecking = true
+        scope.launch {
+            try {
+                val result = PhantomUpdates.check(context)
+                lastOtaCheck = System.currentTimeMillis()
+                lastOtaAttempt = lastOtaCheck
+                if (result?.version != availableUpdate?.version) otaFile = null
+                availableUpdate = result
+                otaError = null
+                if (result != null) {
+                    otaDismissed = false
+                    showOtaSheet = true
+                } else {
+                    showOtaSheet = false
+                    snackbar.showSnackbar("Установлена актуальная версия")
+                }
+            } catch (_: Exception) {
+                snackbar.showSnackbar("Не удалось проверить обновления. Проверьте соединение.")
+            } finally {
+                otaChecking = false
             }
         }
     }
@@ -442,7 +485,10 @@ fun HomeScreen(
     var showErrorDetails by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
-            Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
+            Box(Modifier.statusBarsPadding()) {
+                PageTitle(tab, onCheckUpdate = if (tab == Destination.HOME) ::checkAppUpdateNow else null,
+                    updateChecking = otaChecking)
+            }
         },
         bottomBar = { TabBar(tab) { tab = it } }
     ) { inner ->
@@ -1067,7 +1113,6 @@ private fun PhantomSettings(
                 if (group == "about") {
                     funActionRow("Компоненты и лицензии", Icons.Default.Layers) { showComponents = true }
                     funActionRow("Журнал VPN", Icons.Default.List) { showLog = true }
-                    PhantomUpdateSection()
                 }
             }
         }

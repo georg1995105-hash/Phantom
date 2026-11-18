@@ -2,6 +2,7 @@ package xyz.wraithnet.phantom.service
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import android.net.NetworkCapabilities
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -15,6 +16,19 @@ import java.net.ServerSocket
 @RunWith(AndroidJUnit4::class)
 class LatencyProbeAndroidTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test fun physicalTcpDoesNotRequireAndroidInternetValidation() {
+        val network = NetworkCapabilities().apply {
+            addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+        }
+        assertEquals(10, LatencyProbe.physicalNetworkRank(network))
+        network.addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        assertEquals(0, LatencyProbe.physicalNetworkRank(network))
+        network.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+        assertNull("A VPN Network must never be selected", LatencyProbe.physicalNetworkRank(network))
+    }
 
     @Test fun reachableTcpProfileHasExplicitTcpSourceWithoutChangingVpn() = runBlocking {
         ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { listener ->

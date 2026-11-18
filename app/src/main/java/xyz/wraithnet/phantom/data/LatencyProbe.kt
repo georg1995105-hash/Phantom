@@ -138,21 +138,31 @@ object LatencyProbe {
         }.getOrNull()
     }
 
-    /** Avoid routing direct TCP probes through the selected VPN. */
+    /**
+     * The Android captive-portal validation server can be blocked even while a
+     * VPN server is reachable. A real socket is the source of truth here.
+     * Only use physical networks; prefer validated links when available.
+     */
+    internal fun physicalNetworkRank(caps: NetworkCapabilities): Int? {
+        if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) ||
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        ) return null
+        val validation = if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 0 else 10
+        val transport = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
+            else -> 3
+        }
+        return validation + transport
+    }
+
+    /** Pin DNS and socket to the SAME physical network, bypassing the VPN. */
     private fun physicalNetwork(context: Context): Network? {
         val cm = context.getSystemService(ConnectivityManager::class.java) ?: return null
         return cm.allNetworks.mapNotNull { network ->
             val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
-            if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            ) return@mapNotNull null
-            val priority = when {
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
-                else -> 3
-            }
+            val priority = physicalNetworkRank(caps) ?: return@mapNotNull null
             priority to network
         }.minByOrNull { it.first }?.second
     }

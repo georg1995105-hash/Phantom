@@ -86,7 +86,8 @@ internal fun Panel(selected: Boolean = false, content: @Composable ColumnScope.(
 }
 
 @Composable
-internal fun PageTitle(page: Destination) {
+internal fun PageTitle(page: Destination, onCheckUpdate: (() -> Unit)? = null,
+    updateChecking: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page == Destination.HOME) {
@@ -96,6 +97,21 @@ internal fun PageTitle(page: Destination) {
         }
         Text(if (page == Destination.HOME) "Phantom" else page.title,
             style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        if (page == Destination.HOME && onCheckUpdate != null) {
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onCheckUpdate, enabled = !updateChecking,
+                modifier = Modifier.heightIn(min = 48.dp).semantics {
+                    contentDescription = "Проверить обновления приложения"
+                }) {
+                if (updateChecking) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+                Text("Обновить", fontSize = 13.sp)
+            }
+        }
     }
 }
 
