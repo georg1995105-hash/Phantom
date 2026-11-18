@@ -211,18 +211,16 @@ object LatencyProbe {
         }.minByOrNull { it.first }?.second
     }
 
-    suspend fun measure(context: Context, server: ServerProfile): Long =
-        measureResult(context, server)?.milliseconds ?: -1L
+    suspend fun measure(context: Context, server: ServerProfile): Long {
+        val verified = lastVerifiedTunnelLatency(context, server)
+        return if (verified > 0) verified else measureResult(context, server)?.milliseconds ?: -1L
+    }
 
     /** Does not select a profile, start a VPN, or invoke a second native core. */
     suspend fun measureResult(context: Context, server: ServerProfile): PingResult? =
         withContext(Dispatchers.IO) {
             val udp = needsTunnel(server)
-            if (udp) {
-                val verified = lastVerifiedTunnelLatency(context, server)
-                if (verified > 0L) return@withContext PingResult(verified, "VPN")
-                if (!canProbeQuic(server)) return@withContext null
-            }
+            if (udp && !canProbeQuic(server)) return@withContext null
             val (host, port) = endpoint(server) ?: return@withContext null
             val timeout = timeoutMs(context)
             val task = probeExecutor.submit<Long> {

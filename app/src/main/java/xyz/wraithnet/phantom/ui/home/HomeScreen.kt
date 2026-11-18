@@ -113,7 +113,8 @@ fun HomeScreen(
     val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
     val selected = selectedMatch?.second
     var refreshing by remember { mutableStateOf(setOf<String>()) }
-    var probing by remember { mutableStateOf(setOf<String>()) }
+    val inFlightProfiles = remember { mutableStateMapOf<String, List<ServerProfile>>() }
+    val probing = inFlightProfiles.keys.toSet()
     val latencies = remember { mutableStateMapOf<String, LatencyProbe.PingResult>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
@@ -314,12 +315,12 @@ fun HomeScreen(
 
     val pingLimit = remember { Semaphore(3) }
     fun probeSubscription(item: Subscription, notify: Boolean = true) {
-        if (item.id in probing) return
+        if (inFlightProfiles.containsKey(item.id)) return
         val connected = selectedMatch?.takeIf {
             it.first.id == item.id && vpnStatus == "connected" &&
                 prefs.getString("vpn_last_profile", null) == it.second.raw
         }
-        probing = probing + item.id
+        inFlightProfiles[item.id] = item.servers
         scope.launch {
             try {
                 if (connected != null) {
@@ -360,7 +361,7 @@ fun HomeScreen(
             } catch (e: Exception) {
                 if (notify) snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
             } finally {
-                probing = probing - item.id
+                inFlightProfiles.remove(item.id)
             }
         }
     }
@@ -374,7 +375,9 @@ fun HomeScreen(
             scanned = emptyMap()
         } else {
             subscriptions.forEach { item ->
-                if (item.id !in probing && scanned[item.id] != item.servers) {
+                if (inFlightProfiles[item.id] == item.servers) {
+                    scanned = scanned + (item.id to item.servers)
+                } else if (item.id !in probing && scanned[item.id] != item.servers) {
                     scanned = scanned + (item.id to item.servers)
                     probeSubscription(item, notify = false)
                 }
