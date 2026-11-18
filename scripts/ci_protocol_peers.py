@@ -79,6 +79,8 @@ def prepare(directory, xray, singbox):
             if protocol in ("tuic", "hysteria2"):
                 inbound["tls"]["alpn"] = ["h3"]
             query = "security=tls&sni=localhost"
+            if protocol == "tuic":
+                query += "&alpn=h3"
             if protocol in ("tuic", "anytls"):
                 query += "&insecure=1"
             else:

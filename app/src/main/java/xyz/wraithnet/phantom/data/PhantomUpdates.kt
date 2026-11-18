@@ -24,7 +24,8 @@ data class PhantomRelease(
 /** Verified self-updates from the project's published GitHub Releases. */
 object PhantomUpdates {
     private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=15"
-    private const val ASSET = "phantom-arm64-v8a-release.apk"
+    internal fun assetFor(abis: List<String>): String? =
+        abis.firstOrNull { it == "arm64-v8a" || it == "x86_64" }?.let { "phantom-$it-release.apk" }
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
     private val downloadMutex = Mutex()
 
@@ -56,6 +57,7 @@ object PhantomUpdates {
         val releases = JSONArray(stream.use {
             PhantomHttp.readUtf8Limited(it, 2 * 1024 * 1024)
         })
+        val assetName = assetFor(Build.SUPPORTED_ABIS.toList()) ?: return@get null
         var best: PhantomRelease? = null
         for (i in 0 until releases.length()) {
             val item = releases.getJSONObject(i)
@@ -66,7 +68,7 @@ object PhantomUpdates {
             val assets = item.optJSONArray("assets") ?: continue
             for (j in 0 until assets.length()) {
                 val asset = assets.optJSONObject(j) ?: continue
-                if (asset.optString("name") != ASSET || asset.optString("state") != "uploaded") continue
+                if (asset.optString("name") != assetName || asset.optString("state") != "uploaded") continue
                 val url = asset.optString("browser_download_url")
                 val hash = asset.optString("digest").removePrefix("sha256:")
                 if (!url.startsWith(PREFIX) || !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue

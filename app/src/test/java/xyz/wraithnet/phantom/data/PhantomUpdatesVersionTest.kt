@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhantomUpdatesVersionTest {
+    @org.junit.Test fun updateChoosesTheNativeDeviceArchitecture() {
+        org.junit.Assert.assertEquals("phantom-x86_64-release.apk",
+            PhantomUpdates.assetFor(listOf("x86_64", "arm64-v8a")))
+        org.junit.Assert.assertEquals("phantom-arm64-v8a-release.apk",
+            PhantomUpdates.assetFor(listOf("arm64-v8a", "armeabi-v7a")))
+        org.junit.Assert.assertNull(PhantomUpdates.assetFor(listOf("armeabi-v7a")))
+    }
+
     @Test fun semanticVersionsCompareNumerically() {
         assertTrue(PhantomUpdates.isNewer("0.2.4", "0.2.3"))
         assertTrue(PhantomUpdates.isNewer("v1.10.0", "1.9.9"))

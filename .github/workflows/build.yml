@@ -90,20 +90,17 @@ jobs:
           KEYSTORE_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
           KEY_PASSWORD: ${{ secrets.APP_KEY_PASSWORD }}
         run: |
-          UNSIGNED=$(find app/build/outputs/apk/release -name "*-unsigned.apk" | head -1)
-          if [ -z "$UNSIGNED" ]; then
-            UNSIGNED=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
-          fi
-          SIGNED="app/build/outputs/apk/release/phantom-arm64-v8a-release.apk"
-          $ANDROID_HOME/build-tools/35.0.0/zipalign -v -p 4 "$UNSIGNED" aligned.apk
-          $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
-            --ks app/keystore.jks \
-            --ks-key-alias "$KEYSTORE_ALIAS" \
-            --ks-pass "pass:$KEYSTORE_PASSWORD" \
-            --key-pass "pass:$KEY_PASSWORD" \
-            --out "$SIGNED" aligned.apk
-          $ANDROID_HOME/build-tools/35.0.0/apksigner verify "$SIGNED"
-          ls -lh "$SIGNED"
+          for abi in arm64-v8a x86_64; do
+            dir=app/build/outputs/apk/release
+            unsigned="$dir/app-$abi-release-unsigned.apk"
+            signed="$dir/phantom-$abi-release.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p 4 "$unsigned" "aligned-$abi.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+              --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
+              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+              --out "$signed" "aligned-$abi.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
+          done
 
       - name: Compare production signing certificates
         if: github.event_name == 'pull_request'
@@ -168,12 +165,19 @@ jobs:
           path: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
           retention-days: 30
 
+      - name: Upload x86_64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantom-x86_64
+          path: app/build/outputs/apk/release/phantom-x86_64-release.apk
+          retention-days: 30
+
       - name: Publish release (optional)
         if: (github.event_name == 'workflow_dispatch' && inputs.release_tag != '') || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'push' && 'v0.3.0' || inputs.release_tag }}
           name: PHANTOM VPN 0.3.0
-          files: app/build/outputs/apk/release/phantom-arm64-v8a-release.apk
+          files: app/build/outputs/apk/release/phantom-*-release.apk
           prerelease: true
           body_path: RELEASE_NOTES.md

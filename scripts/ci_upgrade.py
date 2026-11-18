@@ -49,7 +49,7 @@ def screenshot(name):
     (path / (name + ".png")).write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
 
 
-old, new = sys.argv[1:]
+old, new, native = sys.argv[1:]
 # Native smoke installs a debug package on this disposable emulator.
 if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
@@ -86,12 +86,18 @@ tap("Серверы")
 node("Убрать из избранного")
 
 
-# Exercise the installed APK with two disposable direct Xray profiles. Android
+# The arm64 APK upgrade above verifies the installed package and user data.
+# Use the signed release matching this emulator's CPU for the native TUN run.
+adb("install", "-r", native)
+adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+tap("Серверы")
+node("Убрать из избранного")
+# Switch the real Android VPN between the TUIC and AnyTLS loopback peers. Android
 # establishes a real TUN. The production connectivity check verifies HTTPS.
 adb("shell", "svc", "wifi", "enable")
 adb("shell", "svc", "data", "enable")
-profiles = [{"remarks": name, "outbounds": [{"tag": "proxy", "protocol": "freedom"}]}
-            for name in ("AndroidCheckA", "AndroidCheckB")]
+peers = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
+profiles = [peers["tuic"] + "#AndroidCheckA", peers["anytls"] + "#AndroidCheckB"]
 payload = json.dumps(profiles, separators=(",", ":"))
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", payload]))
