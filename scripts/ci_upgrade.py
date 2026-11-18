@@ -39,6 +39,18 @@ def node(label, attempts=8):
     raise AssertionError(f"Missing UI element {label!r}, visible: {list(filter(None, visible))}")
 
 
+def node_prefix(prefix, attempts=20):
+    """Find a dynamic latency reading without assuming its numerical value."""
+    for _ in range(attempts):
+        adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
+        root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
+        for item in root.iter("node"):
+            if any((item.get(field) or "").startswith(prefix) for field in ("text", "content-desc")):
+                return item
+        time.sleep(0.5)
+    raise AssertionError(f"Missing UI reading starting with {prefix!r}")
+
+
 def tap(label):
     left, top, right, bottom = map(int, re.findall(r"\d+", node(label).get("bounds")))
     adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
@@ -118,7 +130,12 @@ tap("Серверы")
 adb("shell", "svc", "wifi", "enable")
 adb("shell", "svc", "data", "enable")
 peers = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
-profiles = [peers["tuic"] + "#AndroidCheckA", peers["anytls"] + "#AndroidCheckB"]
+profiles = [
+    peers["tuic"] + "#AndroidCheckA",
+    peers["anytls"] + "#AndroidCheckB",
+    # A TCP-only regression fixture: real HTTPS endpoint, deliberately not a VPN server.
+    "vless://00000000-0000-4000-8000-000000000001@example.com:443#PhysicalTcpProbe",
+]
 payload = json.dumps(profiles, separators=(",", ":"))
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", payload]))
@@ -134,6 +151,13 @@ adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
 node("Подключено")
 tap("Серверы")
+# Regression: a remote TCP probe must bypass the running Android VPN and use
+# validated physical network DNS+socket; the selected TUIC still reports VPN RTT.
+node("PhysicalTcpProbe")
+node_prefix("VPN · ")
+tap("Проверить пинг")
+node_prefix("TCP · ")
+node_prefix("VPN · ")
 screenshot("forest-servers")
 tap("AndroidCheckB")
 tap("Главная")
