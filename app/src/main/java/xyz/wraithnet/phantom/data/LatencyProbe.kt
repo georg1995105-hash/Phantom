@@ -174,7 +174,7 @@ object LatencyProbe {
                 val local = host.equals("localhost", true) || host == "127.0.0.1" ||
                     host == "::1" || host == "[::1]"
                 val physical = if (local) null else physicalNetwork(context)
-                    ?: return@submit -1L
+                if (!local && physical == null) return@submit -1L
                 val addresses = if (local) InetAddress.getAllByName(host)
                     else physical!!.getAllByName(host)
                 val begin = System.nanoTime()
