@@ -103,7 +103,7 @@ internal fun PageTitle(page: Destination) {
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
-    subscriptionAvailable: Boolean) {
+    subscriptionAvailable: Boolean, onPing: () -> Unit, pingAvailable: Boolean) {
     val c = MaterialTheme.colorScheme
     val connected = status == "connected"
     val starting = status == "starting"
@@ -156,6 +156,13 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     Spacer(Modifier.width(4.dp))
                     Text("Обновить", fontSize = 13.sp)
                 }
+                TextButton(onClick = onPing, enabled = pingAvailable,
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Default.Speed, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("PING", fontSize = 13.sp)
+                }
             }
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
             Spacer(Modifier.height(12.dp))
@@ -198,9 +205,8 @@ private fun Caption(text: String) {
 @Composable
 internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
     pinnedId: String?, favorites: Set<String>, latency: Map<String, LatencyProbe.PingResult>,
-    probing: Set<String>, checkPing: () -> Unit, favorite: (String) -> Unit,
+    probing: Set<String>, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
     val rows = remember(subscriptions, favorites) {
         subscriptions.flatMap { owner -> owner.servers.map { owner to it } }
             .sortedWith(compareByDescending<Pair<Subscription, ServerProfile>> { it.second.name.contains("Автовыбор", true) }
@@ -208,15 +214,6 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            OutlinedButton(onClick = checkPing, enabled = rows.isNotEmpty() && probing.isEmpty(),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                if (probing.isNotEmpty()) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.Speed, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (probing.isNotEmpty()) "Проверка пинга…" else "Проверить пинг")
-            }
-        }
         if (rows.none { it.second.name.contains("Автовыбор", true) }) {
             ProfileSelection.resolve(subscriptions, null, null, pinnedId)?.let { (owner, server) ->
                 item {
@@ -234,14 +231,8 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                 }
             }
         }
-        if (rows.size > 5) item {
-            OutlinedTextField(query, { query = it }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                leadingIcon = { Icon(Icons.Default.Search, null) }, placeholder = { Text("Найти сервер") })
-        }
-        val filtered = rows.filter { (owner, server) -> rows.size <= 5 || server.name.contains(query, true) || owner.title.contains(query, true) }
         if (rows.isEmpty()) item { OutlinedButton(onClick = add) { Text("Добавить подписку или ключ") } }
-        else if (filtered.isEmpty()) item { Caption("Серверы не найдены") }
-        items(filtered) { (owner, server) ->
+        items(rows, key = { (sub, server) -> "${sub.id}:${server.id}" }) { (owner, server) ->
             val id = "${owner.id}:${server.id}"
             val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
             Panel(chosen) {
@@ -255,7 +246,11 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                             Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Caption(protocolLabel(server))
                         }
-                        Caption(latency[id]?.label ?: "—")
+                        Caption(latency[id]?.label ?: when {
+                            owner.id in probing -> "…"
+                            remember(server) { LatencyProbe.needsTunnel(server) } -> "Нужен VPN"
+                            else -> "—"
+                        })
                         if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary)
                     }
@@ -270,8 +265,8 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
 }
 
 @Composable
-internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: String?, refreshing: Set<String>,
-    failed: Set<String>, refresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
+internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: String?,
+    failed: Set<String>, manage: (Subscription) -> Unit,
     probe: (Subscription) -> Unit, probing: Set<String>, add: () -> Unit, shop: (Boolean) -> Unit) {
     val remote = subscriptions.filter { it.source.startsWith("https://", true) || it.source.startsWith("http://", true) }
     var inspected by rememberSaveable { mutableStateOf<String?>(null) }
@@ -314,15 +309,7 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                         Text("Последнее обновление " + timeLabel(item.updatedAt),
                             modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = c.onSurfaceVariant)
-                        IconButton(onClick = { refresh(item) }, enabled = item.id !in refreshing,
-                            modifier = Modifier.size(48.dp).semantics {
-                                contentDescription = "Обновить подписку"
-                            }) {
-                            if (item.id in refreshing)
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Default.Refresh, contentDescription = null,
-                                modifier = Modifier.size(24.dp), tint = c.primary)
-                        }
+
                     }
                     if (item.id in failed || System.currentTimeMillis() - item.updatedAt >= item.updateIntervalSeconds * 1000)
                         Caption("Данные могут быть устаревшими")
