@@ -4,14 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhantomUpdatesVersionTest {
-    @org.junit.Test fun updateChoosesTheNativeDeviceArchitecture() {
-        org.junit.Assert.assertEquals("phantom-x86_64-release.apk",
-            PhantomUpdates.assetFor(listOf("x86_64", "arm64-v8a")))
-        org.junit.Assert.assertEquals("phantom-arm64-v8a-release.apk",
-            PhantomUpdates.assetFor(listOf("arm64-v8a", "armeabi-v7a")))
-        assertEquals("phantom-armeabi-v7a-release.apk", PhantomUpdates.assetFor(listOf("armeabi-v7a")))
-        assertEquals("phantom-x86-release.apk", PhantomUpdates.assetFor(listOf("x86")))
+    @org.junit.Test fun everySupportedArchitectureSelectsTheSameUniversalOta() {
+        for (abis in listOf(
+            listOf("arm64-v8a", "armeabi-v7a"),
+            listOf("armeabi-v7a"),
+            listOf("x86"),
+            listOf("x86_64", "x86"),
+            listOf("x86_64", "arm64-v8a"),
+        )) {
+            assertEquals("phantom-universal-release.apk", PhantomUpdates.assetFor(abis))
+        }
         assertNull(PhantomUpdates.assetFor(listOf("unknown")))
+        assertNull(PhantomUpdates.assetFor(emptyList()))
     }
 
     @Test fun semanticVersionsCompareNumerically() {
