@@ -82,7 +82,7 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+          ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:assembleRelease
 
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
@@ -213,6 +213,16 @@ jobs:
           name: upgrade-screens
           path: upgrade-screens/
           retention-days: 7
+
+      - name: Upload PR test APK
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phantom-pr-universal-ci-signed
+          path: app/build/outputs/apk/release/phantom-universal-release.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 2
 
       - name: Upload verified release APKs
         if: github.event_name == 'workflow_dispatch'

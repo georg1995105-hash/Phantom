@@ -16,7 +16,7 @@ VLESS (REALITY, XHTTP, gRPC, WS, HTTPUpgrade), VMess, Trojan, Shadowsocks (вк�
 ## Совместимость с Remnawave
 
 - Принимает полные Xray JSON-конфиги (массив с `remarks`/`outbounds`/`balancers`/`observatory`/`routing`), запускает «как есть» + добавляет TUN-inbound.
-- Заголовки: `User-Agent: Happ/1.0`, `x-hwid`, `x-device-os`, `x-device-model`, `x-ver-os`.
+- Заголовки: `User-Agent: Phantom/<versionName>`, `x-hwid`, `x-device-os`, `x-device-model`, `x-ver-os`.
 - Читает `subscription-userinfo`, `profile-title`, `profile-update-interval`.
 - Mux, XHTTP, Hysteria2, балансировщики.
 
