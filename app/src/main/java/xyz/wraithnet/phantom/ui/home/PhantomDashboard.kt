@@ -245,61 +245,101 @@ private fun Caption(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
 }
 
+/**
+ * Each server stays inside its owning subscription. No synthetic "Автовыбор"
+ * row is created, because that would disguise a default as an imported server.
+ */
 @Composable
-internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
+private fun SubscriptionHeading(
+    sub: Subscription,
+    refreshing: Boolean,
+    failed: Boolean,
+    onRefresh: (Subscription) -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    val remote = sub.source.startsWith("https://", true) || sub.source.startsWith("http://", true)
+    Panel {
+        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 5.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(sub.title, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                Text(if (remote) "Серверов: ${sub.servers.size} · Обновлено ${timeLabel(sub.updatedAt)}"
+                    else "Импортированная конфигурация · ${sub.servers.size} серверов",
+                    color = c.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
+                if (failed) Text("Не удалось обновить · сохранены прежние серверы",
+                    color = c.error, fontSize = 11.sp, maxLines = 2)
+            }
+            if (remote) {
+                IconButton(
+                    onClick = { onRefresh(sub) },
+                    enabled = !refreshing,
+                    modifier = Modifier.size(48.dp).tvFocusRing()
+                        .semantics { contentDescription = "Обновить подписку ${sub.title}" },
+                ) {
+                    if (refreshing) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
+                    else Icon(Icons.Default.Refresh, null, Modifier.size(22.dp), tint = c.primary)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun ServersPage(
+    subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
     pinnedId: String?, favorites: Set<String>, latency: Map<String, LatencyProbe.PingResult>,
-    probing: Set<String>, favorite: (String) -> Unit,
-    choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit) {
-    val rows = remember(subscriptions, favorites) {
-        subscriptions.flatMap { owner -> owner.servers.map { owner to it } }
-            .sortedWith(compareByDescending<Pair<Subscription, ServerProfile>> { it.second.name.contains("Автовыбор", true) }
-                .thenByDescending { (owner, server) -> "${owner.id}:${server.id}" in favorites })
+    probing: Set<String>, refreshing: Set<String>, failed: Set<String>,
+    onRefresh: (Subscription) -> Unit, favorite: (String) -> Unit,
+    choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
+) {
+    val groups = remember(subscriptions, pinnedId) {
+        subscriptions.sortedByDescending { it.id == pinnedId }
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (rows.none { it.second.name.contains("Автовыбор", true) }) {
-            ProfileSelection.resolve(subscriptions, null, null, pinnedId)?.let { (owner, server) ->
-                item {
-                    Panel {
-                        Row(Modifier.fillMaxWidth().tvFocusRing().clickable { choose(owner, server) }.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text("Автовыбор", fontWeight = FontWeight.SemiBold)
-                                Caption("По умолчанию · " + displayServerName(server))
-                            }
-                        }
-                    }
-                }
-            }
+        if (groups.isEmpty()) item(key = "empty") {
+            Text("Добавьте подписку или ключ, чтобы увидеть серверы",
+                modifier = Modifier.padding(12.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        items(rows, key = { (sub, server) -> "${sub.id}:${server.id}" }) { (owner, server) ->
-            val id = "${owner.id}:${server.id}"
-            val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
-            Panel(chosen) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 60.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).tvFocusRing().clickable { choose(owner, server) }.padding(12.dp),
+        groups.forEach { owner ->
+            item(key = "subscription:${owner.id}") {
+                SubscriptionHeading(owner, owner.id in refreshing, owner.id in failed, onRefresh)
+            }
+            val orderedServers = owner.servers.sortedWith(
+                compareByDescending<ServerProfile> { it.name.contains("Автовыбор", true) }
+                    .thenByDescending { "${owner.id}:${it.id}" in favorites }
+            )
+            items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
+                val id = "${owner.id}:${server.id}"
+                val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
+                Panel(chosen) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        if (server.name.contains("Автовыбор", true)) Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
-                        else Text(CountryFlags.flag(server), fontSize = 23.sp)
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Caption(protocolLabel(server))
+                        Row(Modifier.weight(1f).tvFocusRing().clickable { choose(owner, server) }
+                            .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (server.name.contains("Автовыбор", true))
+                                Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
+                            else Text(CountryFlags.flag(server), fontSize = 23.sp)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Caption(protocolLabel(server))
+                            }
+                            Caption(SubscriptionPingText.display(latency[id], owner.id in probing))
+                            if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary)
                         }
-                        Caption(SubscriptionPingText.display(latency[id], owner.id in probing))
-                        if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { favorite(id) }) {
-                        Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
-                            if (id in favorites) "Убрать из избранного" else "В избранное")
+                        IconButton(modifier = Modifier.tvFocusRing(), onClick = { favorite(id) }) {
+                            Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
+                                if (id in favorites) "Убрать из избранного" else "В избранное")
+                        }
                     }
                 }
             }
         }
-        item {
+        item(key = "manual-add") {
             OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth().tvFocusRing()
                 .heightIn(min = 48.dp)) {
                 Icon(Icons.Default.Edit, null, Modifier.size(17.dp))
@@ -312,8 +352,9 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
 
 @Composable
 internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: String?,
-    failed: Set<String>, manage: (Subscription) -> Unit,
-    probe: (Subscription) -> Unit, probing: Set<String>, add: () -> Unit, shop: (Boolean) -> Unit) {
+    refreshing: Set<String>, failed: Set<String>,
+    onRefresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
+    add: () -> Unit, shop: (Boolean) -> Unit) {
     val remote = subscriptions.filter { it.source.startsWith("https://", true) || it.source.startsWith("http://", true) }
     var inspected by rememberSaveable { mutableStateOf<String?>(null) }
     val item = remote.find { it.id == inspected } ?: remote.find { it.id == currentId } ?: remote.firstOrNull()
@@ -355,7 +396,14 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                         Text("Последнее обновление " + timeLabel(item.updatedAt),
                             modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = c.onSurfaceVariant)
-
+                        IconButton(onClick = { onRefresh(item) }, enabled = item.id !in refreshing,
+                            modifier = Modifier.size(48.dp).tvFocusRing().semantics {
+                                contentDescription = "Обновить выбранную подписку ${item.title}"
+                            }) {
+                            if (item.id in refreshing)
+                                CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Refresh, null, Modifier.size(21.dp), tint = c.primary)
+                        }
                     }
                     if (item.id in failed || System.currentTimeMillis() - item.updatedAt >= item.updateIntervalSeconds * 1000)
                         Caption("Данные могут быть устаревшими")
@@ -377,13 +425,31 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
         if (subscriptions.isNotEmpty()) item { Text("Мои подписки и ключи", style = MaterialTheme.typography.titleMedium) }
         items(subscriptions, key = { it.id }) { sub ->
             Panel {
-                Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).tvFocusRing().clickable { if (sub in remote) inspected = sub.id else manage(sub) }) {
-                        Text(sub.title)
-                        Caption(if (sub in remote) "Подписка · серверов: ${sub.servers.size}" else "Импортированная конфигурация")
+                Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f).tvFocusRing()
+                        .clickable { if (sub in remote) inspected = sub.id else manage(sub) }
+                        .padding(vertical = 12.dp)) {
+                        Text(sub.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.Medium)
+                        Caption(if (sub in remote)
+                            "Подписка · ${sub.servers.size} серверов · ${timeLabel(sub.updatedAt)}"
+                            else "Импортированная конфигурация · ${sub.servers.size} серверов")
+                        if (sub.id in failed) Text("Ошибка обновления · серверы сохранены",
+                            fontSize = 11.sp, color = c.error)
                     }
-                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { probe(sub) }, enabled = sub.id !in probing) { Icon(Icons.Default.Speed, "Измерить задержку") }
-                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { manage(sub) }) { Icon(Icons.Default.MoreVert, "Управление") }
+                    if (sub in remote) IconButton(
+                        onClick = { onRefresh(sub) }, enabled = sub.id !in refreshing,
+                        modifier = Modifier.size(48.dp).tvFocusRing().semantics {
+                            contentDescription = "Обновить подписку ${sub.title}"
+                        }) {
+                        if (sub.id in refreshing)
+                            CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Refresh, null, tint = c.primary)
+                    }
+                    IconButton(modifier = Modifier.tvFocusRing(), onClick = { manage(sub) }) {
+                        Icon(Icons.Default.MoreVert, "Управление подпиской ${sub.title}")
+                    }
                 }
             }
         }
