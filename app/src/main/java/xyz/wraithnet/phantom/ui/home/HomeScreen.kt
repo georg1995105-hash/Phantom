@@ -155,9 +155,10 @@ fun HomeScreen(
         subscriptions = list
     }
 
-    fun persist(list: List<Subscription>) {
-        applySubscriptions(list)
-        store.write(list)
+    fun persist(change: (List<Subscription>) -> List<Subscription>) {
+        // Persist first, then expose the committed snapshot to Compose.
+        // This prevents stale UI state from overwriting a background refresh.
+        applySubscriptions(store.update(change))
     }
 
     // Cached VPN RTT belongs only to the actually running profile.
@@ -246,7 +247,12 @@ fun HomeScreen(
                     totalBytes = downloaded?.totalBytes,
                     expiresAt = downloaded?.expiresAt
                 )
-                persist(subscriptions + subscription)
+                persist { current ->
+                    require(current.none { it.source.trim() == source }) {
+                        "Эта подписка уже добавлена"
+                    }
+                    current + subscription
+                }
                 if (selected == null) {
                     selectedId = subscription.servers.firstOrNull()?.id
                     selectedSubId = subscription.id
@@ -330,7 +336,19 @@ fun HomeScreen(
                 totalBytes = remote.totalBytes ?: item.totalBytes,
                 expiresAt = remote.expiresAt ?: item.expiresAt
             )
-            persist(subscriptions.map { if (it.id == item.id) updated else it })
+            persist { current ->
+                current.map { latest ->
+                    // A subscription deleted or replaced while downloading must not return.
+                    if (latest.id == item.id && latest.source == item.source) {
+                        updated.copy(
+                            customTitle = latest.customTitle,
+                            customIntervalSeconds = latest.customIntervalSeconds,
+                            title = latest.customTitle ?: updated.title,
+                            updateIntervalSeconds = latest.customIntervalSeconds ?: updated.updateIntervalSeconds,
+                        )
+                    } else latest
+                }
+            }
             refreshFailed = refreshFailed - item.id
             if (!quiet) {
                 softTap()
@@ -875,7 +893,7 @@ fun HomeScreen(
             text = { Text("Конфигурация будет удалена с устройства.") },
             confirmButton = { TextButton(onClick = {
                 if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
-                persist(subscriptions.filterNot { it.id == id })
+                persist { it.filterNot { sub -> sub.id == id } }
                 favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
                 prefs.edit().putStringSet("favorite_servers", favorites).apply()
                 deleteId = null
