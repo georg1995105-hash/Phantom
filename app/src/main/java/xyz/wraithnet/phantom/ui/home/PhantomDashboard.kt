@@ -262,21 +262,33 @@ private fun SubscriptionHeading(
     displayTitle: String,
     refreshing: Boolean,
     failed: Boolean,
+    expanded: Boolean,
+    selected: Boolean,
+    onToggle: () -> Unit,
     onRefresh: (Subscription) -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
     val remote = sub.source.startsWith("https://", true) || sub.source.startsWith("http://", true)
-    Panel {
-        Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 5.dp, top = 8.dp, bottom = 8.dp),
+    Panel(selected = selected) {
+        Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(displayTitle, fontWeight = FontWeight.SemiBold, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                Text(if (remote) "Серверов: ${sub.servers.size} · Обновлено ${timeLabel(sub.updatedAt)}"
-                    else "Импортированная конфигурация · ${sub.servers.size} серверов",
-                    color = c.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
-                if (failed) Text("Не удалось обновить · сохранены прежние серверы",
-                    color = c.error, fontSize = 11.sp, maxLines = 2)
+            Row(Modifier.weight(1f).heightIn(min = 58.dp).tvFocusRing()
+                .clickable(onClick = onToggle)
+                .semantics { contentDescription = (if (expanded) "Свернуть" else "Раскрыть") +
+                    " подписку " + displayTitle }
+                .padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                    null, modifier = Modifier.size(22.dp), tint = c.primary)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(displayTitle, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                    Text(if (remote) "${sub.servers.size} серверов · ${timeLabel(sub.updatedAt)}"
+                        else "Импортированная конфигурация · ${sub.servers.size} серверов",
+                        color = c.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
+                    if (failed) Text("Ошибка обновления · серверы сохранены",
+                        color = c.error, fontSize = 11.sp, maxLines = 2)
+                }
             }
             if (remote) {
                 IconButton(
@@ -301,6 +313,16 @@ internal fun ServersPage(
     onRefresh: (Subscription) -> Unit, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
 ) {
+    // Keep one group open to avoid an overwhelming combined server list.
+    // The selected server's owner is expanded by default, including on TV.
+    var expandedId by rememberSaveable {
+        mutableStateOf(selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)
+    }
+    LaunchedEffect(subscriptions.map { it.id }) {
+        if (expandedId != null && subscriptions.none { it.id == expandedId }) {
+            expandedId = selected?.first?.id ?: subscriptions.firstOrNull()?.id
+        }
+    }
     // Sort large groups only when subscriptions/favorites change, not on every
     // recomposition triggered by a ping or another subscription's progress.
     val groups = remember(subscriptions, pinnedId, favorites) {
@@ -320,10 +342,17 @@ internal fun ServersPage(
         }
         groups.forEach { (owner, orderedServers) ->
             item(key = "subscription:${owner.id}") {
-                SubscriptionHeading(owner, subscriptionDisplayName(owner, subscriptions),
-                    owner.id in refreshing, owner.id in failed, onRefresh)
+                SubscriptionHeading(
+                    sub = owner, displayTitle = subscriptionDisplayName(owner, subscriptions),
+                    refreshing = owner.id in refreshing, failed = owner.id in failed,
+                    expanded = expandedId == owner.id, selected = selected?.first?.id == owner.id,
+                    onToggle = {
+                        expandedId = if (expandedId == owner.id) null else owner.id
+                    },
+                    onRefresh = onRefresh,
+                )
             }
-            items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
+            if (expandedId == owner.id) items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
                 val id = "${owner.id}:${server.id}"
                 val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
                 Panel(chosen) {

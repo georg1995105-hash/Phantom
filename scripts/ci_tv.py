@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 import shlex
 import subprocess
+from ci_verify_installed_native import verify_native
 import time
 import xml.etree.ElementTree as ET
 
@@ -92,6 +93,7 @@ def wait_label(label):
 
 assert "android.software.leanback" in adb("shell", "pm", "list", "features")
 adb("install", "-g", "app/build/outputs/apk/release/phantom-universal-release.apk")
+verify_native("app/build/outputs/apk/release/phantom-universal-release.apk", PACKAGE)
 assert "primaryCpuAbi=x86\n" in adb("shell", "dumpsys", "package", PACKAGE) + "\n"
 resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)

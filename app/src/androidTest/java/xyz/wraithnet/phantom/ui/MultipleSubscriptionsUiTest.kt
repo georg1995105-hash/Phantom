@@ -55,6 +55,10 @@ class MultipleSubscriptionsUiTest {
                     device.findObject(By.desc("Обновить подписку ${first.title}")))
                 assertNotNull("Second subscription must have independent refresh action",
                     device.findObject(By.desc("Обновить подписку ${second.title}")))
+                assertNull("Inactive subscription's servers must be collapsed",
+                    device.findObject(By.text("Швейцария тест")))
+                device.findObject(By.desc("Раскрыть подписку ${second.title}")).click()
+                assertNotNull(device.wait(Until.findObject(By.text("Швейцария тест")), 8_000))
                 device.findObject(By.text("Швейцария тест")).click()
                 assertEquals(second.id, prefs.getString("selected_subscription_id", null))
                 assertEquals("same-server-id", prefs.getString("selected_server_id", null))
