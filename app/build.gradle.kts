@@ -57,6 +57,12 @@ android {
         buildConfig = true
     }
     packaging {
+        // Universal download APK: preserve identical ELF bytes; Android extracts
+        // compressed JNI libraries during install. Acceptance is gated by
+        // native/TV tests and 16 KB ELF checks in CI.
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
