@@ -54,16 +54,21 @@ def node(label, attempts=8):
     raise AssertionError(f"Missing UI element {label!r}, visible: {list(filter(None, visible))}")
 
 
-def node_prefix(prefix, attempts=20):
-    """Find a dynamic latency reading without assuming its numerical value."""
+def wait_compact_latencies(min_count=2, attempts=30):
+    """Verify numerical RTTs without old TCP/QUIC/VPN source prefixes."""
+    last = []
     for _ in range(attempts):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
-        for item in root.iter("node"):
-            if any((item.get(field) or "").startswith(prefix) for field in ("text", "content-desc")):
-                return item
+        last = [(item.get("text") or "") for item in root.iter("node")]
+        readings = [v for v in last if re.fullmatch(r"[1-9][0-9]* мс", v)]
+        assert not any(re.match(r"^(?:VPN|TCP|QUIC) · ", v) for v in last), (
+            "Legacy transport labels leaked into server UI"
+        )
+        if len(readings) >= min_count:
+            return readings
         time.sleep(0.5)
-    raise AssertionError(f"Missing UI reading starting with {prefix!r}")
+    raise AssertionError(f"Expected {min_count} measured server pings, found {last[:40]}")
 
 
 def tap(label):
@@ -179,12 +184,10 @@ tap("Серверы")
 # Regression: a remote TCP probe must bypass the running Android VPN and use
 # validated physical network DNS+socket; the selected TUIC still reports VPN RTT.
 node("PhysicalTcpProbe")
-node_prefix("VPN · ")
-node_prefix("QUIC · ")
+wait_compact_latencies(min_count=2)
 tap("Главная")
 tap("PING")
-node_prefix("TCP · ")
-node_prefix("VPN · ")
+wait_compact_latencies(min_count=2)
 screenshot("forest-servers")
 tap("AndroidCheckB")
 tap("Главная")
