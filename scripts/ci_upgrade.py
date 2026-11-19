@@ -284,3 +284,25 @@ tap("Подписка")
 node("Данные могут быть устаревшими", attempts=36)
 tap("Серверы")
 node("OfflineSubscriptionCheck")
+
+# Treat phone-size CI emulation as a second, tablet-sized form factor without
+# launching another Go runtime or requiring a physical tablet on GitHub runners.
+# Exercise portrait and landscape (>600dp width), navigation and persisted data.
+try:
+    adb("shell", "wm", "density", "240")
+    for size, shot in (("1600x2560", "tablet-portrait"),
+                       ("2560x1600", "tablet-landscape")):
+        adb("shell", "wm", "size", size)
+        adb("shell", "am", "force-stop", PACKAGE)
+        adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+        node("Главная")
+        tap("Серверы")
+        node("OfflineSubscriptionCheck")
+        tap("Подписка")
+        node("OfflineSubscriptionCheck")
+        tap("Настройки")
+        node("Настройки")
+        screenshot(shot)
+finally:
+    adb("shell", "wm", "size", "reset")
+    adb("shell", "wm", "density", "reset")
