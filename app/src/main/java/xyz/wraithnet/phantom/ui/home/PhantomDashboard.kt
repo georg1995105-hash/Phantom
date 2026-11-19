@@ -245,6 +245,13 @@ private fun Caption(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
 }
 
+/** Identical subscription titles are distinguished without exposing private URLs. */
+internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription>): String {
+    val duplicates = all.filter { it.title.trim().equals(owner.title.trim(), ignoreCase = true) }
+    return if (duplicates.size <= 1) owner.title
+        else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
+}
+
 /**
  * Each server stays inside its owning subscription. No synthetic "Автовыбор"
  * row is created, because that would disguise a default as an imported server.
@@ -252,6 +259,7 @@ private fun Caption(text: String) {
 @Composable
 private fun SubscriptionHeading(
     sub: Subscription,
+    displayTitle: String,
     refreshing: Boolean,
     failed: Boolean,
     onRefresh: (Subscription) -> Unit,
@@ -262,7 +270,7 @@ private fun SubscriptionHeading(
         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 5.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(sub.title, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                Text(displayTitle, fontWeight = FontWeight.SemiBold, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
                 Text(if (remote) "Серверов: ${sub.servers.size} · Обновлено ${timeLabel(sub.updatedAt)}"
                     else "Импортированная конфигурация · ${sub.servers.size} серверов",
@@ -275,7 +283,7 @@ private fun SubscriptionHeading(
                     onClick = { onRefresh(sub) },
                     enabled = !refreshing,
                     modifier = Modifier.size(48.dp).tvFocusRing()
-                        .semantics { contentDescription = "Обновить подписку ${sub.title}" },
+                        .semantics { contentDescription = "Обновить подписку ${displayTitle}" },
                 ) {
                     if (refreshing) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
                     else Icon(Icons.Default.Refresh, null, Modifier.size(22.dp), tint = c.primary)
@@ -305,7 +313,8 @@ internal fun ServersPage(
         }
         groups.forEach { owner ->
             item(key = "subscription:${owner.id}") {
-                SubscriptionHeading(owner, owner.id in refreshing, owner.id in failed, onRefresh)
+                SubscriptionHeading(owner, subscriptionDisplayName(owner, subscriptions),
+                    owner.id in refreshing, owner.id in failed, onRefresh)
             }
             val orderedServers = owner.servers.sortedWith(
                 compareByDescending<ServerProfile> { it.name.contains("Автовыбор", true) }
@@ -367,7 +376,8 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                 Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(crown, null, Modifier.size(40.dp), tint = c.onSurface)
                     Spacer(Modifier.height(6.dp))
-                    Text(item?.title ?: "Нет добавленных подписок", fontWeight = FontWeight.SemiBold)
+                    Text(item?.let { subscriptionDisplayName(it, subscriptions) }
+                        ?: "Нет добавленных подписок", fontWeight = FontWeight.SemiBold)
                     if (remote.size > 1) Box {
                         TextButton(onClick = { menu = true }) { Text("Выбрать подписку") }
                         DropdownMenu(menu, { menu = false }) {
@@ -425,12 +435,13 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
         if (subscriptions.isNotEmpty()) item { Text("Мои подписки и ключи", style = MaterialTheme.typography.titleMedium) }
         items(subscriptions, key = { it.id }) { sub ->
             Panel {
+                val visibleTitle = subscriptionDisplayName(sub, subscriptions)
                 Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 5.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).tvFocusRing()
                         .clickable { if (sub in remote) inspected = sub.id else manage(sub) }
                         .padding(vertical = 12.dp)) {
-                        Text(sub.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        Text(visibleTitle, maxLines = 2, overflow = TextOverflow.Ellipsis,
                             fontWeight = FontWeight.Medium)
                         Caption(if (sub in remote)
                             "Подписка · ${sub.servers.size} серверов · ${timeLabel(sub.updatedAt)}"
@@ -441,14 +452,14 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                     if (sub in remote) IconButton(
                         onClick = { onRefresh(sub) }, enabled = sub.id !in refreshing,
                         modifier = Modifier.size(48.dp).tvFocusRing().semantics {
-                            contentDescription = "Обновить подписку ${sub.title}"
+                            contentDescription = "Обновить подписку ${visibleTitle}"
                         }) {
                         if (sub.id in refreshing)
                             CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
                         else Icon(Icons.Default.Refresh, null, tint = c.primary)
                     }
                     IconButton(modifier = Modifier.tvFocusRing(), onClick = { manage(sub) }) {
-                        Icon(Icons.Default.MoreVert, "Управление подпиской ${sub.title}")
+                        Icon(Icons.Default.MoreVert, "Управление подпиской ${visibleTitle}")
                     }
                 }
             }
