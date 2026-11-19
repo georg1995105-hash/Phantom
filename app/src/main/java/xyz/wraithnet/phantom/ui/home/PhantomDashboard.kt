@@ -105,7 +105,9 @@ internal fun PageTitle(page: Destination) {
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
-    subscriptionAvailable: Boolean, onPing: () -> Unit, pingAvailable: Boolean) {
+    subscriptionAvailable: Boolean, onPing: () -> Unit, pingAvailable: Boolean,
+    onQuickImport: () -> Unit, onScanQr: (() -> Unit)?, hasSubscriptions: Boolean,
+    importing: Boolean) {
     val c = MaterialTheme.colorScheme
     val tv = isTelevision()
     val initialFocus = remember { FocusRequester() }
@@ -113,14 +115,14 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     val starting = status == "starting"
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val gap = (maxHeight * .10f).coerceIn(12.dp, 72.dp)
+        val gap = if (!hasSubscriptions) 12.dp else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(gap))
             val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
                 c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
                 ring.copy(alpha = .35f)))
-            Box(Modifier.size(if (tv) 104.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
+            Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
                 .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
                     if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
                 .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
@@ -176,6 +178,36 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 }
             }
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
+            Spacer(Modifier.height(8.dp))
+            // Permanent first-screen shortcut, including after the first subscription.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(
+                    onClick = onQuickImport, enabled = !importing,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing(),
+                    shape = RoundedCornerShape(15.dp)
+                ) {
+                    Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Добавить подписку", fontSize = 13.sp, maxLines = 1)
+                }
+                if (onScanQr != null) {
+                    OutlinedIconButton(
+                        onClick = onScanQr,
+                        enabled = !importing,
+                        modifier = Modifier.size(48.dp).tvFocusRing()
+                            .semantics { contentDescription = "Сканировать QR-код подписки" }
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, null, Modifier.size(22.dp))
+                    }
+                }
+            }
+            if (!hasSubscriptions) {
+                Text("Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center, color = c.onSurfaceVariant)
+            }
             Spacer(Modifier.height(12.dp))
             Panel {
                 Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
@@ -257,11 +289,7 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                             Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Caption(protocolLabel(server))
                         }
-                        Caption(latency[id]?.label ?: when {
-                            owner.id in probing -> "…"
-                            remember(server) { LatencyProbe.needsTunnel(server) } -> "Нужен VPN"
-                            else -> "—"
-                        })
+                        Caption(SubscriptionPingText.display(latency[id], owner.id in probing))
                         if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.primary)
                     }
