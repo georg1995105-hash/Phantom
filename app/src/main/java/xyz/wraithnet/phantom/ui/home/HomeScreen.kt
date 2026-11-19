@@ -572,7 +572,7 @@ fun HomeScreen(
                                 .putString("selected_subscription_id", owner.id).apply()
                             if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                         } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                    }, add = { tab = Destination.SUBSCRIPTIONS; showImportMenu = true })
+                    }, add = { importError = null; importMode = "manual" })
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
                     selectedMatch?.first?.id, refreshFailed,
                     { activeSubMenu = it.id }, { item -> probeSubscription(item) },
