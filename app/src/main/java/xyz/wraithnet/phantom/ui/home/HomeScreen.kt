@@ -40,6 +40,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -155,10 +157,11 @@ fun HomeScreen(
         subscriptions = list
     }
 
-    fun persist(change: (List<Subscription>) -> List<Subscription>) {
-        // Persist first, then expose the committed snapshot to Compose.
-        // This prevents stale UI state from overwriting a background refresh.
-        applySubscriptions(store.update(change))
+    suspend fun persist(change: (List<Subscription>) -> List<Subscription>) {
+        // Large lists (5,000 nodes) must never be serialized/committed on
+        // Android's UI thread. Only the Compose state is applied on Main.
+        val updated = withContext(Dispatchers.IO) { store.update(change) }
+        applySubscriptions(updated)
     }
 
     // Cached VPN RTT belongs only to the actually running profile.
@@ -893,10 +896,17 @@ fun HomeScreen(
             text = { Text("Конфигурация будет удалена с устройства.") },
             confirmButton = { TextButton(onClick = {
                 if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
-                persist { it.filterNot { sub -> sub.id == id } }
-                favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
-                prefs.edit().putStringSet("favorite_servers", favorites).apply()
-                deleteId = null
+                scope.launch {
+                    try {
+                        persist { current -> current.filterNot { sub -> sub.id == id } }
+                        favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
+                        prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                    } catch (_: Exception) {
+                        snackbar.showSnackbar("Не удалось сохранить изменения. Подписка не удалена.")
+                    } finally {
+                        deleteId = null
+                    }
+                }
             }) { Text("Удалить") } },
             dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Отмена") } }
         )
