@@ -21,7 +21,7 @@ REQUIRED = {"libbox.so", "libgojni.so"}
 
 
 def elf_metadata(data):
-    if len(data) < 64 or data[:4] != b"\\x7fELF" or data[5] != 1:
+    if len(data) < 64 or data[:4] != bytes((127, 69, 76, 70)) or data[5] != 1:
         raise ValueError("not a little-endian ELF shared library")
     bitness = data[4]
     if bitness not in (1, 2):
