@@ -224,7 +224,10 @@ fun HomeScreen(
         if (subscriptions.any { it.source.trim() == source }) {
             val warning = "Эта подписка уже добавлена"
             if (importMode != null) importError = warning
-            else scope.launch { snackbar.showSnackbar(warning) }
+            else scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(warning)
+            }
             return
         }
         importBusy = true
@@ -253,6 +256,10 @@ fun HomeScreen(
                 importMode = null
                 showImportMenu = false
                 softTap()
+                // Import has finished before the success snackbar is shown.
+                // A second tap must be able to report a duplicate immediately.
+                importBusy = false
+                snackbar.currentSnackbarData?.dismiss()
                 snackbar.showSnackbar("Подписка добавлена")
             } catch (e: Exception) {
                 val message = e.message ?: "Не удалось добавить подписку"
