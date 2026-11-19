@@ -82,7 +82,7 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+          ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:assembleRelease
 
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
