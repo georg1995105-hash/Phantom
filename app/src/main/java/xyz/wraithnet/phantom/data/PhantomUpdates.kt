@@ -24,8 +24,10 @@ data class PhantomRelease(
 /** Verified self-updates from the project's published GitHub Releases. */
 object PhantomUpdates {
     private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=15"
+    /** One signed universal APK for every supported device and every OTA update. */
     internal fun assetFor(abis: List<String>): String? =
-        abis.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }?.let { "phantom-$it-release.apk" }
+        if (abis.any { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") })
+            "phantom-universal-release.apk" else null
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
     private val downloadMutex = Mutex()
 
