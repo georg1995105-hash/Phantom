@@ -69,6 +69,7 @@ import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.service.PhantomQuickTileService
 import xyz.wraithnet.phantom.data.SubscriptionParser
+import xyz.wraithnet.phantom.data.SubscriptionMutations
 import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
@@ -340,17 +341,11 @@ fun HomeScreen(
                 expiresAt = remote.expiresAt ?: item.expiresAt
             )
             persist { current ->
-                current.map { latest ->
-                    // A subscription deleted or replaced while downloading must not return.
-                    if (latest.id == item.id && latest.source == item.source) {
-                        updated.copy(
-                            customTitle = latest.customTitle,
-                            customIntervalSeconds = latest.customIntervalSeconds,
-                            title = latest.customTitle ?: updated.title,
-                            updateIntervalSeconds = latest.customIntervalSeconds ?: updated.updateIntervalSeconds,
-                        )
-                    } else latest
-                }
+                // Fail the manual action if its owner was deleted or its URL
+                // changed while downloading. Never report a false success.
+                SubscriptionMutations.replaceDownloaded(
+                    current, item, updated, strict = true
+                )
             }
             refreshFailed = refreshFailed - item.id
             if (!quiet) {
@@ -586,7 +581,8 @@ fun HomeScreen(
                     hasSubscriptions = subscriptions.isNotEmpty(),
                     importing = importBusy)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
-                    probing = probing,
+                    probing = probing, refreshing = refreshing, failed = refreshFailed,
+                    onRefresh = { sub -> scope.launch { refresh(sub) } },
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -602,9 +598,9 @@ fun HomeScreen(
                         } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                     }, add = { importError = null; importMode = "manual" })
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
-                    selectedMatch?.first?.id, refreshFailed,
-                    { activeSubMenu = it.id }, { item -> probeSubscription(item) },
-                    probing, { showImportMenu = true },
+                    selectedMatch?.first?.id, refreshing, refreshFailed,
+                    onRefresh = { sub -> scope.launch { refresh(sub) } },
+                    manage = { activeSubMenu = it.id }, add = { showImportMenu = true },
                     shop = { renew ->
                         val url = if (renew) "https://go.veor.pro/" else "https://go.veor.pro/#plans"
                         val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
