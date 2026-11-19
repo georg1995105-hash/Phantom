@@ -25,6 +25,39 @@ def nodes():
     return list(ET.fromstring(adb("shell", "cat", "/sdcard/tv-ui.xml")).iter("node"))
 
 
+def report_singbox_exit():
+    """Capture only non-secret Android process-exit/crash evidence in CI."""
+    def read(*args):
+        try:
+            return adb(*args).splitlines()
+        except (subprocess.CalledProcessError, OSError):
+            return []
+
+    def redact(line):
+        line = re.sub(r"(?i)(?:vless|vmess|tuic|anytls|ss|hysteria2?|https?)://\\S+",
+                      "[private URL]", line)
+        line = re.sub(r"(?i)(password|secret|token|authorization|uuid|key)[=:]\\S+",
+                      r"\\1=[private]", line)
+        line = re.sub(r"\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",
+                      "[IP]", line)
+        return line[:240]
+
+    print("TV sing-box PID:",
+          subprocess.run(["adb", "shell", "pidof", "-s", PACKAGE + ":singbox"],
+                         capture_output=True, text=True).stdout.strip() or "not running",
+          flush=True)
+    history = read("shell", "dumpsys", "activity", "exit-info", PACKAGE)
+    relevant = [redact(s.strip()) for s in history
+                if ":singbox" in s or "reason=" in s or "status=" in s
+                or "REASON_" in s]
+    print("TV Android process-exit reasons:", relevant[-15:], flush=True)
+    crashes = read("logcat", "-b", "crash", "-d", "-v", "brief")
+    fatal = [redact(s.strip()) for s in crashes
+             if re.search(r"Fatal signal|SIGABRT|SIGSEGV|Abort message|FATAL EXCEPTION|"
+                          r"panic:|runtime:|libbox|libgojni|AndroidRuntime", s, re.I)]
+    print("TV crash signatures:", fatal[-25:], flush=True)
+
+
 def wait_label(label):
     for _ in range(18):
         visible = [value for node in nodes() for field in ("text", "content-desc")
@@ -51,6 +84,7 @@ def wait_label(label):
                 time.sleep(.3)
     safe = [value for value in visible if "://" not in value]
     print("TV VPN failure: UI diagnostics:", diagnostic[:20], flush=True)
+    report_singbox_exit()
     raise AssertionError(
         f"Missing TV label {label!r}. Visible: {safe[:32]}, reason: {diagnostic[:20]}"
     )

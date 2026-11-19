@@ -74,6 +74,25 @@ class SubscriptionMutationsTest {
         }
     }
 
+    @Test fun lateBackgroundResponseCannotOverwriteNewerManualRefresh() {
+        val original = subscription("a", "https://a.example/sub", "NL")
+        val another = subscription("b", "https://b.example/sub", "SE")
+        val latest = original.copy(updatedAt = 500L,
+            servers = listOf(ServerProfile("new-id", "FI", "vless", raw = "vless://FI")))
+        val staleResponse = original.copy(updatedAt = 800L,
+            servers = listOf(ServerProfile("old-id", "NL old", "vless", raw = "vless://old")))
+        assertEquals(listOf(latest, another),
+            SubscriptionMutations.replaceDownloaded(listOf(latest, another),
+                original, staleResponse))
+        try {
+            SubscriptionMutations.replaceDownloaded(listOf(latest), original,
+                staleResponse, strict = true)
+            fail("A stale manual refresh must report a conflict")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message.orEmpty().contains("другим запросом"))
+        }
+    }
+
     @Test fun explicitOwnerIsNeverConfusedWithAnotherSubscriptionWithSameServerId() {
         val a = subscription("a", "https://a.example/sub", "NL")
         val b = subscription("b", "https://b.example/sub", "DE")

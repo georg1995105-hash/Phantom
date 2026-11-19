@@ -301,8 +301,15 @@ internal fun ServersPage(
     onRefresh: (Subscription) -> Unit, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
 ) {
-    val groups = remember(subscriptions, pinnedId) {
-        subscriptions.sortedByDescending { it.id == pinnedId }
+    // Sort large groups only when subscriptions/favorites change, not on every
+    // recomposition triggered by a ping or another subscription's progress.
+    val groups = remember(subscriptions, pinnedId, favorites) {
+        subscriptions.sortedByDescending { it.id == pinnedId }.map { owner ->
+            owner to owner.servers.sortedWith(
+                compareByDescending<ServerProfile> { it.name.contains("Автовыбор", true) }
+                    .thenByDescending { "${owner.id}:${it.id}" in favorites }
+            )
+        }
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -311,15 +318,11 @@ internal fun ServersPage(
                 modifier = Modifier.padding(12.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        groups.forEach { owner ->
+        groups.forEach { (owner, orderedServers) ->
             item(key = "subscription:${owner.id}") {
                 SubscriptionHeading(owner, subscriptionDisplayName(owner, subscriptions),
                     owner.id in refreshing, owner.id in failed, onRefresh)
             }
-            val orderedServers = owner.servers.sortedWith(
-                compareByDescending<ServerProfile> { it.name.contains("Автовыбор", true) }
-                    .thenByDescending { "${owner.id}:${it.id}" in favorites }
-            )
             items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
                 val id = "${owner.id}:${server.id}"
                 val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
@@ -381,7 +384,7 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                     if (remote.size > 1) Box {
                         TextButton(onClick = { menu = true }) { Text("Выбрать подписку") }
                         DropdownMenu(menu, { menu = false }) {
-                            remote.forEach { sub -> DropdownMenuItem(text = { Text(sub.title) },
+                            remote.forEach { sub -> DropdownMenuItem(text = { Text(subscriptionDisplayName(sub, subscriptions)) },
                                 onClick = { inspected = sub.id; menu = false }) }
                         }
                     }

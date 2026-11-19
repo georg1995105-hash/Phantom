@@ -126,13 +126,25 @@ class SingBoxWorkerService : VpnService() {
                                 reason.contains("Нет доступной физической сети") ||
                                     reason.contains("не обнаружил физическую сеть") ->
                                     "Android не предоставляет физическую сеть"
+                                reason.contains("обход VPN") || reason.contains("protect", true) ->
+                                    "Android не разрешил физический сокет sing-box вне VPN"
                                 reason.contains("libbox:") || reason.contains("не запустил наблюдение") ->
                                     "Ошибка сетевой интеграции sing-box"
                                 else -> "Ошибка запуска sing-box (${e.javaClass.simpleName})"
                             }
                             lastStopReason = "ошибка запуска"
+                            // Binder replies are asynchronous. Killing the Go
+                            // process immediately can deliver onServiceDisconnected
+                            // before MSG_ERROR and hide the real failure reason.
+                            // Give the main process a short chance to receive the
+                            // classified, credential-free error, then retire the
+                            // non-reusable native runtime unconditionally.
                             fail(recipient, safe)
-                            retireProcess("ошибка запуска")
+                            if (!mainHandler.postDelayed({
+                                    if (!destroyed) retireProcess("ошибка запуска")
+                                }, 500L)) {
+                                retireProcess("ошибка запуска")
+                            }
                         }
                     }) fail(recipient, "Сервис sing-box закрыт Android")
                 }

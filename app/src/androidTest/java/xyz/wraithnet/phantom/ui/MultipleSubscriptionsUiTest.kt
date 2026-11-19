@@ -43,7 +43,7 @@ class MultipleSubscriptionsUiTest {
             store.write(listOf(first, second))
             prefs.edit().putString("selected_subscription_id", first.id)
                 .putString("selected_server_id", "same-server-id").commit()
-            ActivityScenario.launch(MainActivity::class.java).use {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
                 assertNotNull(device.wait(Until.findObject(By.text("Серверы")), 12_000))
                 device.findObject(By.text("Серверы")).click()
@@ -58,6 +58,11 @@ class MultipleSubscriptionsUiTest {
                 device.findObject(By.text("Швейцария тест")).click()
                 assertEquals(second.id, prefs.getString("selected_subscription_id", null))
                 assertEquals("same-server-id", prefs.getString("selected_server_id", null))
+                assertEquals(2, store.read().size)
+                // App recreation must not reset ownership to the first
+                // subscription even when both servers have the same ID.
+                scenario.recreate()
+                assertEquals(second.id, prefs.getString("selected_subscription_id", null))
                 assertEquals(2, store.read().size)
             }
         } finally {

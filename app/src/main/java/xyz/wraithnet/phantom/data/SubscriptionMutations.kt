@@ -22,6 +22,14 @@ object SubscriptionMutations {
             return current
         }
         val latest = current[ownerIndex]
+        // A background response based on an older snapshot cannot overwrite
+        // a newer successful refresh of the same subscription.
+        if (latest.updatedAt > original.updatedAt) {
+            require(!strict) {
+                "Подписка уже обновлена другим запросом"
+            }
+            return current
+        }
         val saved = downloaded.copy(
             id = latest.id,
             source = latest.source,
