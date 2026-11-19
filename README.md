@@ -1,38 +1,37 @@
-# Phantom
+# Phantom VPN
 
-Личный Android VPN-клиент на sing-box + Xray-core, интерфейс в стиле Happ/Incy.
+Phantom — Android VPN-клиент на Kotlin и Jetpack Compose с собственным интерфейсом для телефонов, планшетов и Android TV. Один APK предназначен для **ARM32, ARM64, x86 и x86_64**; подходящую архитектуру нативных библиотек выбирает Android.
 
-## Стек
+## Архитектура
 
-- Kotlin + Jetpack Compose (Material 3)
-- Ядра: **Xray-core** (через `libv2ray.aar` из [AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite)) и **sing-box** (через `libbox`, добавляется на шаге 8)
-- Один `VpnService`, одновременно работает одно ядро
-- Мин. SDK 26 (Android 8.0), target SDK 35, **arm64-v8a, armeabi-v7a, x86_64 и x86**. Для телефона и Android TV скачайте [единый APK](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk). Android выбирает нужные библиотеки при установке.
+- **Xray / AndroidLibXrayLite** управляет единственным Android VPN TUN и маршрутизацией приложений.
+- **sing-box / libbox** работает в отдельном Android-процессе `:singbox` для TUIC и AnyTLS, отдавая трафик Xray через локальный SOCKS5. При таком соединении **оба Go-движка работают одновременно**, но остаются в разных процессах и не создают два TUN.
+- Xray: импорт VLESS (включая REALITY, XHTTP, WS, gRPC, HTTPUpgrade), VMess, Trojan, Shadowsocks, Hysteria2/HY2, совместимых Xray JSON-конфигураций. sing-box: TUIC, AnyTLS.
+- Не все транспорты, которые могут присутствовать внутри готового JSON Xray, поддерживаются как отдельные ссылки. Перечень импортируемых схем задаёт `ProtocolSupport`.
+- Подписки Remnawave и других совместимых сервисов, автообновление подписок, QR-сканирование, раздельная маршрутизация, DNS, четыре вкладки, ручное обновление и OTA.
 
-## Протоколы
+## Стабильная версия
 
-VLESS (REALITY, XHTTP, gRPC, WS, HTTPUpgrade), VMess, Trojan, Shadowsocks (включая 2022), Hysteria2, TUIC v5, ShadowTLS, WireGuard, SOCKS5, HTTP.
+[Скачать Phantom Universal APK](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk)
 
-## Совместимость с Remnawave
+Для пользователя — **один универсальный APK**. Android выбирает ABI при установке, а последующие обновления должны устанавливаться поверх приложения с сохранением подписок и настроек.
 
-- Принимает полные Xray JSON-конфиги (массив с `remarks`/`outbounds`/`balancers`/`observatory`/`routing`), запускает «как есть» + добавляет TUN-inbound.
-- Заголовки: `User-Agent: Phantom/<versionName>`, `x-hwid`, `x-device-os`, `x-device-model`, `x-ver-os`.
-- Читает `subscription-userinfo`, `profile-title`, `profile-update-interval`.
-- Mux, XHTTP, Hysteria2, балансировщики.
+OTA использует GitHub Releases, проверяет SHA-256, номер версии, `applicationId` и сертификат подписи. Системное подтверждение установки остаётся обязательным там, где его требует Android.
 
-## Сборка
+## Проверка качества перед релизом
 
-APK собирается в GitHub Actions (`.github/workflows/build.yml`).
+1. Gradle unit-тесты, Android Lint, сборка и проверка подписи.
+2. Упаковка всех поддерживаемых ABI; проверка обоих Go JNI-движков и 16-КБ ELF-выравнивания подписанного универсального APK.
+3. Android TV: Leanback, пульт D-pad, реальное VPN-подключение. Android x86_64: инструментальные тесты, локальные протокольные узлы и обновление поверх старой версии.
+4. Проверка интерфейса в телефонном, планшетном портретном и планшетном альбомном разрешениях, сохранения данных и переключения.
+5. Публикация только после успешных испытаний. Сборки PR подписываются временным тестовым ключом и **не устанавливаются поверх официального релиза**.
 
-Для ручной установки выпускается `phantom-universal-release.apk`. Для OTA клиент выбирает меньший APK по списку архитектур Android. Идентификатор приложения и сертификат общие. Для PR используется временный ключ. Официальные APK подписываются в ручном релизном workflow.
+Сжатие native-библиотек уменьшает размер скачивания, но Android распаковывает их при установке, поэтому занятое место на устройстве может увеличиться. Результаты тестов на x86-эмуляторах **не заменяют испытаний на реальных ARM32/ARM64-устройствах**.
 
-## План
+## Сборка и лицензии
 
-- [x] 1. Каркас + CI + подпись
-- [ ] 2. Имя «PHANTOM», иконка, applicationId
-- [ ] 3. Загрузка подписки с заголовками, запуск Xray JSON «как есть»
-- [ ] 4. Главный экран в стиле Happ
-- [ ] 5. Список серверов с пингом
-- [ ] 6. Карточка подписки + первый запуск
-- [ ] 7. Per-app proxy
-- [ ] 8. sing-box, tuic://, ShadowTLS, автовыбор ядра
+GitHub Actions: `.github/workflows/build.yml`. Нативные AAR скачиваются по закреплённым версиям с проверкой SHA-256. Применяются независимые Go runtime для предотвращения JNI-конфликтов.
+
+Требования к сторонним компонентам и лицензии: [THIRD_PARTY_LIBBOX.md](THIRD_PARTY_LIBBOX.md). Перед распространением необходимо проверить соблюдение условий GPL-3.0 для используемого libbox.
+
+`main` — стабильная линия. Новые функции и оптимизации проходят через отдельные ветки/PR с полным тестированием; непроверенный APK не публикуется.
