@@ -131,6 +131,36 @@ jobs:
             rm -f app/keystore.jks
           fi
 
+      - name: Report signed APK size and native compression
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          baselines = {
+              'arm64-v8a': 134417044,
+              'armeabi-v7a': 125569690,
+              'x86': 131304066,
+              'x86_64': 141466251,
+              'universal': 473914667,
+          }
+          report = ['## Phantom APK compression experiment', '', '| ABI | Baseline bytes | Trial bytes | Change | Native .so entries |', '|---|---:|---:|---:|---:|']
+          for abi, baseline in baselines.items():
+              apk = Path('app/build/outputs/apk/release') / f'phantom-{abi}-release.apk'
+              size = apk.stat().st_size
+              with ZipFile(apk) as z:
+                  libs = [info for info in z.infolist() if info.filename.startswith('lib/') and info.filename.endswith('.so')]
+                  assert libs, f'Native libraries missing in {abi}'
+                  assert all(info.compress_type == ZIP_DEFLATED for info in libs), f'Uncompressed native ELF in {abi}'
+                  payload = sum(info.file_size for info in libs)
+                  compressed = sum(info.compress_size for info in libs)
+              ratio = (size - baseline) * 100 / baseline
+              row = f'| {abi} | {baseline:,} | {size:,} | {ratio:+.1f}% | {len(libs)} (payload {payload:,} → {compressed:,}) |'
+              report.append(row)
+              print(row)
+          Path(os.environ['GITHUB_STEP_SUMMARY']).open('a').write('\n'.join(report) + '\n')
+          PY
+
       - name: Prepare loopback protocol peers
         if: github.event_name != 'push'
         run: |
