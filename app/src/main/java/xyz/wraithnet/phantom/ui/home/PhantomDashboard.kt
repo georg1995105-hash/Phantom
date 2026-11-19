@@ -274,7 +274,6 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                 }
             }
         }
-        if (rows.isEmpty()) item { OutlinedButton(onClick = add) { Text("Добавить подписку или ключ") } }
         items(rows, key = { (sub, server) -> "${sub.id}:${server.id}" }) { (owner, server) ->
             val id = "${owner.id}:${server.id}"
             val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
@@ -298,6 +297,14 @@ internal fun ServersPage(subscriptions: List<Subscription>, selected: Pair<Subsc
                             if (id in favorites) "Убрать из избранного" else "В избранное")
                     }
                 }
+            }
+        }
+        item {
+            OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth().tvFocusRing()
+                .heightIn(min = 48.dp)) {
+                Icon(Icons.Default.Edit, null, Modifier.size(17.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Добавить ключ вручную")
             }
         }
     }
