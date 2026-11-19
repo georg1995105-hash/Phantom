@@ -82,7 +82,18 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
+          set +e
           ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+            if [ -f "$report" ]; then
+              echo "::group::Android Lint full findings"
+              sed -n '1,220p' "$report"
+              echo "::endgroup::"
+            fi
+          fi
+          exit "$result"
 
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
