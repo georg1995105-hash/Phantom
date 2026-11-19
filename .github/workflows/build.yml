@@ -83,7 +83,7 @@ jobs:
         run: |
           chmod +x gradlew
           set +e
-          ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+          ./gradlew --no-daemon --max-workers=1 --stacktrace :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
           result=$?
           if [ "$result" -ne 0 ]; then
             report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
