@@ -63,11 +63,11 @@ resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
 assert PACKAGE + "/.MainActivity" in resolve
 cases = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
-# Diagnose whether the failure belongs to all VPN tunnels, or specifically
+# Diagnose whether the failure belongs to Xray/Hysteria2 or specifically
 # the second Go runtime. Never treat a failed TUIC check as a passing build.
 component = resolve.splitlines()[-1]
 for index, (protocol, label) in enumerate((
-    ("VLESS-TCP", "TVCheckXray"), ("tuic", "TVCheckTUIC")
+    ("hysteria2", "TVCheckXray"), ("tuic", "TVCheckTUIC")
 )):
     if index:
         assert "Success" in adb("shell", "pm", "clear", PACKAGE)
