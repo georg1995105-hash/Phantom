@@ -45,8 +45,8 @@ class MultipleSubscriptionsUiTest {
                 .putString("selected_server_id", "same-server-id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                assertNotNull(device.wait(Until.findObject(By.text("Серверы")), 12_000))
-                device.findObject(By.text("Серверы")).click()
+                assertNotNull(device.wait(Until.findObject(By.desc("Вкладка Серверы")), 12_000))
+                device.findObject(By.desc("Вкладка Серверы")).click()
                 assertNotNull("First subscription heading missing",
                     device.wait(Until.findObject(By.text(first.title)), 8_000))
                 assertNotNull("Second subscription heading missing",
