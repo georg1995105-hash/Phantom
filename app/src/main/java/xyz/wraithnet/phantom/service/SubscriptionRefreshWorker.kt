@@ -42,8 +42,23 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
             }
         }
         if (replacements.isNotEmpty()) {
-            val current = store.read()
-            store.write(current.map { replacements[it.id] ?: it })
+            // Reconcile against the latest committed subscriptions in one
+            // transaction. Never resurrect a deleted item or overwrite a URL
+            // that the user changed while this worker downloaded updates.
+            store.update { current ->
+                current.map { latest ->
+                    val incoming = replacements[latest.id]
+                    if (incoming != null && incoming.source == latest.source) {
+                        incoming.copy(
+                            customTitle = latest.customTitle,
+                            customIntervalSeconds = latest.customIntervalSeconds,
+                            title = latest.customTitle ?: incoming.title,
+                            updateIntervalSeconds =
+                                latest.customIntervalSeconds ?: incoming.updateIntervalSeconds,
+                        )
+                    } else latest
+                }
+            }
         }
         return if (failure) Result.retry() else Result.success()
     }
