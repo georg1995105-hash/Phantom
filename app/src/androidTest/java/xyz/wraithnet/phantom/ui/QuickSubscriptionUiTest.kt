@@ -36,7 +36,7 @@ class QuickSubscriptionUiTest {
                     clipboard.setPrimaryClip(ClipData.newPlainText("Phantom test", link))
                 }
                 val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                val quickButton = device.wait(Until.findObject(By.text("Добавить подписку")), 12_000)
+                val quickButton = device.wait(Until.findObject(By.desc("Добавить подписку")), 12_000)
                 assertNotNull("The first screen must show the import shortcut", quickButton)
                 quickButton!!.click()
                 device.wait(Until.hasObject(By.text("Подписка добавлена")), 8_000)
