@@ -67,6 +67,7 @@ import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.service.PhantomQuickTileService
 import xyz.wraithnet.phantom.data.SubscriptionParser
+import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
@@ -221,7 +222,7 @@ fun HomeScreen(
         }
         val source = raw.trim()
         if (subscriptions.any { it.source.trim() == source }) {
-            val warning = "Такая подписка или ссылка уже добавлена"
+            val warning = "Эта подписка уже добавлена"
             if (importMode != null) importError = warning
             else scope.launch { snackbar.showSnackbar(warning) }
             return
@@ -252,7 +253,7 @@ fun HomeScreen(
                 importMode = null
                 showImportMenu = false
                 softTap()
-                snackbar.showSnackbar("Конфигурация добавлена")
+                snackbar.showSnackbar("Подписка добавлена")
             } catch (e: Exception) {
                 val message = e.message ?: "Не удалось добавить подписку"
                 if (importMode != null) importError = message
@@ -263,8 +264,31 @@ fun HomeScreen(
         }
     }
 
+    // Quick import is intentionally a single action; no second paste or confirmation.
+    // Only URLs/share links are auto-opened from the clipboard. Arbitrary clipboard
+    // text must never trigger a remote request or masquerade as a subscription.
+    fun quickImportFromClipboard() {
+        if (importBusy) return
+        val copied = runCatching { pasteText() }.getOrDefault("")
+        if (SubscriptionQuickImport.isSubscriptionLink(copied)) {
+            add(copied)
+        } else {
+            importError = null
+            importMode = "url"
+        }
+    }
+
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
+    }
+    fun scanQr() {
+        scanLauncher.launch(
+            ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                .setPrompt("Наведите камеру на QR-код подписки")
+                .setOrientationLocked(true)
+                .setBeepEnabled(false)
+        )
     }
 
     LaunchedEffect(externalImport) {
@@ -527,7 +551,12 @@ fun HomeScreen(
                     subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
                     subscriptionAvailable = selectedMatch != null,
                     onPing = { tab = Destination.SERVERS },
-                    pingAvailable = subscriptions.any { it.servers.isNotEmpty() })
+                    pingAvailable = subscriptions.any { it.servers.isNotEmpty() },
+                    onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
+                    onScanQr = if (tv || !context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))
+                        null else ::scanQr,
+                    hasSubscriptions = subscriptions.isNotEmpty(),
+                    importing = importBusy)
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     probing = probing,
                     favorite = { id ->
@@ -667,18 +696,11 @@ fun HomeScreen(
                     showImportMenu = false; importMode = "url"
                 }
                 funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
-                    showImportMenu = false; add(pasteText())
+                    showImportMenu = false; quickImportFromClipboard()
                 }
                 if (!tv || context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
                     showImportMenu = false
-                    scanLauncher.launch(
-                        ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            .setCaptureActivity(
-                                xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
-                            .setPrompt("Поместите QR-код в рамку")
-                            .setOrientationLocked(true)
-                            .setBeepEnabled(false)
-                    )
+                    scanQr()
                 }
                 funActionRow("Ручной ввод", Icons.Default.Edit) {
                     showImportMenu = false; importMode = "manual"
