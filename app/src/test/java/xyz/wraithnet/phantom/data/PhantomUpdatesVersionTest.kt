@@ -18,6 +18,13 @@ class PhantomUpdatesVersionTest {
         assertNull(PhantomUpdates.assetFor(emptyList()))
     }
 
+    @Test fun prereleasesCannotReachStableOta() {
+        assertTrue(PhantomUpdates.eligibleForStable(draft = false, prerelease = false))
+        assertFalse(PhantomUpdates.eligibleForStable(draft = false, prerelease = true))
+        assertFalse(PhantomUpdates.eligibleForStable(draft = true, prerelease = false))
+        assertFalse(PhantomUpdates.eligibleForStable(draft = true, prerelease = true))
+    }
+
     @Test fun semanticVersionsCompareNumerically() {
         assertTrue(PhantomUpdates.isNewer("0.2.4", "0.2.3"))
         assertTrue(PhantomUpdates.isNewer("v1.10.0", "1.9.9"))

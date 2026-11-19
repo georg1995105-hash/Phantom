@@ -248,7 +248,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
-          path: app/build/outputs/apk/release/phantom-universal-release.apk
+          # A one-time v0.3.7 migration also needs ABI-named APK assets:
+          # old 0.3.6 clients cannot discover universal-only updates.
+          path: app/build/outputs/apk/release/phantom-*-release.apk
           compression-level: 0
           retention-days: 2
 
@@ -282,7 +284,28 @@ jobs:
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
           test -s "release-assets/phantom-universal-release.apk"
-          sha256sum release-assets/phantom-universal-release.apk
+          if [[ "$RELEASE_TAG" == "v0.3.7" ]]; then
+            # Old Phantom 0.3.6 OTA clients require ABI-named assets.
+            # This compatibility bridge ships only in the first universal release.
+            for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+              test -s "release-assets/phantom-$abi-release.apk"
+            done
+          fi
+          sha256sum release-assets/phantom-*-release.apk
+
+      - name: Stage official universal APK and one-time migration files
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p publish-assets
+          cp release-assets/phantom-universal-release.apk publish-assets/
+          if [[ "$RELEASE_TAG" == "v0.3.7" ]]; then
+            for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+              cp "release-assets/phantom-$abi-release.apk" publish-assets/
+            done
+          fi
+          sha256sum publish-assets/phantom-*-release.apk
 
       - name: Publish official release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
@@ -290,6 +313,6 @@ jobs:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: PHANTOM VPN ${{ inputs.release_tag }}
-          files: release-assets/phantom-universal-release.apk
+          files: publish-assets/phantom-*-release.apk
           prerelease: false
           body_path: RELEASE_NOTES.md

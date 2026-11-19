@@ -29,6 +29,10 @@ object PhantomUpdates {
         if (abis.any { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") })
             "phantom-universal-release.apk" else null
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
+
+    // Stable never accepts beta/pre-release assets even when tagged as X.Y.Z.
+    internal fun eligibleForStable(draft: Boolean, prerelease: Boolean): Boolean =
+        !draft && !prerelease
     private val downloadMutex = Mutex()
 
     fun isNewer(remote: String, installed: String): Boolean {
@@ -63,7 +67,7 @@ object PhantomUpdates {
         var best: PhantomRelease? = null
         for (i in 0 until releases.length()) {
             val item = releases.getJSONObject(i)
-            if (item.optBoolean("draft")) continue
+            if (!eligibleForStable(item.optBoolean("draft"), item.optBoolean("prerelease"))) continue
             val version = item.optString("tag_name").removePrefix("v")
             if (!isNewer(version, installed)) continue
             if (best != null && !isNewer(version, best.version)) continue
