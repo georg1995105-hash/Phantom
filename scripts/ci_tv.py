@@ -34,11 +34,11 @@ def report_singbox_exit():
             return []
 
     def redact(line):
-        line = re.sub(r"(?i)(?:vless|vmess|tuic|anytls|ss|hysteria2?|https?)://\\S+",
+        line = re.sub(r"(?i)(?:vless|vmess|tuic|anytls|ss|hysteria2?|https?)://\S+",
                       "[private URL]", line)
-        line = re.sub(r"(?i)(password|secret|token|authorization|uuid|key)[=:]\\S+",
-                      r"\\1=[private]", line)
-        line = re.sub(r"\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b",
+        line = re.sub(r"(?i)(password|secret|token|authorization|uuid|key)[=:]\S+",
+                      r"\1=[private]", line)
+        line = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
                       "[IP]", line)
         return line[:240]
 
