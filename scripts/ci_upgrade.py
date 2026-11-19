@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from ci_verify_installed_native import verify_native
 
 PACKAGE = "xyz.wraithnet.phantom"
 ACTIVITY = PACKAGE + "/.MainActivity"
@@ -144,6 +145,7 @@ node("Убрать из избранного")
 # The arm64 APK upgrade above verifies the installed package and user data.
 # Use the signed release matching this emulator's CPU for the native TUN run.
 adb("install", "-r", native)
+verify_native(native, PACKAGE)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 tap("Серверы")
 node("Убрать из избранного")
