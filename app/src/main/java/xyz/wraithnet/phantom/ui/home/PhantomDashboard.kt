@@ -68,7 +68,7 @@ internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
     NavigationBar(modifier = Modifier.clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
         containerColor = c.surface, tonalElevation = 0.dp) {
         Destination.entries.forEach { page ->
-            NavigationBarItem(modifier = Modifier.tvFocusRing(), selected = current == page, onClick = { select(page) },
+            NavigationBarItem(modifier = Modifier.tvFocusRing().semantics { contentDescription = "Вкладка ${page.title}" }, selected = current == page, onClick = { select(page) },
                 icon = { Icon(page.icon, null) }, label = { Text(page.title, fontSize = 11.sp, maxLines = 1) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = c.primary,
                     selectedTextColor = c.primary, indicatorColor = c.primaryContainer,
@@ -184,7 +184,8 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(
                     onClick = onQuickImport, enabled = !importing,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing(),
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
+                        .semantics { contentDescription = "Добавить подписку" },
                     shape = RoundedCornerShape(15.dp)
                 ) {
                     Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
