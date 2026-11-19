@@ -41,8 +41,14 @@ def wait_label(label):
             adb("shell", "input", "tap",
                 str((bounds[0] + bounds[2]) // 2),
                 str((bounds[1] + bounds[3]) // 2))
-            diagnostic = [item.get("text", "") for item in nodes()
-                          if item.get("text") and "://" not in item.get("text", "")]
+            # Compose displays AlertDialog asynchronously; wait for it.
+            for _ in range(8):
+                snapshot = nodes()
+                diagnostic = [item.get("text", "") for item in snapshot
+                              if item.get("text") and "://" not in item.get("text", "")]
+                if "Ошибка подключения" in diagnostic:
+                    break
+                time.sleep(.3)
     safe = [value for value in visible if "://" not in value]
     print("TV VPN failure: UI diagnostics:", diagnostic[:20], flush=True)
     raise AssertionError(
@@ -56,22 +62,33 @@ assert "primaryCpuAbi=x86\n" in adb("shell", "dumpsys", "package", PACKAGE) + "\
 resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
 assert PACKAGE + "/.MainActivity" in resolve
-adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
-profile = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())["tuic"] + "#TVCheck"
-adb("shell", shlex.join(["am", "start", "-W", "-a", "android.intent.action.VIEW",
-                        "-d", profile, "-n", PACKAGE + "/.MainActivity"]))
-wait_label("TVCheck")
-adb("shell", "am", "force-stop", PACKAGE)
-# TV launchers query activities by category, then start the resolved component explicitly.
+cases = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
+# Diagnose whether the failure belongs to all VPN tunnels, or specifically
+# the second Go runtime. Never treat a failed TUIC check as a passing build.
 component = resolve.splitlines()[-1]
-launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
-             "-c", CATEGORY, "-n", component)
-assert "Status: ok" in launch, launch
-wait_label("Подключить VPN")
-key("DPAD_CENTER")
-wait_label("Подключено")
-key("DPAD_CENTER")
-wait_label("Отключено")
+for index, (protocol, label) in enumerate((
+    ("VLESS-TCP", "TVCheckXray"), ("tuic", "TVCheckTUIC")
+)):
+    if index:
+        assert "Success" in adb("shell", "pm", "clear", PACKAGE)
+    adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
+    profile = cases[protocol] + "#" + label
+    adb("shell", shlex.join(["am", "start", "-W", "-a", "android.intent.action.VIEW",
+                            "-d", profile, "-n", PACKAGE + "/.MainActivity"]))
+    wait_label(label)
+    adb("shell", "am", "force-stop", PACKAGE)
+    launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+                 "-c", CATEGORY, "-n", component)
+    assert "Status: ok" in launch, launch
+    wait_label("Подключить VPN")
+    key("DPAD_CENTER")
+    try:
+        wait_label("Подключено")
+    except AssertionError as ex:
+        raise AssertionError(f"TV {protocol} tunnel did not connect: {ex}") from ex
+    key("DPAD_CENTER")
+    wait_label("Отключено")
+    print(f"TV x86 native {protocol}: connected and disconnected", flush=True)
 # Move to the bottom navigation using only directional keys.
 for _ in range(7):
     key("DPAD_DOWN")
