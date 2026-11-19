@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.SubscriptionParser
+import xyz.wraithnet.phantom.data.SubscriptionMutations
 import xyz.wraithnet.phantom.data.SubscriptionStore
 
 /** Network-constrained periodic refresh, even when the UI is not open. */
@@ -14,7 +15,7 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
     override suspend fun doWork(): Result {
         val store = SubscriptionStore(applicationContext)
         val now = System.currentTimeMillis()
-        val replacements = mutableMapOf<String, Subscription>()
+        val replacements = mutableMapOf<String, Pair<Subscription, Subscription>>()
         var failure = false
         for (old in store.read()) {
             if (!old.source.startsWith("http")) continue
@@ -24,7 +25,7 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
                 val downloaded = SubscriptionFetcher.download(applicationContext, old.source, store.deviceId())
                 val parsed = SubscriptionParser.parse(downloaded.body,
                     old.customTitle ?: downloaded.title ?: old.title)
-                replacements[old.id] = parsed.copy(
+                replacements[old.id] = old to parsed.copy(
                     id = old.id,
                     source = old.source,
                     title = old.customTitle ?: downloaded.title ?: old.title,
@@ -46,17 +47,8 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
             // transaction. Never resurrect a deleted item or overwrite a URL
             // that the user changed while this worker downloaded updates.
             store.update { current ->
-                current.map { latest ->
-                    val incoming = replacements[latest.id]
-                    if (incoming != null && incoming.source == latest.source) {
-                        incoming.copy(
-                            customTitle = latest.customTitle,
-                            customIntervalSeconds = latest.customIntervalSeconds,
-                            title = latest.customTitle ?: incoming.title,
-                            updateIntervalSeconds =
-                                latest.customIntervalSeconds ?: incoming.updateIntervalSeconds,
-                        )
-                    } else latest
+                replacements.values.fold(current) { latest, (original, downloaded) ->
+                    SubscriptionMutations.replaceDownloaded(latest, original, downloaded)
                 }
             }
         }
