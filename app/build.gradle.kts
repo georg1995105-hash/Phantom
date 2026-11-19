@@ -57,6 +57,12 @@ android {
         buildConfig = true
     }
     packaging {
+        // Experimental: DEFLATE compressed native .so files reduce download size,
+        // but Android extracts them during install, increasing installed storage.
+        // Do not ship until the exact signed APK passes TV, JNI, and upgrade tests.
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
