@@ -82,7 +82,7 @@ jobs:
       - name: Build release APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:assembleRelease
+          ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
 
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
@@ -130,6 +130,14 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             rm -f app/keystore.jks
           fi
+
+      - name: Test universal APK audit itself
+        run: python3 -m unittest discover -s scripts -p 'test_universal_audit.py' -v
+
+      - name: Verify all native ABI and 16 KiB ELF segments in signed universal APK
+        run: |
+          python3 scripts/audit_universal_apk.py \
+            app/build/outputs/apk/release/phantom-universal-release.apk
 
       - name: Prepare loopback protocol peers
         if: github.event_name != 'push'
@@ -229,7 +237,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
-          path: app/build/outputs/apk/release/phantom-*-release.apk
+          path: app/build/outputs/apk/release/phantom-universal-release.apk
           compression-level: 0
           retention-days: 2
 
@@ -262,10 +270,8 @@ jobs:
           set -euo pipefail
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
-          for abi in arm64-v8a armeabi-v7a x86_64 x86 universal; do
-            test -s "release-assets/phantom-$abi-release.apk"
-          done
-          sha256sum release-assets/phantom-*-release.apk
+          test -s "release-assets/phantom-universal-release.apk"
+          sha256sum release-assets/phantom-universal-release.apk
 
       - name: Publish official release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
@@ -273,6 +279,6 @@ jobs:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: PHANTOM VPN ${{ inputs.release_tag }}
-          files: release-assets/phantom-*-release.apk
+          files: release-assets/phantom-universal-release.apk
           prerelease: false
           body_path: RELEASE_NOTES.md
