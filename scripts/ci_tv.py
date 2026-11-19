@@ -26,9 +26,12 @@ def nodes():
 
 def wait_label(label):
     for _ in range(18):
-        if any(label in (node.get("text", ""), node.get("content-desc", "")) for node in nodes()):
+        visible = [value for node in nodes() for field in ("text", "content-desc")
+                   for value in node.get(field, "").splitlines() if value]
+        if label in visible:
             return
-    raise AssertionError("Missing TV label " + label)
+    safe = [value for value in visible if "://" not in value]
+    raise AssertionError(f"Missing TV label {label!r}. Visible: {safe[:32]}")
 
 
 assert "android.software.leanback" in adb("shell", "pm", "list", "features")
@@ -43,7 +46,11 @@ adb("shell", shlex.join(["am", "start", "-W", "-a", "android.intent.action.VIEW"
                         "-d", profile, "-n", PACKAGE + "/.MainActivity"]))
 wait_label("TVCheck")
 adb("shell", "am", "force-stop", PACKAGE)
-adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
+# TV launchers query activities by category, then start the resolved component explicitly.
+component = resolve.splitlines()[-1]
+launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+             "-c", CATEGORY, "-n", component)
+assert "Status: ok" in launch, launch
 wait_label("Подключить VPN")
 key("DPAD_CENTER")
 wait_label("Подключено")
