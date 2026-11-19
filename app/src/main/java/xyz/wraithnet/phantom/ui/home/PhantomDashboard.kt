@@ -123,10 +123,16 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             Box(Modifier.size(if (tv) 104.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
                 .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
                     if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
-                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape).clickable(enabled = !starting, onClick = toggle),
+                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
+                // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
+                .clickable(enabled = tv || !starting) { if (!starting) toggle() },
                 contentAlignment = Alignment.Center) {
                 if (starting) CircularProgressIndicator(Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
-                Icon(Icons.Default.PowerSettingsNew, if (connected) "Отключить VPN" else "Подключить VPN",
+                Icon(Icons.Default.PowerSettingsNew, when {
+                    connected -> "Отключить VPN"
+                    starting -> "Подключение"
+                    else -> "Подключить VPN"
+                },
                     Modifier.size(62.dp), tint = c.onSurface)
             }
             LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
