@@ -82,6 +82,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.1")
+    androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation("androidx.work:work-testing:2.12.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
