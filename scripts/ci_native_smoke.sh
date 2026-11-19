@@ -4,6 +4,7 @@
 set -uo pipefail
 timeout --signal=TERM --kill-after=15s 360s ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
 rc=$?
+adb logcat -d -s PhantomUserAgent:I
 if [ "$rc" -ne 0 ]; then
     echo "Android smoke test failed or exceeded the 360-second hard limit (exit=$rc)"
     echo "::group::PHANTOM ANDROID JNI DIAGNOSTICS"

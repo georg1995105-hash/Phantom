@@ -2,6 +2,7 @@ package xyz.wraithnet.phantom.data
 
 import android.content.Context
 import android.os.Build
+import xyz.wraithnet.phantom.BuildConfig
 
 data class DownloadedSubscription(
     val body: String,
@@ -22,7 +23,7 @@ object SubscriptionFetcher {
         context = context,
         url = url,
         headers = mapOf(
-            "User-Agent" to "Happ/1.0",
+            "User-Agent" to "Phantom/${BuildConfig.VERSION_NAME}",
             "x-hwid" to hwid,
             "x-device-os" to "Android",
             "x-device-model" to Build.MODEL,
