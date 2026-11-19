@@ -1,5 +1,6 @@
 """Exercise the universal APK with an Android TV launcher and D-pad on the 32-bit TV image."""
 import json
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -30,8 +31,23 @@ def wait_label(label):
                    for value in node.get(field, "").splitlines() if value]
         if label in visible:
             return
+    # Never suppress a real VPN connection failure as an emulator flake.
+    # Show the app's own diagnostic dialog so the failure is actionable.
+    diagnostic = []
+    reason = next((item for item in nodes() if item.get("text") == "Причина ошибки"), None)
+    if reason is not None:
+        bounds = list(map(int, re.findall(r"\\d+", reason.get("bounds", ""))))
+        if len(bounds) == 4:
+            adb("shell", "input", "tap",
+                str((bounds[0] + bounds[2]) // 2),
+                str((bounds[1] + bounds[3]) // 2))
+            diagnostic = [item.get("text", "") for item in nodes()
+                          if item.get("text") and "://" not in item.get("text", "")]
     safe = [value for value in visible if "://" not in value]
-    raise AssertionError(f"Missing TV label {label!r}. Visible: {safe[:32]}")
+    print("TV VPN failure: UI diagnostics:", diagnostic[:20], flush=True)
+    raise AssertionError(
+        f"Missing TV label {label!r}. Visible: {safe[:32]}, reason: {diagnostic[:20]}"
+    )
 
 
 assert "android.software.leanback" in adb("shell", "pm", "list", "features")
