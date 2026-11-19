@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp" android:height="90dp"
+    android:viewportWidth="320" android:viewportHeight="180">
+    <path android:fillColor="#08191A" android:pathData="M0,0H320V180H0Z"/>
+    <group android:translateX="27" android:translateY="60" android:scaleX="2.5" android:scaleY="2.5">
+        <path android:pathData="M12,2 L4.8,5 L4.8,12.6 C4.8,17 7.6,20.3 12,22 C16.4,20.3 19.2,17 19.2,12.6 L19.2,5 Z M9.3,16.7 V8.2 H12.5 C16.4,8.2 16.4,12.6 12.5,12.6 H9.3"
+            android:strokeColor="#5BE4B4" android:strokeWidth="1.7" android:strokeLineJoin="round"/>
+    </group>
+    <!-- Phantom wordmark -->
+    <path android:strokeColor="#F0FBF6" android:strokeWidth="4.5" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M92,103V76H101C113,76 113,91 101,91H92 M119,103V75 M119,91C122,82 135,82 135,92V103 M159,85V103 M159,93C159,81 142,81 142,94C142,106 159,107 159,93 M168,103V85 M168,92C171,82 184,82 184,92V103 M197,78V97Q197,104 204,102 M191,86H204 M230,94C230,81 211,81 211,94C211,107 230,107 230,94Z M239,103V85 M239,92C242,82 254,82 254,92V103 M254,92C257,82 270,82 270,92V103"/>
+</vector>

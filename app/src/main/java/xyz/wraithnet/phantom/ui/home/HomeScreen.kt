@@ -496,7 +496,9 @@ fun HomeScreen(
 
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
+    val tv = isTelevision()
     Scaffold(
+        modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
         topBar = {
             Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
         },
@@ -667,7 +669,7 @@ fun HomeScreen(
                 funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
                     showImportMenu = false; add(pasteText())
                 }
-                funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
+                if (!tv || context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
                     showImportMenu = false
                     scanLauncher.launch(
                         ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
@@ -866,7 +868,7 @@ private fun funActionRow(
     onClick: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth().heightIn(min = 55.dp)
-        .clickable(onClick = onClick).padding(horizontal = 16.dp),
+        .tvFocusRing().clickable(onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1132,7 +1134,7 @@ private fun PhantomSettings(
 @Composable
 private fun SettingsAction(title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
     action: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = action).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
