@@ -36,7 +36,7 @@ def wait_label(label):
     diagnostic = []
     reason = next((item for item in nodes() if item.get("text") == "Причина ошибки"), None)
     if reason is not None:
-        bounds = list(map(int, re.findall(r"\\d+", reason.get("bounds", ""))))
+        bounds = list(map(int, re.findall(r"\d+", reason.get("bounds", ""))))
         if len(bounds) == 4:
             adb("shell", "input", "tap",
                 str((bounds[0] + bounds[2]) // 2),
