@@ -22,7 +22,13 @@ object ProfileSelection {
         pinnedSubscriptionId: String?,
     ): Pair<Subscription, ServerProfile>? {
         val owner = subscriptions.firstOrNull { it.id == selectedSubscriptionId }
-        owner?.servers?.firstOrNull { it.id == selectedServerId }?.let { return owner to it }
+        owner?.servers?.firstOrNull { it.id == selectedServerId &&
+            ProtocolSupport.isSupported(it.scheme) }?.let { return owner to it }
+        // If the subscription refreshed and server IDs changed, stay inside
+        // the explicitly selected subscription. Never jump to another owner.
+        owner?.servers?.firstOrNull { ProtocolSupport.isSupported(it.scheme) }?.let {
+            return owner to it
+        }
         // Backward compatibility with 0.2.12, which saved only selected_server_id.
         if (selectedSubscriptionId == null && selectedServerId != null) {
             subscriptions.forEach { sub ->
