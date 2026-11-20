@@ -138,7 +138,15 @@ def prepare(directory, xray, singbox):
         {"action": "allow", "ip": ["127.0.0.1/32"], "port": "34301", "network": "tcp"},
         {"action": "block"}]}}
     connectivity = {"tag": "connectivity", "protocol": "freedom"}
-    transfer = {"tag": "transfer", "protocol": "freedom", "settings": {"redirect": "127.0.0.1:34301"}}
+    transfer = {"tag": "transfer", "protocol": "freedom", "settings": {
+        "redirect": "127.0.0.1:34301",
+        # Xray applies its private-address guard after rewriting the destination.
+        # Allow just this loopback origin, as for the other test peers.
+        "finalRules": [
+            {"action": "allow", "ip": ["127.0.0.1/32"], "port": "34301", "network": "tcp"},
+            {"action": "block"},
+        ],
+    }}
     xray_server = {"inbounds": x_in, "outbounds": [origin_only, connectivity, transfer],
                    "routing": {"rules": [
                        {"type": "field", "inboundTag": ["provider-xhttp"], "network": "tcp",

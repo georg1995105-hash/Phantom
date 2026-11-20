@@ -231,9 +231,25 @@ jobs:
           script: |
             bash scripts/ci_emulator.sh
 
+      - name: Install verified Android TV x86 system image
+        id: android_tv_image
+        if: github.event_name != 'push'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          archive=$(mktemp "$RUNNER_TEMP/android-tv.XXXXXX.zip")
+          trap 'rm -f "$archive"' EXIT
+          curl -fsSL --max-time 120 -o "$archive" \
+            https://dl.google.com/android/repository/sys-img/android-tv/x86-30_r04.zip
+          printf '%s  %s\n' da16c0dbf88fecbc4b64912c184bc0d6c955c9483a5894cca47f55f6744c02d3 "$archive" | sha256sum -c -
+          image_root="$ANDROID_HOME/system-images/android-30/android-tv"
+          mkdir -p "$image_root"
+          unzip -oq "$archive" -d "$image_root"
+          sdkmanager --list_installed | grep -F 'system-images;android-30;android-tv;x86'
+
       - name: Test universal APK with an Android TV remote
         id: android_tv
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.android_tv_image.outcome == 'success'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
