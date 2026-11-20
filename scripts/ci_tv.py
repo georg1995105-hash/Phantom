@@ -140,6 +140,9 @@ if page_size_16k:
     adb("shell", "su", "0", "setprop", "pm.16kb.app_compat.disabled", "true")
     assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
     assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
+    memory = adb("shell", "cat", "/proc/meminfo").splitlines()
+    print("Android 16 KiB pages, backcompat disabled:",
+          [line for line in memory if line.startswith(("MemTotal:", "MemAvailable:"))], flush=True)
     key("WAKEUP")
     adb("shell", "wm", "dismiss-keyguard")
     CATEGORY = "android.intent.category.LAUNCHER"

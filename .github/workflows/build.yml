@@ -258,7 +258,8 @@ jobs:
           profile: pixel_6
           avd-name: phantom-16k
           disk-size: 3072M
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          # The 16 KiB Google APIs image had LMK deaths with the default guest RAM.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 4096
           disable-animations: true
           script: python3 scripts/ci_tv.py --16k
 
