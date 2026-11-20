@@ -105,7 +105,7 @@ internal fun PageTitle(page: Destination) {
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
-    subscriptionAvailable: Boolean, onPing: () -> Unit, pingAvailable: Boolean,
+    subscriptionAvailable: Boolean,
     onQuickImport: () -> Unit, onScanQr: (() -> Unit)?, hasSubscriptions: Boolean,
     importing: Boolean) {
     val c = MaterialTheme.colorScheme
@@ -116,45 +116,44 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gap = if (!hasSubscriptions) 12.dp else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(Modifier.height(gap))
-            val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
-                c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
-                ring.copy(alpha = .35f)))
-            Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
-                .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
-                    if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
-                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
-                // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
-                .clickable(enabled = tv || !starting) { if (!starting) toggle() },
-                contentAlignment = Alignment.Center) {
-                if (starting) CircularProgressIndicator(Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
-                Icon(Icons.Default.PowerSettingsNew, when {
-                    connected -> "Отключить VPN"
-                    starting -> "Подключение"
-                    else -> "Подключить VPN"
-                },
-                    Modifier.size(62.dp), tint = c.onSurface)
-            }
-            LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
-            Spacer(Modifier.height(16.dp))
-            // Refresh the selected VPN subscription next to the connection state.
-            // Weighted status text wraps cleanly on narrower phones.
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center) {
-                if (connected) {
-                    Icon(Icons.Default.CheckCircle, null, Modifier.size(17.dp), tint = c.primary)
-                    Spacer(Modifier.width(6.dp))
+        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(gap))
+                val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
+                    c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
+                    ring.copy(alpha = .35f)))
+                Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
+                    .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
+                        if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
+                    .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
+                    // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
+                    .clickable(enabled = tv || !starting) { if (!starting) toggle() },
+                    contentAlignment = Alignment.Center) {
+                    if (starting) CircularProgressIndicator(Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
+                    Icon(Icons.Default.PowerSettingsNew, when {
+                        connected -> "Отключить VPN"
+                        starting -> "Подключение"
+                        else -> "Подключить VPN"
+                    },
+                        Modifier.size(62.dp), tint = c.onSurface)
                 }
-                Text(when (status) {
-                    "connected" -> "Подключено"
-                    "starting" -> "Подключение…"
-                    "error" -> "Соединение не установлено"
-                    else -> "Отключено"
-                }, color = if (connected) c.primary else c.onBackground,
-                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f, fill = false))
-                Spacer(Modifier.width(8.dp))
+                LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
+                Spacer(Modifier.height(16.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center) {
+                    if (connected) {
+                        Icon(Icons.Default.CheckCircle, null, Modifier.size(17.dp), tint = c.primary)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(when (status) {
+                        "connected" -> "Подключено"
+                        "starting" -> "Подключение…"
+                        "error" -> "Соединение не установлено"
+                        else -> "Отключено"
+                    }, color = if (connected) c.primary else c.onBackground,
+                        textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
+                }
                 TextButton(onClick = onRefreshSubscription,
                     enabled = subscriptionAvailable && !subscriptionRefreshing,
                     modifier = Modifier.tvFocusRing().heightIn(min = 48.dp).semantics {
@@ -169,74 +168,78 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     Spacer(Modifier.width(4.dp))
                     Text("Обновить", fontSize = 13.sp)
                 }
-                TextButton(onClick = onPing, enabled = pingAvailable,
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                    modifier = Modifier.tvFocusRing().heightIn(min = 48.dp)) {
-                    Icon(Icons.Default.Speed, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("PING", fontSize = 13.sp)
-                }
-            }
-            if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
-            Spacer(Modifier.height(8.dp))
-            // Permanent first-screen shortcut, including after the first subscription.
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilledTonalButton(
-                    onClick = onQuickImport, enabled = !importing,
-                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
-                        .semantics { contentDescription = "Добавить подписку" },
-                    shape = RoundedCornerShape(15.dp)
-                ) {
-                    Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Добавить подписку", fontSize = 13.sp, maxLines = 1)
-                }
-                if (onScanQr != null) {
-                    OutlinedIconButton(
-                        onClick = onScanQr,
-                        enabled = !importing,
-                        modifier = Modifier.size(48.dp).tvFocusRing()
-                            .semantics { contentDescription = "Сканировать QR-код подписки" }
-                    ) {
-                        Icon(Icons.Default.QrCodeScanner, null, Modifier.size(22.dp))
+                if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
+                Spacer(Modifier.height(12.dp))
+                Panel {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        if (server != null) Text(CountryFlags.flag(server), fontSize = 28.sp)
+                        else Icon(Icons.Default.Storage, null)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(server?.let(::displayServerName) ?: "Выбрать сервер", fontWeight = FontWeight.SemiBold)
+                            server?.let { Caption(protocolLabel(it)) }
+                        }
+                        Icon(Icons.Default.ChevronRight, "К серверам")
                     }
                 }
-            }
-            if (!hasSubscriptions) {
-                Text("Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    textAlign = TextAlign.Center, color = c.onSurfaceVariant)
-            }
-            Spacer(Modifier.height(12.dp))
-            Panel {
-                Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    if (server != null) Text(CountryFlags.flag(server), fontSize = 28.sp)
-                    else Icon(Icons.Default.Storage, null)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(server?.let(::displayServerName) ?: "Выбрать сервер", fontWeight = FontWeight.SemiBold)
-                        server?.let { Caption(protocolLabel(it)) }
-                    }
-                    Icon(Icons.Default.ChevronRight, "К серверам")
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Panel {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp)) {
-                    val time = String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-                    listOf((if (download < 0) "—" else sizeLabel(download)) to "Входящий", (if (upload < 0) "—" else sizeLabel(upload)) to "Исходящий",
-                        time to "Время").forEach { (value, label) ->
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Caption(label)
+                Spacer(Modifier.height(12.dp))
+                Panel {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp)) {
+                        val time = String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+                        listOf((if (download < 0) "—" else sizeLabel(download)) to "Входящий", (if (upload < 0) "—" else sizeLabel(upload)) to "Исходящий",
+                            time to "Время").forEach { (value, label) ->
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Caption(label)
+                            }
                         }
                     }
                 }
+                Spacer(Modifier.height(16.dp))
             }
-            Spacer(Modifier.height(16.dp))
+            ConnectionImportActions(onQuickImport, onScanQr, hasSubscriptions, importing)
+        }
+    }
+}
+
+@Composable
+private fun ConnectionImportActions(
+    onQuickImport: () -> Unit,
+    onScanQr: (() -> Unit)?,
+    hasSubscriptions: Boolean,
+    importing: Boolean,
+) {
+    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!hasSubscriptions) {
+            Text("Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
+                modifier = Modifier.padding(bottom = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(
+                onClick = onQuickImport, enabled = !importing,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
+                    .semantics { contentDescription = "Добавить подписку" },
+                shape = RoundedCornerShape(15.dp)
+            ) {
+                Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Добавить подписку", fontSize = 13.sp)
+            }
+            if (onScanQr != null) {
+                OutlinedIconButton(
+                    onClick = onScanQr,
+                    enabled = !importing,
+                    modifier = Modifier.size(48.dp).tvFocusRing()
+                        .semantics { contentDescription = "Сканировать QR-код подписки" }
+                ) {
+                    Icon(Icons.Default.QrCodeScanner, null, Modifier.size(22.dp))
+                }
+            }
         }
     }
 }
@@ -262,14 +265,17 @@ private fun SubscriptionHeading(
     sub: Subscription,
     displayTitle: String,
     refreshing: Boolean,
+    probing: Boolean,
     failed: Boolean,
     expanded: Boolean,
     selected: Boolean,
     onToggle: () -> Unit,
     onRefresh: (Subscription) -> Unit,
+    onProbe: (Subscription) -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
     val remote = sub.source.startsWith("https://", true) || sub.source.startsWith("http://", true)
+    val canProbe = remember(sub.servers) { sub.servers.any { ProtocolSupport.isSupported(it.scheme) } }
     Panel(selected = selected) {
         Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
@@ -302,6 +308,15 @@ private fun SubscriptionHeading(
                     else Icon(Icons.Default.Refresh, null, Modifier.size(22.dp), tint = c.primary)
                 }
             }
+            IconButton(
+                onClick = { onProbe(sub) }, enabled = canProbe && !probing,
+                modifier = Modifier.size(48.dp).tvFocusRing()
+                    .semantics { contentDescription = "Проверить задержку подписки $displayTitle" },
+                colors = IconButtonDefaults.iconButtonColors(contentColor = c.primary),
+            ) {
+                if (probing) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Default.Speed, null, Modifier.size(22.dp))
+            }
         }
     }
 }
@@ -311,7 +326,7 @@ internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
     pinnedId: String?, favorites: Set<String>, latency: Map<String, LatencyProbe.PingResult>,
     probing: Set<String>, refreshing: Set<String>, failed: Set<String>,
-    onRefresh: (Subscription) -> Unit, favorite: (String) -> Unit,
+    onRefresh: (Subscription) -> Unit, onProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
 ) {
     // Keep one group open to avoid an overwhelming combined server list.
@@ -345,12 +360,12 @@ internal fun ServersPage(
             item(key = "subscription:${owner.id}") {
                 SubscriptionHeading(
                     sub = owner, displayTitle = subscriptionDisplayName(owner, subscriptions),
-                    refreshing = owner.id in refreshing, failed = owner.id in failed,
+                    refreshing = owner.id in refreshing, probing = owner.id in probing, failed = owner.id in failed,
                     expanded = expandedId == owner.id, selected = selected?.first?.id == owner.id,
                     onToggle = {
                         expandedId = if (expandedId == owner.id) null else owner.id
                     },
-                    onRefresh = onRefresh,
+                    onRefresh = onRefresh, onProbe = onProbe,
                 )
             }
             if (expandedId == owner.id) items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
@@ -389,6 +404,77 @@ internal fun ServersPage(
                 Icon(Icons.Default.Edit, null, Modifier.size(17.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Добавить ключ вручную")
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun AppUpdateSheet(
+    release: PhantomRelease,
+    downloading: Boolean,
+    progress: Int,
+    readyToInstall: Boolean,
+    error: String?,
+    onLater: () -> Unit,
+    onUpdate: () -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    val brief = remember(release.notes) { ReleaseNotes.summary(release.notes, 3) }
+    val details = remember(release.notes) { ReleaseNotes.summary(release.notes, 15) }
+    var expanded by rememberSaveable(release.version) { mutableStateOf(false) }
+    val downloadInProgress by rememberUpdatedState(downloading)
+    ModalBottomSheet(
+        onDismissRequest = { if (!downloading) onLater() },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
+            confirmValueChange = { it != SheetValue.Hidden || !downloadInProgress }),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SystemUpdateAlt, null, tint = c.primary, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Обновление приложения", style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold)
+                    Caption("Версия ${release.version}")
+                }
+            }
+            if (brief.isNotBlank()) {
+                Column(Modifier.weight(1f, fill = false).fillMaxWidth()) {
+                    Text(if (expanded) details else brief,
+                        modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                        color = c.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    if (brief != details) {
+                        TextButton(onClick = { expanded = !expanded },
+                            modifier = Modifier.align(Alignment.End).tvFocusRing()) {
+                            Text(if (expanded) "Меньше" else "Ещё")
+                        }
+                    }
+                }
+            }
+            if (downloading) {
+                LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
+                Caption("Загрузка $progress%")
+            }
+            error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
+            val shape = RoundedCornerShape(14.dp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                FilledTonalButton(onClick = onLater, enabled = !downloading, shape = shape,
+                    modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
+                    Text("Позже")
+                }
+                Button(onClick = onUpdate, enabled = !downloading, shape = shape,
+                    modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
+                    Text(when {
+                        downloading -> "Скачивание…"
+                        readyToInstall -> "Установить"
+                        else -> "Обновить"
+                    })
+                }
             }
         }
     }

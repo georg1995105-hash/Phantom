@@ -94,6 +94,8 @@ class MultipleSubscriptionsUiTest {
 
                 val refreshFirst = hasContentDescription("Обновить подписку $firstTitle")
                 val refreshSecond = hasContentDescription("Обновить подписку $secondTitle")
+                compose.awaitVisible(hasContentDescription("Проверить задержку подписки $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Проверить задержку подписки $secondTitle"))
                 compose.awaitVisible(refreshFirst and isEnabled()).performTouchInput { click() }
                 assertEquals("/first", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 compose.awaitVisible(refreshFirst and isNotEnabled())

@@ -3,8 +3,10 @@ package xyz.wraithnet.phantom.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.PersistableBundle
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
@@ -40,7 +42,17 @@ class QuickSubscriptionUiTest {
             prefs.edit().remove("selected_subscription_id").remove("selected_server_id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val shortcut = hasContentDescription("Добавить подписку") and isEnabled()
-                compose.awaitVisible(shortcut)
+                val add = compose.awaitVisible(shortcut).getUnclippedBoundsInRoot()
+                val tabs = compose.awaitVisible(hasContentDescription("Вкладка Главная"))
+                    .getUnclippedBoundsInRoot()
+                assertTrue(add.bottom <= tabs.top)
+                compose.onNode(hasText("PING")).assertDoesNotExist()
+                if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+                    val qr = compose.awaitVisible(hasContentDescription("Сканировать QR-код подписки"))
+                        .getUnclippedBoundsInRoot()
+                    assertTrue(add.right <= qr.left)
+                    assertTrue(qr.top < add.bottom && add.top < qr.bottom)
+                }
                 compose.waitUntil(10_000) {
                     var focused = false
                     scenario.onActivity { focused = it.hasWindowFocus() }

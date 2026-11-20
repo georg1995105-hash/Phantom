@@ -59,7 +59,6 @@ import xyz.wraithnet.phantom.data.ProtocolSupport
 import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
-import xyz.wraithnet.phantom.data.ReleaseNotes
 import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
@@ -397,7 +396,7 @@ fun HomeScreen(
         }
         inFlightProfiles[item.id] = item.servers
         scope.launch {
-            try {
+            val message = try {
                 if (connected != null) {
                     runCatching {
                         context.startService(Intent(context, PhantomVpnService::class.java)
@@ -427,21 +426,24 @@ fun HomeScreen(
                 }
                 val checked = servers.count { latencies[pingKey(item, it)] != null }
                 val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
-                if (notify) snackbar.showSnackbar(when {
+                when {
                     connected != null -> "Задержка обновится после проверки"
                     checked > 0 -> "Проверка задержки завершена"
                     needsTunnel -> "Для проверки задержки подключитесь к серверу"
                     else -> "Не получено ни одного результата проверки"
-                })
-            } catch (e: Exception) {
-                if (notify) snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                "Не удалось проверить задержку"
             } finally {
                 inFlightProfiles.remove(item.id)
             }
+            if (notify) snackbar.showSnackbar(message)
         }
     }
 
-    // Both the PING shortcut and normal tab entry run this same scan.
+    // Scan on entry; the per-subscription action can refresh that owner's result.
     // If a refresh replaces profiles during a scan, wait for that owner's old
     // job before measuring the new snapshot. Recomposition alone does no I/O.
     var scanned by remember { mutableStateOf(emptyMap<String, List<ServerProfile>>()) }
@@ -600,8 +602,6 @@ fun HomeScreen(
                     },
                     subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
                     subscriptionAvailable = selectedMatch != null,
-                    onPing = { tab = Destination.SERVERS },
-                    pingAvailable = subscriptions.any { it.servers.isNotEmpty() },
                     onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
                     onScanQr = if (tv || !context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))
                         null else ::scanQr,
@@ -610,6 +610,7 @@ fun HomeScreen(
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     probing = probing, refreshing = refreshing, failed = refreshFailed,
                     onRefresh = { sub -> scope.launch { refresh(sub) } },
+                    onProbe = { sub -> probeSubscription(sub) },
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -687,55 +688,15 @@ fun HomeScreen(
     if (showOtaSheet && availableUpdate != null &&
         (tab != Destination.SETTINGS || otaManuallyRequested) &&
         !showImportMenu && activeSubMenu == null && importMode == null) {
-        val release = availableUpdate!!
-        ModalBottomSheet(
-            onDismissRequest = { showOtaSheet = false; otaDismissed = true },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(Modifier.fillMaxWidth().navigationBarsPadding()
-                .padding(horizontal = 22.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SystemUpdateAlt, null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(23.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Обновление " + release.version,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showOtaSheet = false; otaDismissed = true }) {
-                        Text("Позже")
-                    }
-                }
-                val notes = ReleaseNotes.summary(release.notes, 5)
-                if (notes.isNotBlank()) {
-                    Text("Что изменилось", fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Text(notes, fontSize = 12.sp, lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (otaDownload) {
-                    LinearProgressIndicator(
-                        progress = { otaProgress.toFloat() / 100f },
-                        modifier = Modifier.fillMaxWidth())
-                    Text("Загрузка " + otaProgress + "%", fontSize = 12.sp)
-                }
-                otaError?.let {
-                    Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = { softTap(); startOtaInstall() },
-                    enabled = !otaDownload,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(if (otaDownload) "Скачивание…" else if (otaFile?.exists() == true)
-                        "Установить" else "Скачать и установить")
-                }
-                Spacer(Modifier.height(4.dp))
-            }
-        }
+        AppUpdateSheet(
+            release = availableUpdate!!,
+            downloading = otaDownload,
+            progress = otaProgress,
+            readyToInstall = otaFile?.exists() == true,
+            error = otaError,
+            onLater = { showOtaSheet = false; otaDismissed = true },
+            onUpdate = { softTap(); startOtaInstall() },
+        )
     }
 
     if (showImportMenu) {
