@@ -55,6 +55,8 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.LatencyMethod
+import xyz.wraithnet.phantom.service.PhantomAutoUpdateWorker
 import xyz.wraithnet.phantom.data.ProtocolSupport
 import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.PhantomUpdates
@@ -98,6 +100,7 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val store = remember { SubscriptionStore(context) }
+    LaunchedEffect(Unit) { PhantomAutoUpdateWorker.schedule(context.applicationContext) }
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
@@ -121,6 +124,7 @@ fun HomeScreen(
     val measuring = remember { mutableStateMapOf<String, String>() }
     val scanned = remember { mutableMapOf<String, List<ServerProfile>>() }
     val latencies = remember { mutableStateMapOf<String, Long>() }
+    val latencyMethods = remember { mutableStateMapOf<String, LatencyMethod>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
@@ -155,7 +159,10 @@ fun HomeScreen(
         val incoming = profileRaws(list)
         latencies.keys.toList().filter { key ->
             incoming[key] == null || previous[key] != incoming[key]
-        }.forEach { latencies.remove(it) }
+        }.forEach {
+            latencies.remove(it)
+            latencyMethods.remove(it)
+        }
         scanned.keys.retainAll(list.map { it.id }.toSet())
         subscriptions = list
     }
@@ -399,9 +406,15 @@ fun HomeScreen(
                                         if (currentProfileRaws[key] != server.raw) return@withPermit
                                         measuring[key] = server.raw
                                         try {
-                                            val result = LatencyProbe.measureResult(context.applicationContext, server, endpoint)
+                                            val result = LatencyProbe.measureSample(context.applicationContext, server, endpoint)
                                             if (currentProfileRaws[key] == server.raw) {
-                                                if (result != null) latencies[key] = result else latencies.remove(key)
+                                                if (result != null) {
+                                                    latencies[key] = result.milliseconds
+                                                    latencyMethods[key] = result.method
+                                                } else {
+                                                    latencies.remove(key)
+                                                    latencyMethods.remove(key)
+                                                }
                                             }
                                         } finally {
                                             measuring.remove(key)
@@ -585,6 +598,7 @@ fun HomeScreen(
                     subscriptionAvailable = selectedMatch != null,
                     hasSubscriptions = subscriptions.isNotEmpty())
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
+                     latencyMethods,
                     probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
                     onRefresh = { sub -> scope.launch { refresh(sub) } },
                     onProbe = { sub -> probeSubscription(sub) },
@@ -963,6 +977,7 @@ private fun PhantomSettings(
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var bootConnect by remember { mutableStateOf(prefs.getBoolean(VpnBootPolicy.PREF_KEY, false)) }
+    var autoApkUpdates by remember { mutableStateOf(prefs.getBoolean("auto_apk_updates", true)) }
 
     var showThemeGallery by remember { mutableStateOf(false) }
     var tileMessage by remember { mutableStateOf<String?>(null) }
@@ -1154,6 +1169,24 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
                 if (group == "about") {
+                    Text(
+                        "Канал обновлений · " + if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta") "Бета" else "Стабильный",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Автообновление по Wi-Fi", fontSize = 15.sp)
+                            Text("Без разрыва активного VPN. Android может запросить подтверждение.",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = autoApkUpdates, onCheckedChange = { enabled ->
+                            autoApkUpdates = enabled
+                            prefs.edit().putBoolean("auto_apk_updates", enabled).apply()
+                            PhantomAutoUpdateWorker.schedule(context.applicationContext)
+                        })
+                    }
                     funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt) {
                         onCheckAppUpdate()
                     }

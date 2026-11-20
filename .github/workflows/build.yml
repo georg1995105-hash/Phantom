@@ -3,6 +3,12 @@ name: Build APK
 on:
   workflow_dispatch:
     inputs:
+      release_channel:
+        description: 'Manual release channel (beta is a separate Android package)'
+        required: true
+        default: stable
+        type: choice
+        options: [stable, beta]
       release_tag:
         description: 'If set, publish signed APK as a GitHub Release with this tag'
         required: false
@@ -26,7 +32,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || inputs.release_channel == 'beta'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -86,10 +92,16 @@ jobs:
           grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
 
       - name: Build release APK
+        env:
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
         run: |
           chmod +x gradlew
           set +e
-          ./gradlew --no-daemon --max-workers=1 --stacktrace :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+          tasks=(:app:testDebugUnitTest :app:lintRelease :app:assembleRelease)
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
+            tasks+=(:app:testBetaUnitTest :app:lintBeta :app:assembleBeta)
+          fi
+          ./gradlew --no-daemon --max-workers=1 --stacktrace "${tasks[@]}"
           result=$?
           if [ "$result" -ne 0 ]; then
             report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
@@ -146,6 +158,20 @@ jobs:
               unzip -Z1 "$dir/phantom-universal-release.apk" "lib/$abi/$lib" > /dev/null
             done
           done
+          # Sign beta separately; its package identity cannot replace stable.
+          beta_dir=app/build/outputs/apk/beta
+          if [[ -f "$beta_dir/app-universal-beta-unsigned.apk" ]]; then
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 \
+              "$beta_dir/app-universal-beta-unsigned.apk" "aligned-beta.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+              --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
+              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+              --v4-signing-enabled false \
+              --out "$beta_dir/phantom-beta-universal-release.apk" "aligned-beta.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$beta_dir/phantom-beta-universal-release.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$beta_dir/phantom-beta-universal-release.apk" | grep -F "package: name='xyz.wraithnet.phantom.beta'"
+            rm "aligned-beta.apk"
+          fi
           # Never keep the production signing material on the test runner.
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             rm -f app/keystore.jks
@@ -164,6 +190,11 @@ jobs:
           sha256sum "$apk"
           python3 scripts/audit_universal_apk.py \
             "$apk"
+          beta=app/build/outputs/apk/beta/phantom-beta-universal-release.apk
+          if [[ -f "$beta" ]]; then
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$beta"
+            python3 scripts/audit_universal_apk.py "$beta"
+          fi
 
       - name: Prepare loopback protocol peers
         if: github.event_name != 'push'
@@ -324,13 +355,22 @@ jobs:
           retention-days: 2
 
       - name: Upload verified release APKs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.release_channel == 'stable'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
           # A one-time v0.3.7 migration also needs ABI-named APK assets:
           # old 0.3.6 clients cannot discover universal-only updates.
           path: app/build/outputs/apk/release/phantom-*-release.apk
+          compression-level: 0
+          retention-days: 2
+
+      - name: Upload verified beta APK
+        if: github.event_name == 'workflow_dispatch' && inputs.release_channel == 'beta'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phantom-beta-release
+          path: app/build/outputs/apk/beta/phantom-beta-universal-release.apk
           compression-level: 0
           retention-days: 2
 
@@ -357,6 +397,7 @@ jobs:
           merge-multiple: true
 
       - name: Validate requested version and assets
+        if: inputs.release_channel == 'stable'
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
@@ -374,6 +415,7 @@ jobs:
           sha256sum release-assets/phantom-*-release.apk
 
       - name: Stage official universal APK and one-time migration files
+        if: inputs.release_channel == 'stable'
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
@@ -388,6 +430,7 @@ jobs:
           sha256sum publish-assets/phantom-*-release.apk
 
       - name: Publish official release
+        if: inputs.release_channel == 'stable'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.release_tag }}
@@ -396,3 +439,29 @@ jobs:
           files: publish-assets/phantom-*-release.apk
           prerelease: false
           body_path: RELEASE_NOTES.md
+
+      - name: Validate beta tag and signed artifact
+        if: inputs.release_channel == 'beta'
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          beta=release-assets/phantom-beta-universal-release.apk
+          test -s "$beta"
+          actual=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$beta" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          test -n "$actual"
+          test "$RELEASE_TAG" = "v$actual"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$beta"
+          sha256sum "$beta"
+
+      - name: Publish prerelease to beta channel
+        if: inputs.release_channel == 'beta'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: PHANTOM VPN Beta ${{ inputs.release_tag }}
+          files: release-assets/phantom-beta-universal-release.apk
+          prerelease: true
+          make_latest: false
+          body: "Phantom Beta for testers. Separate application; not for stable users."

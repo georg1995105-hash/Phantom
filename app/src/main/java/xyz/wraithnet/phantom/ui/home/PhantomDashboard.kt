@@ -330,7 +330,7 @@ private fun SubscriptionHeading(
 internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
     pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>,
-    probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
+    latencyMethods: Map<String, LatencyMethod>, probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
     onRefresh: (Subscription) -> Unit, onProbe: (Subscription) -> Unit,
     onAutoProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
@@ -398,7 +398,10 @@ internal fun ServersPage(
                                 Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Caption(protocolLabel(server))
                             }
-                            Caption(SubscriptionPingText.display(latency[id], measuring[id] == server.raw))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Caption(SubscriptionPingText.display(latency[id], measuring[id] == server.raw))
+                                if (latency[id] != null) Caption(SubscriptionPingText.methodLabel(latencyMethods[id]))
+                            }
                             if (chosen || remembered) Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary)
                         }

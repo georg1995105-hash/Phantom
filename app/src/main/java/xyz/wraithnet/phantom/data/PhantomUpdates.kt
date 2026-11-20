@@ -1,6 +1,12 @@
 package xyz.wraithnet.phantom.data
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.pm.PackageInstaller
+import xyz.wraithnet.phantom.BuildConfig
+import xyz.wraithnet.phantom.service.PhantomUpdateInstallReceiver
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -23,16 +29,33 @@ data class PhantomRelease(
 
 /** Verified self-updates from the project's published GitHub Releases. */
 object PhantomUpdates {
-    private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=15"
-    /** One signed universal APK for every supported device and every OTA update. */
-    internal fun assetFor(abis: List<String>): String? =
+    private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=50"
+    internal fun assetFor(abis: List<String>, channel: String = "stable"): String? =
         if (abis.any { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") })
-            "phantom-universal-release.apk" else null
+            if (channel == "beta") "phantom-beta-universal-release.apk"
+            else "phantom-universal-release.apk"
+        else null
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
 
     // Stable never accepts beta/pre-release assets even when tagged as X.Y.Z.
     internal fun eligibleForStable(draft: Boolean, prerelease: Boolean): Boolean =
         !draft && !prerelease
+    internal fun eligibleForBeta(draft: Boolean, prerelease: Boolean, version: String): Boolean =
+        !draft && prerelease && betaParts(version) != null
+
+    internal fun isNewerForChannel(remote: String, installed: String, channel: String): Boolean {
+        if (channel != "beta") return isNewer(remote, installed)
+        val a = betaParts(remote) ?: return false
+        val b = betaParts(installed) ?: return false
+        return compareValuesBy(a, b, { it[0] }, { it[1] }, { it[2] }, { it[3] }) > 0
+    }
+
+    private fun betaParts(value: String): List<Int>? {
+        val match = Regex("""^v?(\d+)\.(\d+)\.(\d+)-beta\.(\d+)$""")
+            .matchEntire(value.trim()) ?: return null
+        return match.groupValues.drop(1).map { it.toIntOrNull() ?: return null }
+    }
+
     private val downloadMutex = Mutex()
 
     fun isNewer(remote: String, installed: String): Boolean {
@@ -63,14 +86,18 @@ object PhantomUpdates {
         val releases = JSONArray(stream.use {
             PhantomHttp.readUtf8Limited(it, 2 * 1024 * 1024)
         })
-        val assetName = assetFor(Build.SUPPORTED_ABIS.toList()) ?: return@get null
+        val channel = BuildConfig.UPDATE_CHANNEL
+        val assetName = assetFor(Build.SUPPORTED_ABIS.toList(), channel) ?: return@get null
         var best: PhantomRelease? = null
         for (i in 0 until releases.length()) {
             val item = releases.getJSONObject(i)
-            if (!eligibleForStable(item.optBoolean("draft"), item.optBoolean("prerelease"))) continue
             val version = item.optString("tag_name").removePrefix("v")
-            if (!isNewer(version, installed)) continue
-            if (best != null && !isNewer(version, best.version)) continue
+            val eligible = if (channel == "beta")
+                eligibleForBeta(item.optBoolean("draft"), item.optBoolean("prerelease"), version)
+            else eligibleForStable(item.optBoolean("draft"), item.optBoolean("prerelease")) &&
+                parts(version) != null
+            if (!eligible || !isNewerForChannel(version, installed, channel)) continue
+            if (best != null && !isNewerForChannel(version, best.version, channel)) continue
             val assets = item.optJSONArray("assets") ?: continue
             for (j in 0 until assets.length()) {
                 val asset = assets.optJSONObject(j) ?: continue
@@ -190,24 +217,60 @@ object PhantomUpdates {
         }
     }
 
-    /** Returns false when Android requires user permission for this APK installer. */
-    fun openInstaller(context: Context, apk: File): Boolean {
-        require(apk.exists() && apk.length() > 0) { "APK не найден" }
+    /**
+     * Attempt self-update through PackageInstaller (Android 12+).
+     * The platform may still require confirmation, handled by a receiver notification.
+     * Slow APK I/O must never run on the main thread.
+     */
+    suspend fun openInstaller(context: Context, apk: File): Boolean = withContext(Dispatchers.IO) {
+        require(apk.isFile && apk.length() > 1024L) { "APK не найден" }
         if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
-            context.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                    Uri.parse("package:" + context.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-            return false
+            withContext(Dispatchers.Main) {
+                context.startActivity(
+                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + context.packageName))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            return@withContext false
         }
-        val uri = FileProvider.getUriForFile(
-            context, context.packageName + ".updates", apk
-        )
-        context.startActivity(
-            Intent(Intent.ACTION_VIEW)
-                .setDataAndType(uri, "application/vnd.android.package-archive")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        )
-        return true
+        if (Build.VERSION.SDK_INT >= 31) {
+            val installer = context.packageManager.packageInstaller
+            var sessionId = -1
+            try {
+                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+                    setAppPackageName(context.packageName)
+                    setSize(apk.length())
+                    setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                }
+                sessionId = installer.createSession(params)
+                installer.openSession(sessionId).use { session ->
+                    session.openWrite("base.apk", 0, apk.length()).use { output ->
+                        apk.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
+                        session.fsync(output)
+                    }
+                    val callback = Intent(context, PhantomUpdateInstallReceiver::class.java)
+                        .setAction(PhantomUpdateInstallReceiver.ACTION_RESULT)
+                    val pending = PendingIntent.getBroadcast(
+                        context, sessionId, callback,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                    )
+                    session.commit(pending.intentSender)
+                }
+                return@withContext true
+            } catch (_: Exception) {
+                if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
+                // OEMs may reject no-action sessions; use the normal system UI instead.
+            }
+        }
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".updates", apk)
+        withContext(Dispatchers.Main) {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
+        }
+        true
     }
 }

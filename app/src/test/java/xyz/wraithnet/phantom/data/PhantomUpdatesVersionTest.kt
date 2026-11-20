@@ -18,6 +18,20 @@ class PhantomUpdatesVersionTest {
         assertNull(PhantomUpdates.assetFor(emptyList()))
     }
 
+    @Test fun betaHasIndependentUniversalAssetAndChannel() {
+        assertEquals("phantom-beta-universal-release.apk",
+            PhantomUpdates.assetFor(listOf("arm64-v8a"), "beta"))
+        assertFalse(PhantomUpdates.eligibleForBeta(false, false, "0.3.7-beta.1"))
+        assertFalse(PhantomUpdates.eligibleForBeta(true, true, "0.3.7-beta.1"))
+        assertFalse(PhantomUpdates.eligibleForBeta(false, true, "0.3.7"))
+        assertTrue(PhantomUpdates.eligibleForBeta(false, true, "0.3.7-beta.1"))
+        assertTrue(PhantomUpdates.isNewerForChannel("0.3.7-beta.2", "0.3.7-beta.1", "beta"))
+        assertTrue(PhantomUpdates.isNewerForChannel("0.3.8-beta.1", "0.3.7-beta.99", "beta"))
+        assertFalse(PhantomUpdates.isNewerForChannel("0.3.8", "0.3.7-beta.1", "beta"))
+        assertFalse(PhantomUpdates.isNewerForChannel("0.3.7-beta.1", "0.3.7-beta.2", "beta"))
+        assertFalse(PhantomUpdates.isNewerForChannel("0.3.7-beta.2", "0.3.7", "stable"))
+    }
+
     @Test fun prereleasesCannotReachStableOta() {
         assertTrue(PhantomUpdates.eligibleForStable(draft = false, prerelease = false))
         assertFalse(PhantomUpdates.eligibleForStable(draft = false, prerelease = true))

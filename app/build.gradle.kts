@@ -16,6 +16,7 @@ android {
         versionName = "0.3.7"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
+        buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -44,6 +45,12 @@ android {
                 "proguard-rules.pro"
             )
         }
+        create("beta") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".beta"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"beta\"")
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -65,6 +72,17 @@ android {
         }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("beta")) { variant ->
+        val betaVersion = providers.gradleProperty("phantomBetaVersion").orElse("0.3.7-beta.1")
+        val betaCode = providers.gradleProperty("phantomBetaCode").map { it.toInt() }.orElse(34001)
+        variant.outputs.forEach { output ->
+            output.versionName.set(betaVersion)
+            output.versionCode.set(betaCode)
         }
     }
 }
