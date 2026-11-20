@@ -7,6 +7,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import io.nekohasekai.libbox.InterfaceUpdateListener
 import java.lang.reflect.Proxy
 import java.net.NetworkInterface
 import java.net.InetAddress
@@ -25,9 +26,12 @@ import java.util.concurrent.ConcurrentHashMap
  * This adapter publishes actual Android network data while excluding the VPN
  * TUN itself from the default upstream selection.
  */
-internal class SingBoxNetworkEnvironment(context: Context) {
+internal class SingBoxNetworkEnvironment(
+    context: Context,
+    private val postToWorker: (() -> Unit) -> Boolean,
+) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    private val callbacks = ConcurrentHashMap<Any, ConnectivityManager.NetworkCallback>()
+    private val callbacks = ConcurrentHashMap<InterfaceUpdateListener, ConnectivityManager.NetworkCallback>()
 
     /**
      * Resolve the TUIC/AnyTLS server using Android's physical network, bypassing
@@ -73,7 +77,7 @@ internal class SingBoxNetworkEnvironment(context: Context) {
             }.maxByOrNull { it.third }?.first
     }
 
-    private fun notifyDefault(listener: Any) {
+    private fun notifyDefault(listener: InterfaceUpdateListener) {
         val network = physicalNetwork()
         val caps = network?.let(connectivity::getNetworkCapabilities)
         val name = network?.let(connectivity::getLinkProperties)?.interfaceName
@@ -81,28 +85,24 @@ internal class SingBoxNetworkEnvironment(context: Context) {
             ?: -1
         val costly = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
         val constrained = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) == false
-        val method = listener.javaClass.methods.firstOrNull {
-            it.name.equals("updateDefaultInterface", ignoreCase = true) &&
-                it.parameterCount == 4
-        } ?: error("libbox: нет callback обновления сетевого интерфейса")
-        method.invoke(listener, name ?: "", index, costly, constrained)
+        listener.updateDefaultInterface(name ?: "", index, costly, constrained)
     }
 
-    fun startDefaultInterfaceMonitor(listener: Any) {
+    fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         if (callbacks.containsKey(listener)) return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                runCatching { notifyDefault(listener) }
+            private fun scheduleUpdate() {
+                // Android immediately publishes current networks on ConnectivityThread.
+                // Keep these JNI calls out of native startup and service teardown.
+                postToWorker {
+                    if (callbacks[listener] === this) runCatching { notifyDefault(listener) }
+                }
             }
-            override fun onLost(network: Network) {
-                runCatching { notifyDefault(listener) }
-            }
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                runCatching { notifyDefault(listener) }
-            }
-            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) {
-                runCatching { notifyDefault(listener) }
-            }
+
+            override fun onAvailable(network: Network) = scheduleUpdate()
+            override fun onLost(network: Network) = scheduleUpdate()
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = scheduleUpdate()
+            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) = scheduleUpdate()
         }
         callbacks[listener] = callback
         try {
@@ -112,6 +112,7 @@ internal class SingBoxNetworkEnvironment(context: Context) {
                     .build(),
                 callback
             )
+            // libbox asks for the first interface before startOrReloadService returns.
             notifyDefault(listener)
         } catch (e: Exception) {
             callbacks.remove(listener)
@@ -120,7 +121,7 @@ internal class SingBoxNetworkEnvironment(context: Context) {
         }
     }
 
-    fun closeDefaultInterfaceMonitor(listener: Any) {
+    fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         callbacks.remove(listener)?.let { callback ->
             runCatching { connectivity.unregisterNetworkCallback(callback) }
         }

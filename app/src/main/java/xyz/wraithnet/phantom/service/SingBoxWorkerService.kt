@@ -46,7 +46,7 @@ class SingBoxWorkerService : VpnService() {
     @Volatile private var destroyed = false
     @Volatile private var activeSessionId: String? = null
     @Volatile private var lastStopReason = "не запускался"
-    private val backend by lazy { SingBoxNativeBackend(this) }
+    private val backend by lazy { SingBoxNativeBackend(this, ::submit) }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val id = intent?.getStringExtra(KEY_SESSION)

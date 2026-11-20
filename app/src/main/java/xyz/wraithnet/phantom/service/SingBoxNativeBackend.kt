@@ -2,9 +2,11 @@ package xyz.wraithnet.phantom.service
 
 import android.content.Context
 import android.net.VpnService
+import android.os.Build
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.ConnectionOwner
+import io.nekohasekai.libbox.InterfaceUpdateListener
 import io.nekohasekai.libbox.Libbox
 import io.nekohasekai.libbox.OverrideOptions
 import io.nekohasekai.libbox.PlatformInterface
@@ -23,10 +25,13 @@ import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
  *
  * Never prints raw profiles: the share link includes authentication credentials.
  */
-internal class SingBoxNativeBackend(private val vpn: VpnService) {
+internal class SingBoxNativeBackend(
+    private val vpn: VpnService,
+    postToWorker: (() -> Unit) -> Boolean,
+) {
     @Volatile private var server: CommandServer? = null
     val isRunning: Boolean get() = server != null
-    private val networkEnvironment = SingBoxNetworkEnvironment(vpn)
+    private val networkEnvironment = SingBoxNetworkEnvironment(vpn, postToWorker)
 
     companion object {
         private val setupLock = Any()
@@ -45,6 +50,10 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
                     basePath = working.absolutePath
                     workingPath = working.absolutePath
                     tempPath = cache.absolutePath
+                    // Match the libbox Android client for nested Go/JNI calls (golang/go#68760).
+                    fixAndroidStack = BuildConfig.DEBUG ||
+                        Build.VERSION.SDK_INT in Build.VERSION_CODES.N..Build.VERSION_CODES.N_MR1 ||
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
                     debug = false
                     logMaxLines = 200
                     appVersion = BuildConfig.VERSION_CODE.toString()
@@ -81,11 +90,13 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
                 }
                 "startDefaultInterfaceMonitor" -> {
                     networkEnvironment.startDefaultInterfaceMonitor(
-                        args?.firstOrNull() ?: error("libbox: нет слушателя смены сети"))
+                        args?.firstOrNull() as? InterfaceUpdateListener
+                            ?: error("libbox: нет слушателя смены сети"))
                     null
                 }
                 "closeDefaultInterfaceMonitor" -> {
-                    args?.firstOrNull()?.let(networkEnvironment::closeDefaultInterfaceMonitor)
+                    (args?.firstOrNull() as? InterfaceUpdateListener)
+                        ?.let(networkEnvironment::closeDefaultInterfaceMonitor)
                     null
                 }
                 "openTun" -> error("sing-box не создаёт второй VPN-интерфейс")
