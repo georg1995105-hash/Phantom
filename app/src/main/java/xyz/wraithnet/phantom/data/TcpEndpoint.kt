@@ -1,14 +1,13 @@
 package xyz.wraithnet.phantom.data
 
 import org.json.JSONObject
-import java.net.URI
 
 /** A single physical TCP entry that the config identifies without running its router. */
 internal data class TcpEndpoint(val host: String, val port: Int) {
     companion object {
         fun forProfile(profile: ServerProfile): TcpEndpoint? {
             if (profile.scheme.equals("anytls", true) && !profile.raw.trimStart().startsWith("{")) {
-                val uri = URI(profile.raw)
+                val uri = ShareLinkCodec.endpointUri(profile.raw)
                 return of(uri.host, uri.port)
             }
             if (SingBoxBridgeConfig.requiresSingBox(profile)) return null

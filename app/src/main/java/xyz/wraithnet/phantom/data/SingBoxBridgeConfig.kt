@@ -2,7 +2,6 @@ package xyz.wraithnet.phantom.data
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URI
 import java.util.UUID
 
 /** Real sing-box SOCKS5 → TUIC / AnyTLS bridge behind Android's existing Xray TUN. */
@@ -17,7 +16,7 @@ object SingBoxBridgeConfig {
         autoDetectInterface: Boolean = true,
     ): String {
         require(localPort in 1024..65535) { "Неверный локальный порт" }
-        val uri = URI(raw.trim())
+        val uri = ShareLinkCodec.endpointUri(raw)
         val protocol = uri.scheme?.lowercase() ?: ""
         require(protocol in schemes) { "Протокол не поддерживается sing-box" }
         val host = requireNotNull(uri.host) { "Нет адреса сервера" }.removeSurrounding("[", "]")

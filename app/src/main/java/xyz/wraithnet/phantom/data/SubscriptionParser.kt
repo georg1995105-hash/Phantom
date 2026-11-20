@@ -2,7 +2,6 @@ package xyz.wraithnet.phantom.data
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URI
 import java.util.UUID
 
 object SubscriptionParser {
@@ -42,8 +41,8 @@ object SubscriptionParser {
         if (scheme in SingBoxBridgeConfig.schemes &&
             runCatching { SingBoxBridgeConfig.fromShareLink(line, 39051) }.isFailure
         ) return null
-        val uri = runCatching { URI(line) }.getOrNull()
-        val fragment = uri?.rawFragment?.let(ShareLinkCodec::percentDecode)
+        val uri = runCatching { ShareLinkCodec.endpointUri(line) }.getOrNull()
+        val fragment = ShareLinkCodec.fragment(line)
         val ss = if (scheme == "ss") runCatching { ShareLinkCodec.shadowsocks(line) }.getOrNull() else null
         val vmess = if (scheme == "vmess") runCatching { ShareLinkCodec.vmess(line) }.getOrNull() else null
         val host = ss?.host ?: vmess?.optString("add") ?: uri?.host.orEmpty()

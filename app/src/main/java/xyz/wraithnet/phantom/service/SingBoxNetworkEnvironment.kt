@@ -12,7 +12,6 @@ import java.lang.reflect.Proxy
 import java.net.NetworkInterface
 import java.net.InetAddress
 import java.net.Inet4Address
-import java.net.URI
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -40,7 +39,7 @@ internal class SingBoxNetworkEnvironment(
      * literal avoids using the incomplete app-provided DNS transport.
      */
     fun resolveOutboundAddress(raw: String, pinned: Network? = null): String {
-        val host = URI(raw.trim()).host?.removeSurrounding("[", "]")?.takeIf { it.isNotBlank() }
+        val host = xyz.wraithnet.phantom.data.ShareLinkCodec.endpointUri(raw).host?.removeSurrounding("[", "]")?.takeIf { it.isNotBlank() }
             ?: error("Не указан адрес TUIC/AnyTLS")
         if (host.contains(':') || host.all { it.isDigit() || it == '.' }) {
             return host.substringBefore('%')

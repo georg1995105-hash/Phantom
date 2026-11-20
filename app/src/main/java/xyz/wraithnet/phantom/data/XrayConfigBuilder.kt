@@ -313,7 +313,7 @@ object XrayConfigBuilder {
 
     /** Native Xray 26.x Hysteria2 transport with QUIC keepalive and Salamander. */
     private fun hysteria2(raw: String): JSONObject {
-        val uri = URI(raw)
+        val uri = ShareLinkCodec.endpointUri(raw)
         val q = query(uri)
         val host = requireNotNull(uri.host) { "У Hysteria2 нет адреса сервера" }
         val auth = decode(uri.rawUserInfo ?: "")
@@ -352,7 +352,7 @@ object XrayConfigBuilder {
     }
 
     private fun vless(raw: String): JSONObject {
-        val uri = URI(raw)
+        val uri = ShareLinkCodec.endpointUri(raw)
         val query = query(uri)
         val user = requireNotNull(uri.rawUserInfo?.let(::decode)) { "В VLESS-ссылке отсутствует UUID" }
         val outbound = JSONObject()
@@ -402,7 +402,7 @@ object XrayConfigBuilder {
     }
 
     private fun trojan(raw: String): JSONObject {
-        val uri = URI(raw)
+        val uri = ShareLinkCodec.endpointUri(raw)
         val query = query(uri)
         val outbound = JSONObject()
             .put("protocol", "trojan")

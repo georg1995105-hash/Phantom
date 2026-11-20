@@ -13,6 +13,18 @@ object ShareLinkCodec {
     fun percentDecode(raw: String): String =
         URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8")
 
+    /**
+     * The fragment is only a display name, not part of the transport endpoint.
+     * Some providers include literal spaces and emoji in it; java.net.URI(raw)
+     * rejects those otherwise usable share links.
+     */
+    fun endpointUri(raw: String): URI = URI(raw.trim().substringBefore('#'))
+
+    fun fragment(raw: String): String? =
+        raw.substringAfter('#', "").takeIf(String::isNotBlank)?.let {
+            runCatching { percentDecode(it) }.getOrDefault(it)
+        }
+
     fun base64Text(raw: String): String {
         val text = raw.trim().replace(Regex("\\s"), "")
         val bytes = runCatching { Base64.getDecoder().decode(text) }
