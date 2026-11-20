@@ -6,7 +6,7 @@ from ci_verify_installed_native import installed_native_dir
 
 class InstalledNativeDirectoryTest(unittest.TestCase):
     def test_android15_without_native_library_dir_uses_installed_base_apk(self):
-        package_dump = "Packages:\\n    primaryCpuAbi=x86\\n"
+        package_dump = "Packages:\n    primaryCpuAbi=x86\n"
         package_paths = ("package:/data/app/~~TOKEN/xyz.wraithnet.phantom-ABCDE/base.apk\n")
         abi, directory = installed_native_dir(package_dump, package_paths)
         self.assertEqual("x86", abi)
