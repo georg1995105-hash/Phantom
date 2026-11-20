@@ -233,7 +233,10 @@ fun HomeScreen(
                     uploadBytes = downloaded?.uploadBytes,
                     downloadBytes = downloaded?.downloadBytes,
                     totalBytes = downloaded?.totalBytes,
-                    expiresAt = downloaded?.expiresAt
+                    expiresAt = downloaded?.expiresAt,
+                    announcement = downloaded?.announcement,
+                    supportUrl = downloaded?.supportUrl,
+                    webPageUrl = downloaded?.webPageUrl
                 )
                 persist { current ->
                     require(current.none { it.source.trim() == source }) {
@@ -329,7 +332,10 @@ fun HomeScreen(
                 uploadBytes = remote.uploadBytes ?: item.uploadBytes,
                 downloadBytes = remote.downloadBytes ?: item.downloadBytes,
                 totalBytes = remote.totalBytes ?: item.totalBytes,
-                expiresAt = remote.expiresAt ?: item.expiresAt
+                expiresAt = remote.expiresAt,
+                announcement = remote.announcement,
+                supportUrl = remote.supportUrl,
+                webPageUrl = remote.webPageUrl
             )
             persist { current ->
                 // Fail the manual action if its owner was deleted or its URL

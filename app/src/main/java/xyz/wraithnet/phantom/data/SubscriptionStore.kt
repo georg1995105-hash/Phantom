@@ -100,6 +100,9 @@ class SubscriptionStore(context: Context) {
         item.customTitle?.let { put("customTitle", it) }
         item.customIntervalSeconds?.let { put("customIntervalSeconds", it) }
         item.selectedServerId?.let { put("selectedServerId", it) }
+        item.announcement?.let { put("announcement", it) }
+        item.supportUrl?.let { put("supportUrl", it) }
+        item.webPageUrl?.let { put("webPageUrl", it) }
         put("servers", JSONArray(item.servers.map { server -> JSONObject().apply {
             put("id", server.id); put("name", server.name); put("scheme", server.scheme)
             put("address", server.address); put("port", server.port ?: JSONObject.NULL)
@@ -118,6 +121,9 @@ class SubscriptionStore(context: Context) {
         customTitle = item.optString("customTitle").takeIf { it.isNotBlank() },
         customIntervalSeconds = item.optLongOrNull("customIntervalSeconds"),
         selectedServerId = item.optString("selectedServerId").takeIf { it.isNotBlank() },
+        announcement = item.optString("announcement").takeIf { it.isNotBlank() },
+        supportUrl = item.optString("supportUrl").takeIf { it.isNotBlank() },
+        webPageUrl = item.optString("webPageUrl").takeIf { it.isNotBlank() },
         servers = buildList {
             val array = item.optJSONArray("servers") ?: JSONArray()
             for (i in 0 until array.length()) {

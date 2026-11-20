@@ -16,6 +16,9 @@ data class DownloadedSubscription(
     val downloadBytes: Long? = null,
     val totalBytes: Long? = null,
     val expiresAt: Long? = null,
+    val announcement: String? = null,
+    val supportUrl: String? = null,
+    val webPageUrl: String? = null,
 )
 
 object SubscriptionFetcher {
@@ -78,6 +81,9 @@ object SubscriptionFetcher {
             downloadBytes = parseUserInfo(response.header("subscription-userinfo"), "download"),
             totalBytes = parseUserInfo(response.header("subscription-userinfo"), "total"),
             expiresAt = parseUserInfo(response.header("subscription-userinfo"), "expire"),
+            announcement = SubscriptionHeaders.decodeAnnouncement(response.header("announce")),
+            supportUrl = SubscriptionHeaders.safeHttpUrl(response.header("support-url")),
+            webPageUrl = SubscriptionHeaders.safeHttpUrl(response.header("profile-web-page-url")),
         )
     }
 

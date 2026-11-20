@@ -37,7 +37,10 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
                     uploadBytes = downloaded.uploadBytes ?: old.uploadBytes,
                     downloadBytes = downloaded.downloadBytes ?: old.downloadBytes,
                     totalBytes = downloaded.totalBytes ?: old.totalBytes,
-                    expiresAt = downloaded.expiresAt ?: old.expiresAt,
+                    expiresAt = downloaded.expiresAt,
+                    announcement = downloaded.announcement,
+                    supportUrl = downloaded.supportUrl,
+                    webPageUrl = downloaded.webPageUrl,
                 )
             } catch (e: CancellationException) {
                 throw e
