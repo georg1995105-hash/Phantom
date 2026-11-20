@@ -24,7 +24,8 @@ def key(button):
 
 
 def nodes():
-    result = subprocess.run(["adb", "shell", "uiautomator", "dump", "/sdcard/tv-ui.xml"],
+    options = ["--windows"] if page_size_16k else []
+    result = subprocess.run(["adb", "shell", "uiautomator", "dump", *options, "/sdcard/tv-ui.xml"],
                             capture_output=True, text=True)
     if "null root node" in result.stderr:
         return []
@@ -95,6 +96,8 @@ def wait_label(label):
                 time.sleep(.3)
     safe = [value for value in visible if "://" not in value]
     print("TV VPN failure: UI diagnostics:", diagnostic[:20], flush=True)
+    print("Android window focus:", [line.strip() for line in adb("shell", "dumpsys", "window").splitlines()
+          if "mCurrentFocus=" in line or "mFocusedApp=" in line], flush=True)
     report_singbox_exit()
     raise AssertionError(
         f"Missing TV label {label!r}. Visible: {safe[:32]}, reason: {diagnostic[:20]}"
@@ -116,18 +119,22 @@ if page_size_16k:
     adb("shell", "setprop", "pm.16kb.app_compat.disabled", "true")
     assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
     assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
-    # UIAutomator must run as Android's shell user, which owns its automation session.
-    adb("unroot")
-    adb("wait-for-device")
-    assert adb("shell", "id", "-u") == "2000"
-    key("WAKEUP")
-    adb("shell", "wm", "dismiss-keyguard")
     CATEGORY = "android.intent.category.LAUNCHER"
     device = "Android x86_64 16 KiB"
 else:
     assert "android.software.leanback" in adb("shell", "pm", "list", "features")
     device = "TV x86"
 install_apk(APK, "-g")
+if page_size_16k:
+    # UIAutomator must run as Android's shell user, which owns its automation session.
+    # Complete the APK install before restarting adbd to avoid breaking its stream.
+    adb("unroot")
+    adb("wait-for-device")
+    assert adb("shell", "id", "-u") == "2000"
+    assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
+    assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
+    key("WAKEUP")
+    adb("shell", "wm", "dismiss-keyguard")
 assert verify_native(APK, PACKAGE) == ("x86_64" if page_size_16k else "x86")
 resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
@@ -141,8 +148,9 @@ for index, (protocol, label) in enumerate((
         assert "Success" in adb("shell", "pm", "clear", PACKAGE)
     adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
     profile = cases[protocol] + "#" + label
-    adb("shell", shlex.join(["am", "start", "-W", "-a", "android.intent.action.VIEW",
-                            "-d", profile, "-n", PACKAGE + "/.MainActivity"]))
+    opened = adb("shell", shlex.join(["am", "start", "-W", "-a", "android.intent.action.VIEW",
+                                    "-d", profile, "-n", PACKAGE + "/.MainActivity"]))
+    assert "Status: ok" in opened, opened
     wait_label(label)
     adb("shell", "am", "force-stop", PACKAGE)
     launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
