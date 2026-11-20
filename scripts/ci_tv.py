@@ -65,6 +65,26 @@ def report_singbox_exit():
              if re.search(r"Fatal signal|SIGABRT|SIGSEGV|Abort message|FATAL EXCEPTION|"
                           r"panic:|runtime:|libbox|libgojni|AndroidRuntime", s, re.I)]
     print("TV crash signatures:", fatal[-25:], flush=True)
+    if page_size_16k:
+        # libbox redirects Go's crash output to its app-private file. A Go
+        # fatal signal can therefore leave the Android crash buffer empty.
+        report = read("shell", "su", "0", "head", "-c", "32768",
+                      f"/data/user/0/{PACKAGE}/files/singbox/CrashReport-.log")
+        frames = []
+        for line in report:
+            value = line.strip()
+            if re.match(r"^(?:fatal error:|panic:|runtime:|SIG[A-Z]+\b|\[signal |unexpected fault)", value):
+                frames.append(redact(value))
+            elif re.match(r"^(?:created by )?[\w./-]+[.(]", value) and "(" in value:
+                frames.append(redact(value.split("(", 1)[0]))
+            elif source := re.search(r"([^/\s]+\.(?:go|s|c):\d+)\b", value):
+                frames.append(source.group(1))
+        print("16 KiB signed APK Go crash frames:", frames[:36], flush=True)
+        system = read("logcat", "-b", "all", "-d", "-v", "brief")
+        errors = [redact(line) for line in system if re.search(
+            r"\bcrash_dump(?:32|64)?\b|\btombstoned\b|Fatal signal|SIGSEGV|"
+            r"(?:libbox|singbox).*?(?:failed|died|killed|crash|panic|SIGSEGV)", line, re.I)]
+        print("16 KiB Android crash diagnostics:", errors[-32:], flush=True)
 
 
 def wait_label(label):
