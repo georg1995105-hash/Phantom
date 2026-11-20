@@ -45,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private val uploadBytes = mutableLongStateOf(-1L)
     private val connectedSinceElapsed = mutableLongStateOf(0L)
     private val refreshVersion = mutableIntStateOf(0)
+    private val externalImport = mutableStateOf<String?>(null)
 
     private val vpnPermission = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
