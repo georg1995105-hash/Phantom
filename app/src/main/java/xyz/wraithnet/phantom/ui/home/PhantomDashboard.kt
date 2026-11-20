@@ -205,13 +205,14 @@ internal fun ConnectionImportActions(
     hasSubscriptions: Boolean,
     importing: Boolean,
 ) {
+    val c = MaterialTheme.colorScheme
     Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         if (!hasSubscriptions) {
             Text("Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
                 modifier = Modifier.padding(bottom = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                textAlign = TextAlign.Center, color = c.onSurfaceVariant)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -219,7 +220,9 @@ internal fun ConnectionImportActions(
                 onClick = onQuickImport, enabled = !importing,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
                     .semantics { contentDescription = "Добавить подписку" },
-                shape = RoundedCornerShape(15.dp)
+                shape = RoundedCornerShape(15.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = c.primaryContainer, contentColor = c.onPrimaryContainer),
             ) {
                 Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -230,7 +233,8 @@ internal fun ConnectionImportActions(
                     onClick = onScanQr,
                     enabled = !importing,
                     modifier = Modifier.size(48.dp).tvFocusRing()
-                        .semantics { contentDescription = "Сканировать QR-код подписки" }
+                        .semantics { contentDescription = "Сканировать QR-код подписки" },
+                    colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = c.primary),
                 ) {
                     Icon(Icons.Default.QrCodeScanner, null, Modifier.size(22.dp))
                 }
@@ -459,6 +463,8 @@ internal fun AppUpdateSheet(
             val shape = RoundedCornerShape(14.dp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilledTonalButton(onClick = onLater, enabled = !downloading, shape = shape,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = c.surfaceVariant, contentColor = c.onSurface),
                     modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
                     Text("Позже")
                 }
