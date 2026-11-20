@@ -375,12 +375,22 @@ else:
     raise AssertionError("Online subscription refresh failed")
 node("OfflineSubscriptionCheck")
 screenshot("forest-subscriptions")
-# Verify that the renewal hint is centered and wraps on a narrow device.
+# Verify the same renewal guidance on a narrow device after scrolling past
+# expandable subscription cards. Do not weaken its existence assertion.
 adb("shell", "wm", "size", "720x1600")
-node("В магазине выберите „Моя подписка“ → „Продлить“")
+renewal_hint = "В магазине выберите „Моя подписка“ → „Продлить“"
+for attempt in range(6):
+    try:
+        node(renewal_hint, attempts=1)
+        break
+    except AssertionError:
+        if attempt == 5:
+            raise
+        adb("shell", "input", "swipe", "350", "1330", "350", "400", "300")
+node(renewal_hint)
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")
-for action in ("Купить подписку Phantom", "Продлить подписку Phantom"):
+for action in ("Купить Phantom", "Продлить Phantom"):
     adb("logcat", "-c")
     tap_in_list(action)
     time.sleep(1)

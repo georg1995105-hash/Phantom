@@ -667,5 +667,12 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                 }
             }
         }
+        item {
+            Text("В магазине выберите „Моя подписка“ → „Продлить“",
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                textAlign = TextAlign.Center, softWrap = true,
+                style = MaterialTheme.typography.bodySmall,
+                color = c.onSurfaceVariant)
+        }
     }
 }
