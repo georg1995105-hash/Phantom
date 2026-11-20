@@ -59,6 +59,37 @@ class TcpEndpointTest {
             TcpEndpoint.forProfile(profile(root.toString())))
     }
 
+    @Test fun independentTcpCanMeasureOneEntryDespiteProviderRouting() {
+        val outbound = XrayConfigBuilder.shareOutbound(profile(key)).put("tag", "proxy")
+        val direct = JSONObject().put("protocol", "freedom").put("tag", "direct")
+        val root = JSONObject().put("remarks", "🇳🇱 Нидерланды").put(
+            "outbounds", JSONArray().put(outbound).put(direct))
+        root.put("routing", JSONObject(
+            """{"rules":[{"type":"field","domain":["full:example.test"],"outboundTag":"direct"}]}"""))
+        val config = profile(root.toString())
+        assertNull("Strict route-associated RTT must remain guarded", TcpEndpoint.forProfile(config))
+        assertEquals("Independent physical TCP entry must ignore unrelated routing",
+            peer, TcpEndpoint.independentEntryForProfile(config))
+    }
+
+    @Test fun independentTcpDoesNotSelectAnArbitraryBalancerOrUdpNode() {
+        val first = XrayConfigBuilder.shareOutbound(profile(key)).put("tag", "a")
+        val second = XrayConfigBuilder.shareOutbound(profile(
+            "vless://00000000-0000-4000-8000-000000000001@second.example:443"))
+            .put("tag", "b")
+        val complex = JSONObject().put("outbounds", JSONArray().put(first).put(second))
+            .put("routing", JSONObject(
+                """{"balancers":[{"tag":"choice","selector":["a","b"]}]}"""))
+        assertNull("Balancer endpoints must not be falsely collapsed to a TCP RTT",
+            TcpEndpoint.independentEntryForProfile(profile(complex.toString())))
+        assertNull(TcpEndpoint.independentEntryForProfile(profile(
+            "hysteria2://secret@udp.example:443")))
+        val h3 = XrayConfigBuilder.shareOutbound(profile(
+            "$key?type=xhttp&security=tls&alpn=h3"))
+        assertNull(TcpEndpoint.independentEntryForProfile(profile(
+            JSONObject().put("outbounds", JSONArray().put(h3)).toString())))
+    }
+
     @Test fun vmessKeepsItsEntryRemarkAndXhttpSettings() {
         val encoded = """{"add":"edge.test","port":"2443","id":"123","ps":"🇸🇪 Home","net":"xhttp","extra":{"noSSEHeader":true}}"""
         val server = profile("vmess://" + Base64.getEncoder().encodeToString(encoded.toByteArray()))

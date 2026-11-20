@@ -28,7 +28,7 @@ object LatencyProbe {
     }
 
     internal fun tcpEndpoint(server: ServerProfile): TcpEndpoint? =
-        runCatching { TcpEndpoint.forProfile(server) }.getOrNull()
+        runCatching { TcpEndpoint.independentEntryForProfile(server) }.getOrNull()
 
     internal suspend fun measureResult(context: Context, server: ServerProfile, endpoint: TcpEndpoint?): Long? =
         measureSample(context, server, endpoint)?.milliseconds

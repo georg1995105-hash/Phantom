@@ -398,10 +398,7 @@ internal fun ServersPage(
                                 Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Caption(protocolLabel(server))
                             }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Caption(SubscriptionPingText.display(latency[id], measuring[id] == server.raw))
-                                if (latency[id] != null) Caption(SubscriptionPingText.methodLabel(latencyMethods[id]))
-                            }
+                            Caption(SubscriptionPingText.display(latency[id], measuring[id] == server.raw))
                             if (chosen || remembered) Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary)
                         }

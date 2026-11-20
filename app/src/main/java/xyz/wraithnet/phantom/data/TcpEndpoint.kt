@@ -5,6 +5,27 @@ import org.json.JSONObject
 /** A single physical TCP entry that the config identifies without running its router. */
 internal data class TcpEndpoint(val host: String, val port: Int) {
     companion object {
+        /**
+         * TCP to a uniquely identifiable physical proxy entry, independent of Xray
+         * provider routing. The probe does not establish the success of an
+         * application request through the provider's rules.
+         *
+         * If a profile contains multiple proxy nodes (balancers, cascades),
+         * choosing one arbitrarily would misrepresent the selected server.
+         */
+        fun independentEntryForProfile(profile: ServerProfile): TcpEndpoint? {
+            if (!profile.raw.trimStart().startsWith("{")) return forProfile(profile)
+            val root = JSONObject(profile.raw)
+            val outbounds = root.optJSONArray("outbounds") ?: return fromOutbound(root)
+            val entries = (0 until outbounds.length()).mapNotNull(outbounds::optJSONObject)
+                .filterNot {
+                    it.optString("protocol").lowercase() in
+                        setOf("freedom", "blackhole", "dns", "loopback")
+                }
+            if (entries.size != 1) return null
+            return fromOutbound(entries.single())
+        }
+
         fun forProfile(profile: ServerProfile): TcpEndpoint? {
             if (profile.scheme.equals("anytls", true) && !profile.raw.trimStart().startsWith("{")) {
                 val uri = ShareLinkCodec.endpointUri(profile.raw)
