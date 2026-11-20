@@ -12,7 +12,9 @@ object SingBoxBridgeConfig {
     fun requiresSingBox(profile: ServerProfile): Boolean =
         profile.scheme.lowercase() in schemes
 
-    fun fromShareLink(raw: String, localPort: Int, resolvedServerIp: String? = null): String {
+    fun fromShareLink(
+        raw: String, localPort: Int, resolvedServerIp: String? = null, probePassword: String? = null,
+    ): String {
         require(localPort in 1024..65535) { "Неверный локальный порт" }
         val uri = URI(raw.trim())
         val protocol = uri.scheme?.lowercase() ?: ""
@@ -56,13 +58,18 @@ object SingBoxBridgeConfig {
             "anytls" -> outbound.put("password", decodedUser)
         }
 
+        val inbound = JSONObject()
+            .put("type", if (probePassword == null) "socks" else "http")
+            .put("tag", if (probePassword == null) "local-socks" else "latency")
+            .put("listen", "127.0.0.1")
+            .put("listen_port", localPort)
+        if (probePassword != null) {
+            inbound.put("users", JSONArray().put(JSONObject()
+                .put("username", "phantom").put("password", probePassword)))
+        }
         return JSONObject()
             .put("log", JSONObject().put("level", "warn"))
-            .put("inbounds", JSONArray().put(JSONObject()
-                .put("type", "socks")
-                .put("tag", "local-socks")
-                .put("listen", "127.0.0.1")
-                .put("listen_port", localPort)))
+            .put("inbounds", JSONArray().put(inbound))
             .put("outbounds", JSONArray().put(outbound))
             .put("route", JSONObject()
                 .put("auto_detect_interface", true)

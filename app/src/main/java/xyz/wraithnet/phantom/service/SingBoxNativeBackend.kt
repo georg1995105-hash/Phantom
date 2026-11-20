@@ -26,24 +26,29 @@ import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
  * Never prints raw profiles: the share link includes authentication credentials.
  */
 internal class SingBoxNativeBackend(
-    private val vpn: VpnService,
+    private val context: Context,
     postToWorker: (() -> Unit) -> Boolean,
+    private val protectSocket: (Int) -> Boolean,
+    private val dataDirectory: String,
 ) {
+    constructor(vpn: VpnService, postToWorker: (() -> Unit) -> Boolean) :
+        this(vpn, postToWorker, vpn::protect, "singbox")
+
     @Volatile private var server: CommandServer? = null
     val isRunning: Boolean get() = server != null
-    private val networkEnvironment = SingBoxNetworkEnvironment(vpn, postToWorker)
+    private val networkEnvironment = SingBoxNetworkEnvironment(context, postToWorker)
 
     companion object {
         private val setupLock = Any()
         @Volatile private var prepared = false
 
-        private fun initialize(context: Context) {
+        private fun initialize(context: Context, dataDirectory: String) {
             if (prepared) return
             synchronized(setupLock) {
                 if (prepared) return
                 val app = context.applicationContext
-                val working = app.filesDir.resolve("singbox").apply { mkdirs() }
-                val cache = app.cacheDir.resolve("singbox").apply { mkdirs() }
+                val working = app.filesDir.resolve(dataDirectory).apply { mkdirs() }
+                val cache = app.cacheDir.resolve(dataDirectory).apply { mkdirs() }
                 // The isolated gomobile runtime must have its own Android context.
                 sb.Seq.setContext(app)
                 Libbox.setup(SetupOptions().apply {
@@ -85,7 +90,7 @@ internal class SingBoxNativeBackend(
                     // Outbound QUIC/TLS sockets must bypass the VPN TUN itself.
                     val fd = args?.get(0) as? Int
                         ?: error("libbox: нет файлового дескриптора для защиты")
-                    check(vpn.protect(fd)) { "Android не разрешил обход VPN для исходящего сокета" }
+                    check(protectSocket(fd)) { "Android не разрешил обход VPN для исходящего сокета" }
                     null
                 }
                 "startDefaultInterfaceMonitor" -> {
@@ -142,9 +147,9 @@ internal class SingBoxNativeBackend(
             }
         } as CommandServerHandler
 
-    fun start(raw: String): Int {
+    fun start(raw: String, probePassword: String? = null): Int {
         check(server == null) { "sing-box уже запущен" }
-        initialize(vpn)
+        initialize(context, dataDirectory)
         // Never announce a usable SOCKS listener with an empty physical network table.
         val available = networkEnvironment.getInterfaces()
         val hasNext = available.javaClass.methods.first {
@@ -153,7 +158,7 @@ internal class SingBoxNativeBackend(
         check(hasNext) { "Android не обнаружил физическую сеть для TUIC/AnyTLS" }
         val port = ServerSocket(0).use { it.localPort }
         val resolvedIp = networkEnvironment.resolveOutboundAddress(raw)
-        val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp)
+        val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp, probePassword)
         val current = CommandServer(callbacks(), platform())
         try {
             current.start()

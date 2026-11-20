@@ -104,6 +104,14 @@
             android:process=":singbox"
             android:exported="false" />
         <service
+            android:name=".service.XrayLatencyService"
+            android:process=":xray_latency"
+            android:exported="false" />
+        <service
+            android:name=".service.SingBoxLatencyService"
+            android:process=":singbox_latency"
+            android:exported="false" />
+        <service
             android:name=".service.PhantomQuickTileService"
             android:label="Phantom VPN"
             android:icon="@drawable/ic_stat_phantom"

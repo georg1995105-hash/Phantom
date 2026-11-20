@@ -319,7 +319,7 @@ private fun SubscriptionHeading(
 @Composable
 internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
-    pinnedId: String?, favorites: Set<String>, latency: Map<String, LatencyProbe.PingResult>,
+    pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>,
     probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
     onRefresh: (Subscription) -> Unit, onProbe: (Subscription) -> Unit,
     onAutoProbe: (Subscription) -> Unit, favorite: (String) -> Unit,

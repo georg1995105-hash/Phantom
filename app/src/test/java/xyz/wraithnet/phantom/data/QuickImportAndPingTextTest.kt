@@ -21,14 +21,11 @@ class QuickImportAndPingTextTest {
     }
 
     @Test fun pingDisplaysOnlyMillisecondsAndHasDistinctMeasuringAndMissingStates() {
-        for (transport in listOf("TCP", "QUIC", "VPN")) {
-            val measured = LatencyProbe.PingResult(97L, transport)
-            assertEquals("97 мс", SubscriptionPingText.display(measured, false))
-            assertEquals("97 мс", SubscriptionPingText.display(measured, true))
-        }
+        assertEquals("97 мс", SubscriptionPingText.display(97L, false))
+        assertEquals("97 мс", SubscriptionPingText.display(97L, true))
         assertEquals("…", SubscriptionPingText.display(null, true))
         assertEquals("—", SubscriptionPingText.display(null, false))
-        assertEquals("—", SubscriptionPingText.display(LatencyProbe.PingResult(0, "TCP"), false))
+        assertEquals("—", SubscriptionPingText.display(0L, false))
     }
 
 }

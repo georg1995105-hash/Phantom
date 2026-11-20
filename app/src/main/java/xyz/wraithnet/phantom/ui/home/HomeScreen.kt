@@ -90,9 +90,6 @@ fun HomeScreen(
     downloadBytes: Long = -1L,
     uploadBytes: Long = -1L,
     connectedSinceElapsed: Long = 0L,
-    latencyMs: Long = -1L,
-    latencyProfileHash: Int = Int.MIN_VALUE,
-    latencyVersion: Int = 0,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
     onThemeChange: (PhantomThemeMode) -> Unit = {},
@@ -121,7 +118,7 @@ fun HomeScreen(
     var probing by remember { mutableStateOf(emptySet<String>()) }
     val measuring = remember { mutableStateMapOf<String, String>() }
     val scanned = remember { mutableMapOf<String, List<ServerProfile>>() }
-    val latencies = remember { mutableStateMapOf<String, LatencyProbe.PingResult>() }
+    val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
@@ -181,37 +178,6 @@ fun HomeScreen(
         val unsubscribe = store.observeChanges { scope.launch { reloadSubscriptions() } }
         onDispose { unsubscribe() }
     }
-    // Cached VPN RTT belongs only to the actually running profile.
-    LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
-        val current = selectedMatch?.takeIf {
-            vpnStatus == "connected" &&
-                prefs.getString("vpn_last_profile", null) == it.second.raw
-        }
-        val currentKey = current?.let { (owner, server) -> pingKey(owner, server) }
-        latencies.keys.toList().filter {
-            latencies[it]?.source == "VPN" && it != currentKey
-        }.forEach { latencies.remove(it) }
-        current?.let { (owner, server) ->
-            val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
-            if (rtt > 0L) latencies[pingKey(owner, server)] =
-                LatencyProbe.PingResult(rtt, "VPN")
-        }
-    }
-
-    // Live on-demand HTTPS result from the existing Xray core.
-    LaunchedEffect(latencyVersion) {
-        if (latencyVersion == 0) return@LaunchedEffect
-        selectedMatch?.takeIf {
-            vpnStatus == "connected" &&
-                it.second.raw.hashCode() == latencyProfileHash &&
-                prefs.getString("vpn_last_profile", null) == it.second.raw
-        }?.let { (owner, server) ->
-            val key = pingKey(owner, server)
-            if (latencyMs > 0L) latencies[key] = LatencyProbe.PingResult(latencyMs, "VPN")
-            else latencies.remove(key)
-        }
-    }
-
     fun copyLink(value: String, message: String) {
         if (value.isBlank()) {
             scope.launch { snackbar.showSnackbar("Нет ссылки для копирования") }
@@ -387,31 +353,19 @@ fun HomeScreen(
         }
     }
 
-    val pingParallelism = LatencyProbe.MAX_PARALLEL_PROBES
-    val pingLimit = remember { Semaphore(pingParallelism) }
+    val pingParallelism = remember {
+        if (context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true) 1
+        else LatencyProbe.MAX_PARALLEL_PROBES
+    }
+    val pingLimit = remember(pingParallelism) { Semaphore(pingParallelism) }
     fun probeSubscription(item: Subscription, notify: Boolean = true) {
         if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
-        val connected = selectedMatch?.takeIf {
-            it.first.id == item.id && vpnStatus == "connected" &&
-                prefs.getString("vpn_last_profile", null) == it.second.raw
-        }
         probing = probing + item.id
         scanned[item.id] = item.servers
         scope.launch {
             val message = try {
-                if (notify && connected != null) {
-                    runCatching {
-                        context.startService(Intent(context, PhantomVpnService::class.java)
-                            .setAction(PhantomVpnService.ACTION_MEASURE_LATENCY)
-                            .putExtra(PhantomVpnService.EXTRA_PROFILE, connected.second.raw))
-                    }
-                }
-                val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
-                val probeOrder = withContext(Dispatchers.Default) {
-                    // Get quick handshakes onto the screen while slow UDP peers are pending.
-                    val (udp, tcp) = servers.partition(LatencyProbe::needsTunnel)
-                    (tcp + udp).filter { it.id != connected?.second?.id }
-                }
+                val probeOrder = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
+                    .sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 coroutineScope {
                     val pending = probeOrder.iterator()
                     repeat(minOf(pingParallelism, probeOrder.size)) {
@@ -425,7 +379,7 @@ fun HomeScreen(
                                     measuring[key] = server.raw
                                     try {
                                         val result = LatencyProbe.measureResult(context.applicationContext, server)
-                                        if (currentProfileRaws[key] == server.raw && latencies[key]?.source != "VPN") {
+                                        if (currentProfileRaws[key] == server.raw) {
                                             if (result != null) latencies[key] = result else latencies.remove(key)
                                         }
                                     } finally {
@@ -438,10 +392,7 @@ fun HomeScreen(
                 }
                 when {
                     !notify -> ""
-                    connected != null -> "Задержка обновится после проверки"
-                    servers.any { latencies[pingKey(item, it)] != null } -> "Проверка задержки завершена"
-                    withContext(Dispatchers.Default) { servers.any(LatencyProbe::needsTunnel) } ->
-                        "Для проверки задержки подключитесь к серверу"
+                    probeOrder.any { latencies[pingKey(item, it)] != null } -> "Проверка задержки завершена"
                     else -> "Не получено ни одного результата проверки"
                 }
             } catch (e: CancellationException) {

@@ -9,8 +9,6 @@ object ProtocolSupport {
         "hysteria", "hysteria2", "hy2")
     val singBox = setOf("tuic", "anytls")
     fun isSupported(scheme: String): Boolean = scheme.lowercase() in xray || scheme.lowercase() in singBox
-    fun needsConnectedPing(scheme: String): Boolean =
-        scheme.lowercase() in setOf("hysteria", "hysteria2", "hy2", "tuic")
 }
 
 /** The selected profile is scoped to its parent subscription, not only the link index. */

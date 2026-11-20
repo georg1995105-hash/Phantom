@@ -75,6 +75,24 @@ class XrayTunConfigTest {
         assertEquals("leastLoad", balancer.getJSONObject("strategy").getString("type"))
         assertEquals("proxy", balancer.getString("fallbackTag"))
     }
+
+    @Test fun latencyProxyRequiresAuthenticationAndKeepsTheProvidersBalancer() {
+        val full = """{"inbounds":[{"tag":"socks","protocol":"socks"}],
+            "outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"proxy","protocol":"vless"}],
+            "routing":{"balancers":[{"tag":"auto","selector":["proxy"]}],
+                "rules":[{"type":"field","inboundTag":["socks"],"balancerTag":"auto"}]}}"""
+        val original = XrayConfigBuilder.build(SubscriptionParser.parse(full).servers.single())
+        val config = JSONObject(XrayConfigBuilder.forLatency(original, 12345, "probe-password"))
+        val inbound = config.getJSONArray("inbounds").getJSONObject(0)
+        assertEquals("tun", inbound.getString("tag"))
+        assertEquals("127.0.0.1", inbound.getString("listen"))
+        assertEquals("http", inbound.getString("protocol"))
+        assertEquals("probe-password", inbound.getJSONObject("settings")
+            .getJSONArray("accounts").getJSONObject(0).getString("pass"))
+        assertEquals("blackhole", config.getJSONArray("outbounds").getJSONObject(0).getString("protocol"))
+        assertEquals(JSONObject(original).getJSONObject("routing").toString(),
+            config.getJSONObject("routing").toString())
+    }
     @Test fun outboundStatisticsEnabledForShareLinks() {
         val server = ServerProfile(id = "vless", name = "Demo", scheme = "vless",
             raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=xhttp")

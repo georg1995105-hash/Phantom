@@ -1,9 +1,9 @@
 package xyz.wraithnet.phantom.data
 
-/** Only a measured RTT is shown to users; probe transport is an internal detail. */
+/** Render request time consistently for every profile. */
 object SubscriptionPingText {
-    fun display(result: LatencyProbe.PingResult?, measuring: Boolean): String = when {
-        result != null && result.milliseconds > 0L -> "${result.milliseconds} мс"
+    fun display(milliseconds: Long?, measuring: Boolean): String = when {
+        milliseconds != null && milliseconds > 0L -> "$milliseconds мс"
         measuring -> "…"
         else -> "—"
     }

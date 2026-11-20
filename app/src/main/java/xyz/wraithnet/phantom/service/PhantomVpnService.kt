@@ -55,8 +55,6 @@ class PhantomVpnService : VpnService() {
     private var singBoxSession: Any? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var sessionBytes: TrafficBytes? = null
-    private var verifiedLatencyUrl: String? = null
-    private var latencyProbeJob: Job? = null
     private var trafficJob: Job? = null
     private var handoverJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -154,29 +152,6 @@ class PhantomVpnService : VpnService() {
                 }
             }
             ACTION_QUERY -> sendStatus(state)
-            ACTION_MEASURE_LATENCY -> {
-                val requested = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
-                val epoch = commandEpoch.get()
-                if (requested.isNotBlank() && latencyProbeJob?.isActive != true) latencyProbeJob = ioScope.launch {
-                    mutex.withLock {
-                        // Use the connected core only. Never start a second VPN or core.
-                        if (epoch != commandEpoch.get() || !running || state != STATUS_CONNECTED ||
-                            prefs.getString("vpn_last_profile", null) != requested) return@withLock
-                        val active = controller ?: return@withLock
-                        // The JNI call has its own 12 s deadline and must remain
-                        // serialized with StopLoop. Reuse the verified target.
-                        val url = verifiedLatencyUrl ?: return@withLock
-                        val delayMs = runCatching { active.measureDelay(url) }.getOrDefault(-1L)
-                        if (epoch != commandEpoch.get()) return@withLock
-                        val reading = if (delayMs >= 0L) delayMs.coerceAtLeast(1L) else -1L
-                        prefs.edit().putLong("vpn_last_latency_ms", reading)
-                            .putInt("vpn_last_latency_profile_hash", requested.hashCode()).apply()
-                        sendBroadcast(Intent(ACTION_LATENCY).setPackage(packageName)
-                            .putExtra(EXTRA_LATENCY_MS, reading)
-                            .putExtra(EXTRA_LATENCY_PROFILE_HASH, requested.hashCode()))
-                    }
-                }
-            }
             ACTION_TRAFFIC_ON -> ioScope.launch {
                 mutex.withLock { if (running) startTrafficReports() }
             }
@@ -296,7 +271,7 @@ class PhantomVpnService : VpnService() {
 
             // Core startup alone is not proof of Internet access.
             // Measure via the configured Xray outbound, not device networking.
-            var verifiedDelay = -1L
+            var verified = false
             for (endpoint in listOf(
                 "https://www.gstatic.com/generate_204",
                 "https://cp.cloudflare.com/generate_204",
@@ -307,12 +282,11 @@ class PhantomVpnService : VpnService() {
                 }
                 val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
                 if (value >= 0L) {
-                    verifiedLatencyUrl = endpoint
-                    verifiedDelay = value.coerceAtLeast(1L)
+                    verified = true
                     break
                 }
             }
-            require(verifiedDelay > 0L) {
+            require(verified) {
                 if (SingBoxBridgeConfig.requiresSingBox(profile)) {
                     val port = singBoxPort
                     val local = port?.let { LocalSocks5Probe.check(it) }
@@ -341,8 +315,6 @@ class PhantomVpnService : VpnService() {
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
-                .putLong("vpn_last_latency_ms", verifiedDelay)
-                .putInt("vpn_last_latency_profile_hash", raw.hashCode())
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
@@ -363,7 +335,6 @@ class PhantomVpnService : VpnService() {
      */
     private fun stopLocked(report: Boolean = true): Boolean {
         running = false
-        verifiedLatencyUrl = null
         trafficJob?.cancel()
         trafficJob = null
         releaseWakeLock()
@@ -376,7 +347,6 @@ class PhantomVpnService : VpnService() {
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         prefs.edit().putBoolean("vpn_running", false)
-            .remove("vpn_last_latency_ms").remove("vpn_last_latency_profile_hash")
             .putLong("vpn_connected_since_elapsed", 0L).apply()
         if (report) {
             setState(STATUS_DISCONNECTED)
@@ -552,10 +522,6 @@ class PhantomVpnService : VpnService() {
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
         const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
-        const val ACTION_MEASURE_LATENCY = "xyz.wraithnet.phantom.MEASURE_LATENCY"
-        const val ACTION_LATENCY = "xyz.wraithnet.phantom.VPN_LATENCY"
-        const val EXTRA_LATENCY_MS = "latency_ms"
-        const val EXTRA_LATENCY_PROFILE_HASH = "latency_profile_hash"
         const val ACTION_TRAFFIC = "xyz.wraithnet.phantom.VPN_TRAFFIC"
         const val ACTION_TRAFFIC_ON = "xyz.wraithnet.phantom.TRAFFIC_ON"
         const val ACTION_TRAFFIC_OFF = "xyz.wraithnet.phantom.TRAFFIC_OFF"

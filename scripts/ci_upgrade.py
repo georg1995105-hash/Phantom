@@ -171,8 +171,7 @@ profiles = [
     peers["tuic"] + "#AndroidCheckA",
     peers["hysteria2"] + "#QuicProbe",
     peers["anytls"] + "#AndroidCheckB",
-    # A TCP-only regression fixture: real HTTPS endpoint, deliberately not a VPN server.
-    "vless://00000000-0000-4000-8000-000000000001@example.com:443#PhysicalTcpProbe",
+    peers["VLESS-XHTTP"] + "#XhttpProbe",
 ]
 payload = json.dumps(profiles, separators=(",", ":"))
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
@@ -191,12 +190,15 @@ adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
 node("Подключено")
 tap("Серверы")
-# Regression: a remote TCP probe must bypass the running Android VPN and use
-# validated physical network DNS+socket; the selected TUIC still reports VPN RTT.
-node("PhysicalTcpProbe")
+# Real URL probes for the group run alongside the active TUIC tunnel.
+node("XhttpProbe")
 wait_compact_latencies(min_count=2)
 tap("Проверить задержку подписки AndroidCheckA")
 wait_compact_latencies(min_count=2)
+tap("Главная")
+node("Подключено")
+node("AndroidCheckA")
+tap("Серверы")
 screenshot("forest-servers")
 tap("Выбрать сервер AndroidCheckB")
 tap("Главная")
@@ -220,6 +222,10 @@ tap("Подключить VPN")
 node("Подключено")
 print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
 screenshot("provider-auto-connected")
+tap("Серверы")
+wait_compact_latencies(min_count=1)
+tap("Главная")
+node("Подключено")
 tap("Отключить VPN")
 node("Отключено")
 

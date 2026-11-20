@@ -9,7 +9,7 @@ adb shell input keyevent KEYCODE_WAKEUP || exit $?
 adb shell wm dismiss-keyguard || exit $?
 timeout --signal=TERM --kill-after=15s 480s ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
 rc=$?
-adb logcat -d -s PhantomUserAgent:I
+adb logcat -d -s PhantomUserAgent:I PhantomLatencyTest:I
 if [ "$rc" -ne 0 ]; then
     echo "Android smoke test failed or exceeded the 480-second hard limit (exit=$rc)"
     echo "::group::PHANTOM ANDROID JNI DIAGNOSTICS"

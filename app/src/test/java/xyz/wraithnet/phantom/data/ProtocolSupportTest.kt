@@ -12,9 +12,9 @@ class ProtocolSupportTest {
         listOf("vless", "vmess", "trojan", "ss", "xray", "hy2", "hysteria2",
             "tuic", "anytls").forEach { assertTrue(it, ProtocolSupport.isSupported(it)) }
         assertFalse(ProtocolSupport.isSupported("wireguard"))
-        assertTrue(ProtocolSupport.needsConnectedPing("tuic"))
-        assertTrue(ProtocolSupport.needsConnectedPing("hysteria2"))
-        assertFalse(ProtocolSupport.needsConnectedPing("anytls"))
+        assertTrue(SingBoxBridgeConfig.requiresSingBox(server("tuic", "tuic")))
+        assertTrue(SingBoxBridgeConfig.requiresSingBox(server("anytls", "anytls")))
+        assertFalse(SingBoxBridgeConfig.requiresSingBox(server("hy2", "hysteria2")))
     }
 
     @Test fun selectingTuicRemainsStableAfterMainSubscriptionImport() {

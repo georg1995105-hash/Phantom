@@ -7,6 +7,30 @@ import java.net.URI
 
 /** Builds an Xray TUN configuration from one Xray-compatible share link. */
 object XrayConfigBuilder {
+    internal fun forLatency(config: String, port: Int, password: String): String {
+        val root = JSONObject(config)
+        // Keep the same inbound tag and routing, including provider balancers.
+        val inbound = root.getJSONArray("inbounds").getJSONObject(0)
+        inbound.put("protocol", "http").put("listen", "127.0.0.1").put("port", port)
+            .put("settings", JSONObject().put("accounts", JSONArray().put(
+                JSONObject().put("user", "phantom").put("pass", password)
+            )))
+        // A provider's direct/bypass rule must not produce a proxy latency.
+        val outbounds = root.getJSONArray("outbounds")
+        for (index in 0 until outbounds.length()) {
+            val outbound = outbounds.getJSONObject(index)
+            if (outbound.optString("protocol") == "freedom") {
+                outbound.put("protocol", "blackhole")
+                outbound.remove("settings")
+                outbound.remove("streamSettings")
+            }
+        }
+        root.remove("api")
+        root.remove("metrics")
+        root.put("log", JSONObject().put("loglevel", "none").put("access", "none"))
+        return root.toString()
+    }
+
     fun build(profile: ServerProfile): String {
         val source = profile.raw.trim()
         if (source.startsWith("{")) return buildJson(source)
