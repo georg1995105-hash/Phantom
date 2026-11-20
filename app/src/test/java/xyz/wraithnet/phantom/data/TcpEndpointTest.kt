@@ -27,11 +27,11 @@ class TcpEndpointTest {
             assertNull(link.substringBefore(":"), TcpEndpoint.forProfile(profile(link)))
     }
 
-    @Test fun fullJsonNeedsAnUnambiguousPhysicalPeerRegardlessOfNameOrOrder() {
+    @Test fun fullJsonRequiresAReachableDefaultAndUnambiguousRoute() {
         val outbound = XrayConfigBuilder.shareOutbound(profile(key))
         val root = JSONObject().put("remarks", "Автовыбор").put("outbounds",
             JSONArray().put(JSONObject().put("protocol", "blackhole")).put(outbound))
-        assertEquals(peer, TcpEndpoint.forProfile(profile(root.toString())))
+        assertNull(TcpEndpoint.forProfile(profile(root.toString())))
         root.put("routing", JSONObject("""{"balancers":[{"tag":"choice","selector":["p"],"fallbackTag":"other"}]}"""))
         assertNull(TcpEndpoint.forProfile(profile(root.toString())))
         root.remove("routing")
@@ -40,6 +40,23 @@ class TcpEndpointTest {
         outbound.remove("proxySettings")
         root.getJSONArray("outbounds").put(outbound)
         assertNull(TcpEndpoint.forProfile(profile(root.toString())))
+    }
+
+    @Test fun fullJsonDoesNotReportTcpOfAnOutboundBypassedByProviderRules() {
+        val outbound = XrayConfigBuilder.shareOutbound(profile(key)).put("tag", "proxy")
+        val direct = JSONObject().put("protocol", "freedom").put("tag", "direct")
+        val root = JSONObject().put("outbounds", JSONArray().put(outbound).put(direct))
+        // Xray defaults to the first outbound if a rule does not match.
+        assertEquals(peer, TcpEndpoint.forProfile(profile(root.toString())))
+        root.put("routing", JSONObject("""{"rules":[{"type":"field","domain":["full:direct.example"],
+            "outboundTag":"direct"}]}"""))
+        assertNull("A provider direct route may bypass this TCP server",
+            TcpEndpoint.forProfile(profile(root.toString())))
+        root.put("routing", JSONObject("""{"rules":[{"type":"field","outboundTag":"proxy"}]}"""))
+        assertEquals(peer, TcpEndpoint.forProfile(profile(root.toString())))
+        root.put("routing", JSONObject("""{"rules":[{"type":"field","balancerTag":"other"}]}"""))
+        assertNull("A balancer needs an actual routed probe",
+            TcpEndpoint.forProfile(profile(root.toString())))
     }
 
     @Test fun vmessKeepsItsEntryRemarkAndXhttpSettings() {

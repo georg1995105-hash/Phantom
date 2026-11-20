@@ -18,7 +18,24 @@ internal data class TcpEndpoint(val host: String, val port: Int) {
                 root.has("observatory") || root.has("burstObservatory")) return null
             val entries = (0 until outbounds.length()).map(outbounds::getJSONObject)
                 .filter { it.optString("protocol") !in setOf("freedom", "blackhole", "dns") }
-            return entries.singleOrNull()?.let(::fromOutbound)
+            // Xray routes unmatched traffic through its FIRST outbound. A lone TCP
+            // entry later in the list is not necessarily the one applications use.
+            // Other destinations in routing rules can also take precedence over it.
+            // In ambiguous full JSON configurations, use the live core probe instead
+            // of reporting a TCP connect to an unrelated proxy.
+            if (entries.size != 1) return null
+            val first = outbounds.optJSONObject(0) ?: return null
+            val endpoint = fromOutbound(first) ?: return null
+            val rules = root.optJSONObject("routing")?.optJSONArray("rules")
+            if (rules != null && rules.length() > 0) {
+                val expectedTag = first.optString("tag")
+                if (expectedTag.isBlank()) return null
+                for (index in 0 until rules.length()) {
+                    val rule = rules.optJSONObject(index) ?: return null
+                    if (rule.has("balancerTag") || rule.optString("outboundTag") != expectedTag) return null
+                }
+            }
+            return endpoint
         }
 
         fun fromOutbound(outbound: JSONObject): TcpEndpoint? {
