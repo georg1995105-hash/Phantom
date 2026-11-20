@@ -1,5 +1,4 @@
 """Self-tests for universal APK ABI and 16 KiB ELF validation."""
-import io
 import struct
 import tempfile
 import unittest
@@ -60,6 +59,23 @@ class UniversalAuditTest(unittest.TestCase):
     def test_invalid_magic_is_rejected(self):
         with self.assertRaises(ValueError):
             elf_metadata(b"not an elf" + bytes(100))
+
+    def test_file_offset_and_virtual_address_must_agree_modulo_alignment(self):
+        blob = bytearray(fake_elf(2, 62, 16384))
+        struct.pack_into("<Q", blob, 64 + 16, 4096)
+        with self.assertRaisesRegex(ValueError, "virtual addresses"):
+            elf_metadata(blob)
+
+    def test_relro_cannot_protect_writable_data_on_same_16k_page(self):
+        blob = bytearray(fake_elf(2, 62, 16384))
+        struct.pack_into("<H", blob, 56, 2)
+        struct.pack_into("<I", blob, 64 + 4, 2)
+        struct.pack_into("<Q", blob, 64 + 40, 8192)
+        struct.pack_into("<I", blob, 64 + 56, 0x6474E552)
+        struct.pack_into("<Q", blob, 64 + 56 + 40, 4096)
+        self.assertFalse(elf_metadata(blob)[3])
+        struct.pack_into("<Q", blob, 64 + 56 + 40, 8192)
+        self.assertTrue(elf_metadata(blob)[3])
 
 
 if __name__ == "__main__":

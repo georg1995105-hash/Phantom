@@ -47,4 +47,10 @@ class ProtocolSupportTest {
         assertEquals("t", ProfileSelection.resolve(
             listOf(tuic), null, "t", null)?.second?.id)
     }
+
+    @Test fun unsupportedServersInExistingOwnerDoNotSelectDifferentSubscription() {
+        val owner = Subscription("a", "A", "a", listOf(server("old", "unsupported")))
+        val other = Subscription("b", "B", "b", listOf(server("other", "vless")))
+        assertNull(ProfileSelection.resolve(listOf(owner, other), owner.id, "old", null))
+    }
 }

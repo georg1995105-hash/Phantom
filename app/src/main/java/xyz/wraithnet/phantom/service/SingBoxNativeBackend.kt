@@ -13,6 +13,7 @@ import io.nekohasekai.libbox.SystemProxyStatus
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
 import java.net.ServerSocket
+import xyz.wraithnet.phantom.BuildConfig
 import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
 
 /**
@@ -46,8 +47,8 @@ internal class SingBoxNativeBackend(private val vpn: VpnService) {
                     tempPath = cache.absolutePath
                     debug = false
                     logMaxLines = 200
-                    appVersion = "20"
-                    appMarketingVersion = "0.2.24"
+                    appVersion = BuildConfig.VERSION_CODE.toString()
+                    appMarketingVersion = BuildConfig.VERSION_NAME
                 })
                 prepared = true
             }

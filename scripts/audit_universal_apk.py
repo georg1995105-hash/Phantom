@@ -38,6 +38,8 @@ def elf_metadata(data):
     if count == 0 or count > 512 or entry_size < align_offset + (8 if bitness == 2 else 4):
         raise ValueError("invalid ELF program-header table")
     alignments = []
+    writable_loads = []
+    relro_segments = []
     for i in range(count):
         base = offset + i * entry_size
         if base + entry_size > len(data):
@@ -45,10 +47,29 @@ def elf_metadata(data):
         kind = struct.unpack_from("<I", data, base)[0]
         if kind == 1:  # PT_LOAD
             fmt = "<Q" if bitness == 2 else "<I"
-            alignments.append(struct.unpack_from(fmt, data, base + align_offset)[0])
+            address_offset = 8 if bitness == 2 else 4
+            address_format = "<QQ" if bitness == 2 else "<II"
+            file_offset, address = struct.unpack_from(address_format, data, base + address_offset)
+            alignment = struct.unpack_from(fmt, data, base + align_offset)[0]
+            if alignment and (file_offset - address) % alignment:
+                raise ValueError("PT_LOAD file and virtual addresses differ modulo alignment")
+            alignments.append(alignment)
+            if bitness == 2 and struct.unpack_from("<I", data, base + 4)[0] & 2:
+                size = struct.unpack_from("<Q", data, base + 40)[0]
+                writable_loads.append((address, address + size))
+        elif bitness == 2 and kind == 0x6474E552:  # PT_GNU_RELRO
+            address = struct.unpack_from("<Q", data, base + 16)[0]
+            size = struct.unpack_from("<Q", data, base + 40)[0]
+            relro_segments.append((address, address + size))
     if not alignments:
         raise ValueError("no ELF PT_LOAD segments")
-    return bitness, machine, min(alignments)
+    relro_compatible = all(
+        end % 16384 == 0 or not any(
+            load_start <= start and end < load_end for load_start, load_end in writable_loads
+        )
+        for start, end in relro_segments
+    )
+    return bitness, machine, min(alignments), relro_compatible
 
 
 def audit(apk, strict=True):
@@ -72,11 +93,13 @@ def audit(apk, strict=True):
             total_payload += member.file_size
             total_packed += member.compress_size
             try:
-                elf_class, machine, alignment = elf_metadata(archive.read(member))
+                elf_class, machine, alignment, relro_compatible = elf_metadata(archive.read(member))
                 if (elf_class, machine) != ABIS[abi]:
                     problems.append(f"{name}: ELF class/CPU mismatch ({elf_class}, {machine})")
                 if strict and elf_class == 2 and alignment < 16384:
                     problems.append(f"{name}: PT_LOAD alignment {alignment}, requires 16384")
+                if strict and not relro_compatible:
+                    problems.append(f"{name}: GNU_RELRO shares a trailing 16 KiB page with writable data")
             except Exception as exc:
                 problems.append(f"{name}: {exc}")
     for abi in ABIS:

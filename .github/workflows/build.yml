@@ -224,7 +224,8 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back virtualscene
+          pre-emulator-launch-script: bash scripts/ci_qr_camera.sh
           disable-animations: true
           script: |
             bash scripts/ci_emulator.sh
@@ -261,21 +262,23 @@ jobs:
           disable-animations: true
           script: python3 scripts/ci_tv.py --16k
 
-      - name: Enforce successful Android and TV device tests
+      - name: Enforce successful device tests
         if: github.event_name != 'push'
         run: |
+          result=0
           if [ "${{ steps.android_native.outcome }}" != "success" ]; then
             echo "::error::Android instrumentation and upgrade tests failed"
-            exit 1
+            result=1
           fi
           if [ "${{ steps.android_tv.outcome }}" != "success" ]; then
             echo "::error::Android TV VPN and D-pad tests failed"
-            exit 1
+            result=1
           fi
           if [ "${{ steps.android_16k.outcome }}" != "success" ]; then
             echo "::error::Android 16 KiB runtime tests failed"
-            exit 1
+            result=1
           fi
+          exit "$result"
 
       - name: Upload upgrade screenshots
         if: github.event_name != 'push' && success()

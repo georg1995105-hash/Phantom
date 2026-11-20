@@ -30,8 +30,8 @@ object ProfileSelection {
             ProtocolSupport.isSupported(it.scheme) }?.let { return owner to it }
         // If the subscription refreshed and server IDs changed, stay inside
         // the explicitly selected subscription. Never jump to another owner.
-        owner?.let { subscription ->
-            preferred(subscription)?.let { return subscription to it }
+        if (owner != null) {
+            return preferred(owner)?.let { owner to it }
         }
         // Backward compatibility with 0.2.12, which saved only selected_server_id.
         if (selectedSubscriptionId == null && selectedServerId != null) {

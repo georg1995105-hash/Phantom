@@ -142,7 +142,7 @@ object PhantomUpdates {
                     require(actual.equals(release.sha256, ignoreCase = true)) {
                         "Контрольная сумма APK не совпадает"
                     }
-                    verifyApk(context, temp)
+                    verifyApk(context, temp, release.version)
                     if (target.exists()) target.delete()
                     require(temp.renameTo(target)) { "Не удалось сохранить проверенный APK" }
                     onProgress(100)
@@ -157,7 +157,7 @@ object PhantomUpdates {
     }
 
     @Suppress("DEPRECATION")
-    private fun verifyApk(context: Context, file: File) {
+    private fun verifyApk(context: Context, file: File, expectedVersion: String) {
         val pm = context.packageManager
         val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
             else PackageManager.GET_SIGNATURES
@@ -168,6 +168,9 @@ object PhantomUpdates {
         val current = pm.getPackageInfo(context.packageName, flags)
         require(archive.packageName == context.packageName) {
             "Идентификатор приложения в APK не совпадает"
+        }
+        require(archive.versionName == expectedVersion) {
+            "Версия APK не совпадает с опубликованным обновлением"
         }
         val archiveCode = if (Build.VERSION.SDK_INT >= 28) archive.longVersionCode
             else archive.versionCode.toLong()

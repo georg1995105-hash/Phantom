@@ -255,7 +255,7 @@ fun HomeScreen(
         importBusy = true
         importError = null
         scope.launch {
-            try {
+            val message = try {
                 val remote = source.startsWith("https://") || source.startsWith("http://")
                 val downloaded = if (remote) SubscriptionFetcher.download(context, source, store.deviceId()) else null
                 val parsed = SubscriptionParser.parse(downloaded?.body ?: source, customTitle ?: downloaded?.title)
@@ -286,17 +286,21 @@ fun HomeScreen(
                 softTap()
                 // Import has finished before the success snackbar is shown.
                 // A second tap must be able to report a duplicate immediately.
-                importBusy = false
-                snackbar.currentSnackbarData?.dismiss()
-                snackbar.showSnackbar("Подписка добавлена")
+                "Подписка добавлена"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val message = e.message ?: "Не удалось добавить подписку"
-                if (importMode != null) importError = message
-                else snackbar.showSnackbar(message)
+                val failure = e.message ?: "Не удалось добавить подписку"
+                if (importMode != null) {
+                    importError = failure
+                    null
+                } else failure
             } finally {
                 importBusy = false
+            }
+            message?.let {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(it)
             }
         }
     }
@@ -620,7 +624,8 @@ fun HomeScreen(
                             scope.launch {
                                 persist { current ->
                                     current.map { item ->
-                                        if (item.id == owner.id && item.servers.any { it.id == server.id })
+                                        if (item.id == owner.id && item.source == owner.source &&
+                                            item.servers.any { it.id == server.id })
                                             item.copy(selectedServerId = server.id)
                                         else item
                                     }

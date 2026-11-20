@@ -104,6 +104,9 @@ def tap(label):
 page_size_16k = sys.argv[1:] == ["--16k"]
 if page_size_16k:
     assert adb("shell", "getconf", "PAGE_SIZE") == "16384"
+    adb("root")
+    adb("wait-for-device")
+    assert adb("shell", "id", "-u") == "0"
     adb("shell", "setprop", "bionic.linker.16kb.app_compat.enabled", "false")
     adb("shell", "setprop", "pm.16kb.app_compat.disabled", "true")
     assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
@@ -146,10 +149,16 @@ for index, (protocol, label) in enumerate((
         wait_label("Подключено")
     except AssertionError as ex:
         raise AssertionError(f"{device} {protocol} tunnel did not connect: {ex}") from ex
-    memory = adb("shell", "dumpsys", "meminfo", PACKAGE)
-    totals = [line.strip() for line in memory.splitlines()
-              if "TOTAL PSS:" in line or line.lstrip().startswith("** MEMINFO")]
-    print(f"{device} {protocol} memory: {' | '.join(totals)}", flush=True)
+    processes = [PACKAGE]
+    if protocol == "tuic":
+        worker_pid = adb("shell", "pidof", "-s", PACKAGE + ":singbox")
+        assert worker_pid.isdecimal()
+        processes.append(worker_pid)
+    for process in processes:
+        memory = adb("shell", "dumpsys", "meminfo", process)
+        totals = [line.strip() for line in memory.splitlines()
+                  if "TOTAL PSS:" in line or line.lstrip().startswith("** MEMINFO")]
+        print(f"{device} {protocol} memory: {' | '.join(totals)}", flush=True)
     if page_size_16k:
         tap("Отключить VPN")
     else:

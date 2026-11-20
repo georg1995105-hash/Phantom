@@ -2,7 +2,6 @@
 from pathlib import Path
 import re
 import json
-import os
 import shlex
 import subprocess
 import sys
@@ -250,17 +249,13 @@ adb("shell", "cmd", "statusbar", "click-tile", component)
 adb("shell", "cmd", "statusbar", "collapse")
 node("Отключено")
 
-# Use HTTPS from the checked-out public commit, with no subscriber credentials.
-sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-# Pull request workflows check out a generated merge commit. Use the head
-# commit for the externally retrievable raw file.
-with open(os.environ["GITHUB_EVENT_PATH"]) as event_file:
-    sha = json.load(event_file).get("pull_request", {}).get("head", {}).get("sha", sha)
-url = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/{sha}/scripts/fixtures/import-subscription.txt"
-adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
-                        "-t", "text/plain", "--es", "android.intent.extra.TEXT", url]))
+# Scan the public HTTPS subscription through the actual Android camera.
+adb("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
+tap("Сканировать QR-код подписки")
+node("К серверам", attempts=20)
 tap("Подписка")
 node("OfflineSubscriptionCheck", attempts=20)
+print("Camera QR imported a subscription without a second confirmation", flush=True)
 tap("Серверы")
 tap("Раскрыть подписку OfflineSubscriptionCheck")
 tap("Выбрать сервер OfflineSubscriptionCheck")
@@ -297,6 +292,16 @@ tap("Подписка")
 node("Данные могут быть устаревшими", attempts=36)
 tap("Серверы")
 node("OfflineSubscriptionCheck")
+
+try:
+    adb("shell", "wm", "user-rotation", "lock", "1")
+    tap("Подписка")
+    node("OfflineSubscriptionCheck")
+    for tab in ("Главная", "Серверы", "Подписка", "Настройки"):
+        node(tab)
+    screenshot("phone-landscape")
+finally:
+    adb("shell", "wm", "user-rotation", "free")
 
 # Treat phone-size CI emulation as a second, tablet-sized form factor without
 # launching another Go runtime or requiring a physical tablet on GitHub runners.

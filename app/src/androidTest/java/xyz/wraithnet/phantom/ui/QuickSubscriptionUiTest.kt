@@ -3,13 +3,16 @@ package xyz.wraithnet.phantom.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import xyz.wraithnet.phantom.MainActivity
@@ -17,6 +20,8 @@ import xyz.wraithnet.phantom.data.SubscriptionStore
 
 @RunWith(AndroidJUnit4::class)
 class QuickSubscriptionUiTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun firstLaunchClipboardAddsSubscriptionWithOneTapAndRejectsDuplicate() {
@@ -35,17 +40,14 @@ class QuickSubscriptionUiTest {
                 scenario.onActivity {
                     clipboard.setPrimaryClip(ClipData.newPlainText("Phantom test", link))
                 }
-                val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                val quickButton = device.wait(Until.findObject(By.desc("Добавить подписку")), 12_000)
-                assertNotNull("The first screen must show the import shortcut", quickButton)
-                quickButton!!.click()
-                device.wait(Until.hasObject(By.text("Подписка добавлена")), 8_000)
+                val shortcut = hasContentDescription("Добавить подписку")
+                compose.awaitVisible(shortcut).performTouchInput { click() }
+                compose.awaitVisible(hasText("Подписка добавлена"))
                 assertEquals(1, store.read().size)
                 assertEquals("First", store.read().single().servers.single().name)
 
-                quickButton.click()
-                assertTrue("Duplicate alert missing",
-                    device.wait(Until.hasObject(By.text("Эта подписка уже добавлена")), 6_000))
+                compose.awaitVisible(shortcut).performTouchInput { click() }
+                compose.awaitVisible(hasText("Эта подписка уже добавлена"))
                 assertEquals(1, store.read().size)
             }
         } finally {

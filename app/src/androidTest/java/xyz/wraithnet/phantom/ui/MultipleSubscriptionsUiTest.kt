@@ -1,17 +1,22 @@
 package xyz.wraithnet.phantom.ui
 
 import android.content.Context
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
+import androidx.compose.ui.test.isNotEnabled
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import xyz.wraithnet.phantom.MainActivity
@@ -24,6 +29,8 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class MultipleSubscriptionsUiTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
     @Test fun serverGroupsAndRefreshButtonsKeepSeparateOwnersWithIdenticalServerIds() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = SubscriptionStore(context)
@@ -68,36 +75,33 @@ class MultipleSubscriptionsUiTest {
             prefs.edit().putString("selected_subscription_id", first.id)
                 .putString("selected_server_id", "same-server-id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-                assertNotNull(device.wait(Until.findObject(By.desc("Вкладка Серверы")), 12_000))
-                device.findObject(By.desc("Вкладка Серверы")).click()
+                compose.awaitVisible(hasContentDescription("Вкладка Серверы")).performTouchInput { click() }
                 val firstTitle = "${first.title} · 1"
                 val secondTitle = "${second.title} · 2"
-                assertNotNull("First subscription heading missing",
-                    device.wait(Until.findObject(By.text(firstTitle)), 8_000))
-                assertNotNull("Second subscription heading missing",
-                    device.wait(Until.findObject(By.text(secondTitle)), 8_000))
-                assertNull("Inactive subscription's servers must be collapsed",
-                    device.findObject(By.text("Швейцария тест")))
-                device.findObject(By.desc("Выбрать сервер Нидерланды тест")).click()
-                device.findObject(By.desc("Раскрыть подписку $secondTitle")).click()
-                val secondServer = By.desc("Выбрать сервер Швейцария тест")
-                requireNotNull(device.wait(Until.findObject(secondServer), 8_000)).click()
-                assertEquals(second.id, prefs.getString("selected_subscription_id", null))
-                assertEquals("same-server-id", prefs.getString("selected_server_id", null))
+                compose.awaitVisible(hasText(firstTitle))
+                compose.awaitVisible(hasText(secondTitle))
+                val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
+                compose.onNode(secondServer).assertDoesNotExist()
+                compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды тест"))
+                    .performTouchInput { click() }
+                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
+                    .performTouchInput { click() }
+                compose.awaitVisible(secondServer).performTouchInput { click() }
+                compose.runOnIdle {
+                    assertEquals(second.id, prefs.getString("selected_subscription_id", null))
+                    assertEquals("same-server-id", prefs.getString("selected_server_id", null))
+                }
 
-                val refreshFirst = By.desc("Обновить подписку $firstTitle")
-                val refreshSecond = By.desc("Обновить подписку $secondTitle")
-                requireNotNull(device.findObject(refreshFirst)).click()
+                val refreshFirst = hasContentDescription("Обновить подписку $firstTitle")
+                val refreshSecond = hasContentDescription("Обновить подписку $secondTitle")
+                compose.awaitVisible(refreshFirst and isEnabled()).performTouchInput { click() }
                 assertEquals("/first", server.takeRequest(8, TimeUnit.SECONDS)?.path)
-                assertTrue(device.wait(Until.hasObject(refreshFirst.enabled(false)), 5_000))
-                requireNotNull(device.findObject(refreshSecond.enabled(true))).click()
+                compose.awaitVisible(refreshFirst and isNotEnabled())
+                compose.awaitVisible(refreshSecond and isEnabled()).performTouchInput { click() }
                 assertEquals("/second", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 releaseResponses.countDown()
-                assertNotNull(device.wait(Until.findObject(
-                    By.text("Ошибка обновления · серверы сохранены")), 10_000))
-                assertTrue(device.wait(Until.hasObject(By.desc("Обновить подписку $firstTitle")
-                    .enabled(true)), 8_000))
+                compose.awaitVisible(hasText("Ошибка обновления · серверы сохранены"))
+                compose.awaitVisible(refreshFirst and isEnabled())
                 val subscriptions = store.read()
                 assertEquals(2, subscriptions.size)
                 assertEquals(refreshedLink, subscriptions.first().servers.single().raw)
