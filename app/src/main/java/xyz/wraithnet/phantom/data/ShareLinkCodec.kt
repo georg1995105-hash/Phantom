@@ -1,5 +1,6 @@
 package xyz.wraithnet.phantom.data
 
+import org.json.JSONObject
 import java.net.URI
 import java.net.URLDecoder
 import java.util.Base64
@@ -18,6 +19,9 @@ object ShareLinkCodec {
             .getOrElse { Base64.getUrlDecoder().decode(text) }
         return bytes.toString(Charsets.UTF_8)
     }
+
+    fun vmess(raw: String): JSONObject =
+        JSONObject(base64Text(raw.substringAfter("://").substringBefore('#')))
 
     data class Shadowsocks(
         val method: String,

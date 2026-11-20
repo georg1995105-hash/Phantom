@@ -20,7 +20,7 @@ object SingBoxBridgeConfig {
         val uri = URI(raw.trim())
         val protocol = uri.scheme?.lowercase() ?: ""
         require(protocol in schemes) { "Протокол не поддерживается sing-box" }
-        val host = requireNotNull(uri.host) { "Нет адреса сервера" }
+        val host = requireNotNull(uri.host) { "Нет адреса сервера" }.removeSurrounding("[", "]")
         require(uri.port in 1..65535) { "Неверный порт сервера" }
 
         val decodedUser = ShareLinkCodec.percentDecode(uri.rawUserInfo.orEmpty())

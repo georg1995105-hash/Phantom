@@ -4,9 +4,11 @@ import android.content.Context
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import xyz.wraithnet.phantom.service.ProfileTiming
 import xyz.wraithnet.phantom.service.ProfileLatencyClient
+import xyz.wraithnet.phantom.service.TcpPing
 
-/** One certificate-checked HTTP round trip through the selected profile. */
+/** Fixed TCP endpoints and routed/UDP profiles have distinct measurements. */
 object LatencyProbe {
     const val MAX_PARALLEL_PROBES = 3
     private const val TARGET = "https://cp.cloudflare.com/generate_204"
@@ -21,13 +23,23 @@ object LatencyProbe {
             .putInt("ping_timeout_seconds", seconds).apply()
     }
 
-    suspend fun measureResult(context: Context, server: ServerProfile): Long? =
-        measureResult(context, server, TARGET, timeoutMs(context))
+    internal fun tcpEndpoint(server: ServerProfile): TcpEndpoint? =
+        runCatching { TcpEndpoint.forProfile(server) }.getOrNull()
 
-    /** Enables a controlled origin in emulator tests without changing production TLS or routing. */
-    internal suspend fun measureResult(
+    internal suspend fun measureResult(context: Context, server: ServerProfile, endpoint: TcpEndpoint?): Long? {
+        val timeout = timeoutMs(context)
+        if (endpoint != null) return TcpPing.measure(context, endpoint, timeout)
+        val routed = probe(context, server, TARGET, timeout) ?: return null
+        val chosen = routed.tcpPeer ?: return routed.milliseconds
+        return TcpPing.measure(context, chosen, timeout)
+    }
+
+    /** A real response through the configured core, including its UDP transport or routing graph. */
+    internal suspend fun checkTraffic(
         context: Context, server: ServerProfile, target: String, timeout: Int,
-    ): Long? {
+    ): Long? = probe(context, server, target, timeout)?.milliseconds
+
+    private suspend fun probe(context: Context, server: ServerProfile, target: String, timeout: Int): ProfileTiming? {
         if (!ProtocolSupport.isSupported(server.scheme)) return null
         return try {
             val singBox = SingBoxBridgeConfig.requiresSingBox(server)

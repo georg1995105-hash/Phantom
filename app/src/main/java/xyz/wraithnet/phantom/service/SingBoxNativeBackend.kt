@@ -147,7 +147,7 @@ internal class SingBoxNativeBackend(
             }
         } as CommandServerHandler
 
-    fun start(raw: String, probePassword: String? = null): Int {
+    fun start(raw: String, probePassword: String? = null, pinned: android.net.Network? = null): Int {
         check(server == null) { "sing-box уже запущен" }
         initialize(context, dataDirectory)
         // Never announce a usable SOCKS listener with an empty physical network table.
@@ -157,7 +157,7 @@ internal class SingBoxNativeBackend(
         }.invoke(available) as Boolean
         check(hasNext) { "Android не обнаружил физическую сеть для TUIC/AnyTLS" }
         val port = ServerSocket(0).use { it.localPort }
-        val resolvedIp = networkEnvironment.resolveOutboundAddress(raw)
+        val resolvedIp = networkEnvironment.resolveOutboundAddress(raw, pinned)
         val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp, probePassword,
             autoDetectInterface = protectSocket != null)
         val current = CommandServer(callbacks(), platform())

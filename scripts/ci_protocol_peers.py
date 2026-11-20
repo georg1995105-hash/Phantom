@@ -5,6 +5,10 @@ import http.server
 import json
 from pathlib import Path
 import secrets
+import socket
+import socketserver
+import struct
+import threading
 import subprocess
 import sys
 import tempfile
@@ -29,8 +33,15 @@ def provider_balance(uid, host, port, stream):
         "outbounds": [
             {"tag": "block", "protocol": "blackhole"},
             outbound("pool-offline", "127.0.0.1", 34999),
-            outbound("fallback", host, port),
+            {**outbound("fallback", "entry.phantom.test", port),
+             "streamSettings": {**stream, "sockopt": {"domainStrategy": "ForceIPv4"}}},
+            {"tag": "lan-dns", "protocol": "freedom", "settings": {"finalRules": [
+                {"action": "allow", "network": "udp", "ip": [host + "/32"], "port": 34303},
+                {"action": "block"}]}},
         ],
+        "dns": {"tag": "provider-dns", "queryStrategy": "UseIPv4",
+                "hosts": {"through-tun.phantom.test": "198.18.0.1"},
+                "servers": [{"address": host, "port": 34303}]},
         "burstObservatory": {"subjectSelector": ["pool-"], "pingConfig": {
             "destination": "http://127.0.0.1:34301/Observe",
             "interval": "10s", "timeout": "1s", "sampling": 1,
@@ -40,8 +51,8 @@ def provider_balance(uid, host, port, stream):
                            "strategy": {"type": "leastLoad"}}],
             "rules": [
                 {"type": "field", "inboundTag": ["monitor"], "outboundTag": "block"},
+                {"type": "field", "inboundTag": ["provider-dns"], "outboundTag": "lan-dns"},
                 {"type": "field", "inboundTag": ["client"], "balancerTag": "auto"},
-                {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
             ],
         },
     }]
@@ -156,7 +167,8 @@ def prepare(directory, xray, singbox):
                                                  "full:example.com"], "outboundTag": "connectivity"},
                    ]}}
     for file, config in (("x.json", xray_server),
-                         ("s.json", {"inbounds": s_in, "outbounds": [{"type": "direct"}]})):
+                         ("s.json", {"inbounds": s_in, "outbounds": [{"type": "direct"}],
+                                     "route": {"rules": [{"port": [34304], "action": "reject"}]}})):
         (directory / file).write_text(json.dumps(config))
     return cases, balance, [
         [xray, "run", "-c", str(directory / "x.json")],
@@ -166,8 +178,48 @@ def prepare(directory, xray, singbox):
     ]
 
 
+class DnsPeer(socketserver.BaseRequestHandler):
+    def handle(self):
+        query, sock = self.request
+        question = b"\x05entry\x07phantom\x04test\x00"
+        if len(query) < 12 or not query[12:].startswith(question):
+            return
+        end = 12 + len(question) + 4
+        is_a = query[end - 4:end] == b"\x00\x01\x00\x01"
+        reply = query[:2] + b"\x81\x80" + struct.pack("!4H", 1, int(is_a), 0, 0) + query[12:end]
+        if is_a:
+            reply += bytes.fromhex("c00c000100010000001e0004") + socket.inet_aton("10.0.2.2")
+        sock.sendto(reply, self.client_address)
+
+
+class TcpEntry(socketserver.BaseRequestHandler):
+    empty = 0
+    payloads = 0
+    lock = threading.Lock()
+
+    def handle(self):
+        self.request.settimeout(5)
+        try:
+            data = self.request.recv(1)
+        except OSError:
+            return
+        with self.lock:
+            if data:
+                TcpEntry.payloads += 1
+            else:
+                TcpEntry.empty += 1
+
+
 class Probe(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/TcpEntryCounts":
+            with TcpEntry.lock:
+                body = json.dumps([TcpEntry.empty, TcpEntry.payloads]).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         time.sleep(.05)
         self.send_response(204)
         self.end_headers()
@@ -200,7 +252,19 @@ if __name__ == "__main__":
             path = Path(sys.argv[3])
             path.parent.mkdir(parents=True, exist_ok=True)
             path.with_name("provider-balance.json").write_text(json.dumps(balance))
+            observed = json.loads(json.dumps(balance))
+            config = observed[0]
+            config.pop("burstObservatory")
+            config["observatory"] = {"subjectSelector": ["live-"], "enableConcurrency": True,
+                                     "probeURL": "http://127.0.0.1:34301/Observe", "probeInterval": "10s"}
+            config["outbounds"][2]["tag"] = "live-secondary"
+            config["routing"]["balancers"] = [{"tag": "auto", "selector": ["live-"],
+                                               "strategy": {"type": "leastPing"}}]
+            path.with_name("observed-balance.json").write_text(json.dumps(observed))
             path.write_text(json.dumps(cases))
+            for server in (socketserver.UDPServer(("127.0.0.1", 34303), DnsPeer),
+                           socketserver.ThreadingTCPServer(("127.0.0.1", 34304), TcpEntry)):
+                threading.Thread(target=server.serve_forever, daemon=True).start()
             http.server.ThreadingHTTPServer(("127.0.0.1", 34301), Probe).serve_forever()
         finally:
             for child in children:

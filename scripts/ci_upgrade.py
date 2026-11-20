@@ -9,6 +9,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import urllib.request
 from ci_verify_installed_native import install_apk, verify_native
 
 PACKAGE = "xyz.wraithnet.phantom"
@@ -73,10 +74,9 @@ def wait_compact_latencies(min_count=2, attempts=30):
     raise AssertionError(f"Expected {min_count} measured server pings, found {last[:40]}")
 
 
-def verify_tun_transfer():
+def verify_tun_transfer(host="198.18.0.1"):
     # A separate Android UID enters TUN. This synthetic address exists only
     # behind the XHTTP peer, so a direct request cannot pass the check.
-    host = "198.18.0.1"
     payload = secrets.token_bytes(1048576)
     request = (f"POST /VpnTransfer HTTP/1.1\r\nHost: {host}:34301\r\n"
                f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n").encode() + payload
@@ -190,6 +190,7 @@ adb("shell", "svc", "data", "enable")
 peers = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
 profiles = [
     peers["tuic"] + "#AndroidCheckA",
+    "vless://00000000-0000-4000-8000-000000000001@10.0.2.2:34304#BareTcp",
     peers["hysteria2"] + "#QuicProbe",
     peers["anytls"] + "#AndroidCheckB",
     peers["VLESS-XHTTP"] + "#XhttpProbe",
@@ -211,11 +212,27 @@ adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
 node("Подключено")
 tap("Серверы")
-# Real URL probes for the group run alongside the active TUIC tunnel.
+# This port accepts a TCP handshake but has no proxy. The active TUIC peer rejects traffic to it.
+def entry_counts():
+    with urllib.request.urlopen("http://127.0.0.1:34301/TcpEntryCounts", timeout=2) as response:
+        return json.load(response)
+
+
 node("XhttpProbe")
-wait_compact_latencies(min_count=2)
+wait_compact_latencies(min_count=5)
+before, payloads = entry_counts()
+subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "2", "-W", "2", "10.0.2.2", "34304"],
+               input=b"via-tun", capture_output=True, timeout=8)
+assert entry_counts()[1] == payloads, "Control UID unexpectedly reached the physical TCP entry"
 tap("Проверить задержку подписки AndroidCheckA")
-wait_compact_latencies(min_count=2)
+wait_compact_latencies(min_count=5)
+for _ in range(30):
+    count, sent = entry_counts()
+    if count > before:
+        break
+    time.sleep(.2)
+assert count > before and sent == payloads, "Phantom did not open a fresh physical TCP socket"
+print("TCP handshake on the physical network with another TUIC node active; zero application bytes", flush=True)
 tap("Главная")
 node("Подключено")
 node("AndroidCheckA")
@@ -244,6 +261,34 @@ node("Автовыбор")
 tap("Подключить VPN")
 node("Подключено")
 verify_tun_transfer()
+verify_tun_transfer("through-tun.phantom.test")
+print("Android system DNS resolved the provider-only name and transferred data through TUN", flush=True)
+# Lose the physical network, regain it, then prove the requested VPN still transports bytes.
+adb("shell", "svc", "data", "disable")
+adb("shell", "svc", "wifi", "disable")
+for _ in range(24):
+    physical = adb("shell", "ip", "-4", "route", "show", "table", "all")
+    if not re.search(r"^default .*dev (?:wlan|eth|rmnet|radio)\w*", physical, re.M):
+        break
+    time.sleep(.5)
+else:
+    raise AssertionError("Android retained a physical default route during the offline check")
+adb("shell", "svc", "wifi", "enable")
+try:
+    deadline = time.monotonic() + 50
+    while True:
+        try:
+            verify_tun_transfer("through-tun.phantom.test")
+            break
+        except (AssertionError, subprocess.TimeoutExpired):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
+    node("Подключено")
+    print("Provider DNS and TUN transfer recovered after loss and return of Wi-Fi", flush=True)
+finally:
+    adb("shell", "svc", "data", "enable")
+
 print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
 screenshot("provider-auto-connected")
 tap("Серверы")

@@ -45,15 +45,17 @@ object SubscriptionParser {
         val uri = runCatching { URI(line) }.getOrNull()
         val fragment = uri?.rawFragment?.let(ShareLinkCodec::percentDecode)
         val ss = if (scheme == "ss") runCatching { ShareLinkCodec.shadowsocks(line) }.getOrNull() else null
-        val host = ss?.host ?: uri?.host ?: ""
+        val vmess = if (scheme == "vmess") runCatching { ShareLinkCodec.vmess(line) }.getOrNull() else null
+        val host = ss?.host ?: vmess?.optString("add") ?: uri?.host.orEmpty()
+        val name = fragment?.takeIf(String::isNotBlank) ?: vmess?.optString("ps")?.takeIf(String::isNotBlank)
         return ServerProfile(
             id = "$scheme-$index-${line.hashCode()}",
-            name = fragment?.takeIf { it.isNotBlank() } ?: host.ifBlank { "Сервер ${index + 1}" },
+            name = name ?: host.ifBlank { "Сервер ${index + 1}" },
             scheme = scheme,
             address = host,
-            port = ss?.port ?: uri?.port?.takeIf { it > 0 },
+            port = ss?.port ?: vmess?.optInt("port", 443) ?: uri?.port?.takeIf { it > 0 },
             raw = line,
-            countryFlag = extractFlag(fragment),
+            countryFlag = extractFlag(name),
         )
     }
 

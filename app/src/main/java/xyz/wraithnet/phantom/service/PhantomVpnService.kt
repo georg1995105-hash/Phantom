@@ -1,5 +1,8 @@
 package xyz.wraithnet.phantom.service
 
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.util.UUID
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.PendingIntent
@@ -232,6 +235,9 @@ class PhantomVpnService : VpnService() {
                 XrayConfigBuilder.build(profile)
             }
             val config = dns.applyToXray(FragmentationOptions.load(this).apply(baseConfig))
+            val providerDns = if (scheme == "xray" && dns.mode == VpnDnsSettings.Mode.DEFAULT)
+                XrayConfigBuilder.withProviderTunDns(config) else null
+            val systemDns = if (providerDns == null) dns.addresses() else listOf(XrayConfigBuilder.TUN_RESOLVER)
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
@@ -242,7 +248,7 @@ class PhantomVpnService : VpnService() {
                 .addAddress("fd00:1111::2", 64)
                 .addRoute("::", 0)
                 .also { builder ->
-                    dns.addresses().forEach { builder.addDnsServer(it) }
+                    systemDns.forEach { builder.addDnsServer(it) }
                     AppRouting.apply(this, builder)
                 }
                 .establish() ?: error("Android не создал VPN-интерфейс")
@@ -251,7 +257,12 @@ class PhantomVpnService : VpnService() {
             XrayEnvironment.initialize(applicationContext)
             val active = Libv2ray.newCoreController(callback)
             controller = active
-            active.startLoop(config, tun.fd)
+            val checkPort = if (scheme == "xray")
+                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort } else null
+            val password = UUID.randomUUID().toString()
+            val runningConfig = if (checkPort == null) config else
+                XrayConfigBuilder.withConnectivityCheck(providerDns ?: config, checkPort, password)
+            active.startLoop(runningConfig, tun.fd)
 
             // Core startup alone is not proof of Internet access.
             // Measure via the configured Xray outbound, not device networking.
@@ -264,7 +275,11 @@ class PhantomVpnService : VpnService() {
                 check(command == null || command == commandEpoch.get()) {
                     "Запрос подключения заменён новым действием"
                 }
-                val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
+                val value = runCatching {
+                    if (checkPort == null) active.measureDelay(endpoint)
+                    else measureHttp(checkPort, password, endpoint, 4_000,
+                        expectedStatus = if (endpoint.endsWith("/generate_204")) 204 else 200)
+                }.getOrDefault(-1L)
                 if (value >= 0L) {
                     verified = true
                     break

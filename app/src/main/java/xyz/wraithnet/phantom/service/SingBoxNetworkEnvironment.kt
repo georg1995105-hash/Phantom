@@ -39,13 +39,13 @@ internal class SingBoxNetworkEnvironment(
      * sing-box 1.14 requires a resolver when dialing outbound hostnames; an IP
      * literal avoids using the incomplete app-provided DNS transport.
      */
-    fun resolveOutboundAddress(raw: String): String {
-        val host = URI(raw.trim()).host?.takeIf { it.isNotBlank() }
+    fun resolveOutboundAddress(raw: String, pinned: Network? = null): String {
+        val host = URI(raw.trim()).host?.removeSurrounding("[", "]")?.takeIf { it.isNotBlank() }
             ?: error("Не указан адрес TUIC/AnyTLS")
         if (host.contains(':') || host.all { it.isDigit() || it == '.' }) {
             return host.substringBefore('%')
         }
-        val network = physicalNetwork()
+        val network = pinned ?: connectivity.physicalNetwork()
             ?: error("Нет доступной физической сети для DNS TUIC/AnyTLS")
         val addresses = try {
             network.getAllByName(host).toList()
@@ -58,27 +58,8 @@ internal class SingBoxNetworkEnvironment(
         return resolved.hostAddress.substringBefore('%')
     }
 
-    private fun physicalNetwork(): Network? {
-        return connectivity.allNetworks
-            .mapNotNull { network ->
-                val caps = connectivity.getNetworkCapabilities(network) ?: return@mapNotNull null
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                ) return@mapNotNull null
-                val link = connectivity.getLinkProperties(network)
-                if (link?.interfaceName.isNullOrBlank()) return@mapNotNull null
-                val rank =
-                    (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 100 else 0) +
-                    (if (network == connectivity.activeNetwork) 80 else 0) +
-                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) 20 else 0) +
-                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) 15 else 0) +
-                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) 10 else 0)
-                Triple(network, caps, rank)
-            }.maxByOrNull { it.third }?.first
-    }
-
     private fun notifyDefault(listener: InterfaceUpdateListener) {
-        val network = physicalNetwork()
+        val network = connectivity.physicalNetwork()
         val caps = network?.let(connectivity::getNetworkCapabilities)
         val name = network?.let(connectivity::getLinkProperties)?.interfaceName
         val index = name?.let { runCatching { NetworkInterface.getByName(it)?.index }.getOrNull() }

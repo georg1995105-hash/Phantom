@@ -1,6 +1,5 @@
 package xyz.wraithnet.phantom.data
 
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
@@ -11,16 +10,27 @@ object XrayConfigBuilder {
         val root = JSONObject(config)
         // Keep the same inbound tag and routing, including provider balancers.
         val inbound = root.getJSONArray("inbounds").getJSONObject(0)
-        inbound.put("protocol", "http").put("listen", "127.0.0.1").put("port", port)
-            .put("settings", JSONObject().put("accounts", JSONArray().put(
-                JSONObject().put("user", "phantom").put("pass", password)
-            )))
+        configureHttpProbe(inbound, port, password)
         // A direct route must not produce a proxy latency. Still retain any
         // freedom outbound used to dial a real proxy's transport.
         val outbounds = root.getJSONArray("outbounds")
         val original = (0 until outbounds.length()).map(outbounds::getJSONObject)
         val tags = original.map { it.optString("tag") }.filter(String::isNotEmpty)
         val helpers = mutableListOf<String>()
+        // Native DNS dispatches with dns.tag (or a per-server tag). Its traffic
+        // must still follow the provider rules even when the probe forbids direct egress.
+        val dnsTags = mutableSetOf<String>()
+        root.optJSONObject("dns")?.let { dns ->
+            val default = dns.optString("tag").ifBlank { "phantom-dns-$password" }
+            dns.put("tag", default)
+            dnsTags.add(default)
+            val servers = dns.optJSONArray("servers") ?: JSONArray()
+            for (i in 0 until servers.length()) {
+                servers.optJSONObject(i)?.optString("tag")?.takeIf(String::isNotBlank)?.let(dnsTags::add)
+            }
+        }
+        val dnsDetours = mutableMapOf<String, String>()
+        var defaultDnsDetour: String? = null
         val sockets = original.flatMap { outbound ->
             val stream = outbound.optJSONObject("streamSettings")
             val xhttp = stream?.let { it.optJSONObject("xhttpSettings") ?: it.optJSONObject("splithttpSettings") }
@@ -31,30 +41,118 @@ object XrayConfigBuilder {
             if (outbound.optString("protocol") != "freedom") continue
             val tag = outbound.optString("tag")
             val detours = sockets.filter { tag.isNotEmpty() && it.optString("dialerProxy") == tag }
-            if (detours.isNotEmpty()) {
+            val chains = original.mapNotNull { it.optJSONObject("proxySettings") }
+                .filter { tag.isNotEmpty() && it.optString("tag") == tag }
+            if (detours.isNotEmpty() || chains.isNotEmpty() || dnsTags.isNotEmpty()) {
                 // Pick a prefix no original tag can select, even after expanding a catch-all.
                 val prefix = ('\uE000'..'\uF8FF').first { candidate -> tags.none { it.first() == candidate } }
                 val helperTag = "${prefix}phantom-probe-dial-$index"
                 helpers.add(helperTag)
                 detours.forEach { it.put("dialerProxy", helperTag) }
+                chains.forEach { it.put("tag", helperTag) }
+                if (tag.isNotBlank()) dnsDetours[tag] = helperTag
+                if (index == 0) defaultDnsDetour = helperTag
                 outbounds.put(JSONObject(outbound.toString()).put("tag", helperTag))
             }
             outbounds.put(index, JSONObject().put("tag", tag).put("protocol", "blackhole"))
         }
+        if (dnsTags.isNotEmpty() && (dnsDetours.isNotEmpty() || defaultDnsDetour != null)) {
+            val routing = root.optJSONObject("routing") ?: JSONObject().also { root.put("routing", it) }
+            val rules = routing.optJSONArray("rules") ?: JSONArray()
+            val updated = JSONArray()
+            for (i in 0 until rules.length()) {
+                val rule = rules.getJSONObject(i)
+                val helper = dnsDetours[rule.optString("outboundTag")]
+                if (helper != null && rule.has("outboundTag")) {
+                    val inbounds = rule.optJSONArray("inboundTag")
+                    val relevant = dnsTags.filter { tag ->
+                        inbounds == null || (0 until inbounds.length()).any { inbounds.optString(it) == tag }
+                    }
+                    if (relevant.isNotEmpty()) updated.put(JSONObject(rule.toString())
+                        .put("inboundTag", JSONArray(relevant)).put("outboundTag", helper))
+                }
+                updated.put(rule)
+            }
+            defaultDnsDetour?.let { helper ->
+                updated.put(JSONObject().put("type", "field").put("inboundTag", JSONArray(dnsTags))
+                    .put("outboundTag", helper))
+            }
+            routing.put("rules", updated)
+        }
         // Xray's selectors are prefixes. Keep internal dialers out of catch-all balancers and observers.
         val balancers = root.optJSONObject("routing")?.optJSONArray("balancers") ?: JSONArray()
         for (index in 0 until balancers.length()) {
-            balancers.optJSONObject(index)?.excludeLatencyDialers("selector", helpers, tags)
+            balancers.optJSONObject(index)?.excludeInternalOutbounds("selector", helpers, tags)
         }
-        root.optJSONObject("observatory")?.excludeLatencyDialers("subjectSelector", helpers, tags)
-        root.optJSONObject("burstObservatory")?.excludeLatencyDialers("subjectSelector", helpers, tags)
+        root.optJSONObject("observatory")?.excludeInternalOutbounds("subjectSelector", helpers, tags)
+        root.optJSONObject("burstObservatory")?.excludeInternalOutbounds("subjectSelector", helpers, tags)
         root.remove("api")
         root.remove("metrics")
         root.put("log", JSONObject().put("loglevel", "none").put("access", "none"))
         return root.toString()
     }
 
-    private fun JSONObject.excludeLatencyDialers(key: String, helpers: List<String>, original: List<String>) {
+    internal const val TUN_RESOLVER = "10.111.0.1"
+
+    /** Connect Android's system resolver to the DNS policy supplied in a full profile. */
+    internal fun withProviderTunDns(config: String): String? {
+        val root = JSONObject(config)
+        val dns = root.optJSONObject("dns") ?: return null
+        if ((dns.optJSONArray("servers")?.length() ?: 0) == 0 &&
+            (dns.optJSONObject("hosts")?.length() ?: 0) == 0) return null
+        val outbounds = root.getJSONArray("outbounds")
+        val existing = (0 until outbounds.length()).map(outbounds::getJSONObject)
+        val existingDns = existing.singleOrNull { it.optString("protocol") == "dns" }
+            ?.optString("tag")?.takeIf(String::isNotBlank)
+        val routing = root.optJSONObject("routing") ?: JSONObject().also { root.put("routing", it) }
+        val resolver = existingDns ?: run {
+            val tags = existing.map { it.optString("tag") }.filter(String::isNotEmpty)
+            val prefix = ('\uE000'..'\uF8FF').first { prefix -> tags.none { it.first() == prefix } }
+            val tag = "${prefix}phantom-tun-dns"
+            outbounds.put(JSONObject().put("protocol", "dns").put("tag", tag))
+            val balancers = routing.optJSONArray("balancers") ?: JSONArray()
+            for (i in 0 until balancers.length())
+                balancers.getJSONObject(i).excludeInternalOutbounds("selector", listOf(tag), tags)
+            for (key in listOf("observatory", "burstObservatory"))
+                root.optJSONObject(key)?.excludeInternalOutbounds("subjectSelector", listOf(tag), tags)
+            tag
+        }
+        // Only the Android resolver at our own TUN gateway gets this adapter.
+        // Its upstream queries retain the provider's DNS tags, order, routing and fallbacks.
+        val rules = JSONArray().put(JSONObject().put("type", "field").put("ip", JSONArray().put(TUN_RESOLVER))
+            .put("port", 53).put("inboundTag", JSONArray().put("tun")).put("outboundTag", resolver))
+        routing.optJSONArray("rules")?.let { original ->
+            for (i in 0 until original.length()) rules.put(original.get(i))
+        }
+        routing.put("rules", rules)
+        return root.toString()
+    }
+
+    private fun configureHttpProbe(inbound: JSONObject, port: Int, password: String) {
+        inbound.put("protocol", "http").put("listen", "127.0.0.1").put("port", port)
+            .put("settings", JSONObject().put("accounts", JSONArray().put(
+                JSONObject().put("user", "phantom").put("pass", password)
+            )))
+    }
+
+    /** Native CoreController.measureDelay has no inbound tag. Check the routing used by Android apps. */
+    internal fun withConnectivityCheck(config: String, port: Int, password: String): String {
+        val root = JSONObject(config)
+        val inbounds = root.getJSONArray("inbounds")
+        val tun = inbounds.getJSONObject(0)
+        val probeTag = "phantom-check-$password"
+        val probe = JSONObject(tun.toString()).put("tag", probeTag)
+        configureHttpProbe(probe, port, password)
+        inbounds.put(probe)
+        val rules = root.optJSONObject("routing")?.optJSONArray("rules") ?: JSONArray()
+        for (i in 0 until rules.length()) {
+            val tags = rules.getJSONObject(i).optJSONArray("inboundTag") ?: continue
+            if ((0 until tags.length()).any { tags.optString(it) == tun.getString("tag") }) tags.put(probeTag)
+        }
+        return root.toString()
+    }
+
+    private fun JSONObject.excludeInternalOutbounds(key: String, helpers: List<String>, original: List<String>) {
         if (helpers.isEmpty()) return
         val array = optJSONArray(key) ?: return
         val selectors = (0 until array.length()).map(array::getString)
@@ -66,18 +164,7 @@ object XrayConfigBuilder {
     fun build(profile: ServerProfile): String {
         val source = profile.raw.trim()
         if (source.startsWith("{")) return buildJson(source)
-        require(profile.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")) {
-            "${profile.scheme.uppercase()} работает через sing-box и пока не подключён"
-        }
-
-        val outbound = when (profile.scheme.lowercase()) {
-            "vless" -> vless(profile.raw)
-            "vmess" -> vmess(profile.raw)
-            "trojan" -> trojan(profile.raw)
-            "ss" -> shadowsocks(profile.raw)
-            "hysteria", "hysteria2", "hy2" -> hysteria2(profile.raw)
-            else -> error("Неподдерживаемый Xray-протокол")
-        }.put("tag", "proxy")
+        val outbound = shareOutbound(profile).put("tag", "proxy")
 
         return enableTrafficStats(JSONObject()
             .put("log", JSONObject().put("loglevel", "warning"))
@@ -104,6 +191,21 @@ object XrayConfigBuilder {
                     .put("outboundTag", "proxy"))))
             .put("dns", JSONObject().put("servers", JSONArray().put("1.1.1.1").put("8.8.8.8"))))
             .toString()
+    }
+
+    internal fun shareOutbound(profile: ServerProfile): JSONObject {
+        require(profile.scheme.lowercase() in setOf("vless", "vmess", "trojan", "ss", "hysteria", "hysteria2", "hy2")) {
+            "${profile.scheme.uppercase()} работает через sing-box и пока не подключён"
+        }
+
+        return when (profile.scheme.lowercase()) {
+            "vless" -> vless(profile.raw)
+            "vmess" -> vmess(profile.raw)
+            "trojan" -> trojan(profile.raw)
+            "ss" -> shadowsocks(profile.raw)
+            "hysteria", "hysteria2", "hy2" -> hysteria2(profile.raw)
+            else -> error("Неподдерживаемый Xray-протокол")
+        }
     }
 
     /** Xray keeps the stable Android TUN; SOCKS5 forwards TCP and UDP into sing-box.
@@ -268,8 +370,7 @@ object XrayConfigBuilder {
     }
 
     private fun vmess(raw: String): JSONObject {
-        val encoded = raw.substringAfter("vmess://").substringBefore('#')
-        val json = JSONObject(ShareLinkCodec.base64Text(encoded))
+        val json = ShareLinkCodec.vmess(raw)
         val query = mapOf(
             "type" to json.optString("net", "tcp"),
             "security" to json.optString("tls"),
@@ -282,6 +383,7 @@ object XrayConfigBuilder {
                 json.optString("type").takeIf { json.optString("net") == "grpc" }.orEmpty()
             },
             "authority" to json.optString("authority"),
+            "extra" to json.optString("extra"),
             "alpn" to json.optString("alpn"),
             "fp" to json.optString("fp"),
         ).filterValues(String::isNotBlank)

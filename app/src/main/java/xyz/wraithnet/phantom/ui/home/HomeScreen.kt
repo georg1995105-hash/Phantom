@@ -43,12 +43,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
+import xyz.wraithnet.phantom.data.TcpEndpoint
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
@@ -357,7 +359,8 @@ fun HomeScreen(
         if (context.getSystemService(android.app.ActivityManager::class.java)?.isLowRamDevice == true) 1
         else LatencyProbe.MAX_PARALLEL_PROBES
     }
-    val pingLimit = remember(pingParallelism) { Semaphore(pingParallelism) }
+    val nativePingLimit = remember(pingParallelism) { Semaphore(pingParallelism) }
+    val tcpPingLimit = remember { Semaphore(12) }
     fun probeSubscription(item: Subscription, notify: Boolean = true) {
         if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
         probing = probing + item.id
@@ -367,28 +370,43 @@ fun HomeScreen(
                 val probeOrder = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
                     .sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 coroutineScope {
-                    val pending = probeOrder.iterator()
-                    repeat(minOf(pingParallelism, probeOrder.size)) {
-                        launch {
-                            // The workers share this iterator on Main and yield at each probe.
-                            while (pending.hasNext()) {
-                                val server = pending.next()
-                                val key = pingKey(item, server)
-                                pingLimit.withPermit {
-                                    if (currentProfileRaws[key] != server.raw) return@withPermit
-                                    measuring[key] = server.raw
-                                    try {
-                                        val result = LatencyProbe.measureResult(context.applicationContext, server)
-                                        if (currentProfileRaws[key] == server.raw) {
-                                            if (result != null) latencies[key] = result else latencies.remove(key)
+                    val tcp = Channel<Pair<ServerProfile, TcpEndpoint?>>(Channel.UNLIMITED)
+                    val routed = Channel<Pair<ServerProfile, TcpEndpoint?>>(Channel.UNLIMITED)
+                    launch(Dispatchers.Default) {
+                        try {
+                            for (server in probeOrder) {
+                                val endpoint = LatencyProbe.tcpEndpoint(server)
+                                (if (endpoint != null) tcp else routed).send(server to endpoint)
+                            }
+                        } finally {
+                            tcp.close()
+                            routed.close()
+                        }
+                    }
+                    // A cold core or an unresponsive UDP peer cannot occupy a TCP worker.
+                    fun workers(queue: Channel<Pair<ServerProfile, TcpEndpoint?>>, count: Int, limit: Semaphore) {
+                        repeat(minOf(count, probeOrder.size)) {
+                            launch {
+                                for ((server, endpoint) in queue) {
+                                    val key = pingKey(item, server)
+                                    limit.withPermit {
+                                        if (currentProfileRaws[key] != server.raw) return@withPermit
+                                        measuring[key] = server.raw
+                                        try {
+                                            val result = LatencyProbe.measureResult(context.applicationContext, server, endpoint)
+                                            if (currentProfileRaws[key] == server.raw) {
+                                                if (result != null) latencies[key] = result else latencies.remove(key)
+                                            }
+                                        } finally {
+                                            measuring.remove(key)
                                         }
-                                    } finally {
-                                        measuring.remove(key)
                                     }
                                 }
                             }
                         }
                     }
+                    workers(tcp, 6, tcpPingLimit)
+                    workers(routed, pingParallelism, nativePingLimit)
                 }
                 when {
                     !notify -> ""
