@@ -578,7 +578,20 @@ fun HomeScreen(
         topBar = {
             Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
         },
-        bottomBar = { TabBar(tab) { tab = it } }
+        bottomBar = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (tab == Destination.HOME) {
+                    ConnectionImportActions(
+                        onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
+                        onScanQr = if (tv || !context.packageManager.hasSystemFeature(
+                                android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) null else ::scanQr,
+                        hasSubscriptions = subscriptions.isNotEmpty(),
+                        importing = importBusy,
+                    )
+                }
+                TabBar(tab) { tab = it }
+            }
+        }
     ) { inner ->
         val colors = MaterialTheme.colorScheme
         Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
@@ -602,11 +615,7 @@ fun HomeScreen(
                     },
                     subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
                     subscriptionAvailable = selectedMatch != null,
-                    onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
-                    onScanQr = if (tv || !context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY))
-                        null else ::scanQr,
-                    hasSubscriptions = subscriptions.isNotEmpty(),
-                    importing = importBusy)
+                    hasSubscriptions = subscriptions.isNotEmpty())
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                     probing = probing, refreshing = refreshing, failed = refreshFailed,
                     onRefresh = { sub -> scope.launch { refresh(sub) } },

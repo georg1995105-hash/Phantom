@@ -105,9 +105,7 @@ internal fun PageTitle(page: Destination) {
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
-    subscriptionAvailable: Boolean,
-    onQuickImport: () -> Unit, onScanQr: (() -> Unit)?, hasSubscriptions: Boolean,
-    importing: Boolean) {
+    subscriptionAvailable: Boolean, hasSubscriptions: Boolean) {
     val c = MaterialTheme.colorScheme
     val tv = isTelevision()
     val initialFocus = remember { FocusRequester() }
@@ -116,95 +114,92 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val gap = if (!hasSubscriptions) 12.dp else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(gap))
-                val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
-                    c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
-                    ring.copy(alpha = .35f)))
-                Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
-                    .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
-                        if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
-                    .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
-                    // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
-                    .clickable(enabled = tv || !starting) { if (!starting) toggle() },
-                    contentAlignment = Alignment.Center) {
-                    if (starting) CircularProgressIndicator(Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
-                    Icon(Icons.Default.PowerSettingsNew, when {
-                        connected -> "Отключить VPN"
-                        starting -> "Подключение"
-                        else -> "Подключить VPN"
-                    },
-                        Modifier.size(62.dp), tint = c.onSurface)
-                }
-                LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
-                Spacer(Modifier.height(16.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center) {
-                    if (connected) {
-                        Icon(Icons.Default.CheckCircle, null, Modifier.size(17.dp), tint = c.primary)
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text(when (status) {
-                        "connected" -> "Подключено"
-                        "starting" -> "Подключение…"
-                        "error" -> "Соединение не установлено"
-                        else -> "Отключено"
-                    }, color = if (connected) c.primary else c.onBackground,
-                        textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
-                }
-                TextButton(onClick = onRefreshSubscription,
-                    enabled = subscriptionAvailable && !subscriptionRefreshing,
-                    modifier = Modifier.tvFocusRing().heightIn(min = 48.dp).semantics {
-                        contentDescription = "Обновить выбранную подписку"
-                    }) {
-                    if (subscriptionRefreshing) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.Refresh, contentDescription = null,
-                            modifier = Modifier.size(18.dp))
-                    }
-                    Spacer(Modifier.width(4.dp))
-                    Text("Обновить", fontSize = 13.sp)
-                }
-                if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
-                Spacer(Modifier.height(12.dp))
-                Panel {
-                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        if (server != null) Text(CountryFlags.flag(server), fontSize = 28.sp)
-                        else Icon(Icons.Default.Storage, null)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(server?.let(::displayServerName) ?: "Выбрать сервер", fontWeight = FontWeight.SemiBold)
-                            server?.let { Caption(protocolLabel(it)) }
-                        }
-                        Icon(Icons.Default.ChevronRight, "К серверам")
-                    }
-                }
-                Spacer(Modifier.height(12.dp))
-                Panel {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp)) {
-                        val time = String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-                        listOf((if (download < 0) "—" else sizeLabel(download)) to "Входящий", (if (upload < 0) "—" else sizeLabel(upload)) to "Исходящий",
-                            time to "Время").forEach { (value, label) ->
-                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Caption(label)
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            Spacer(Modifier.height(gap))
+            val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
+                c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
+                ring.copy(alpha = .35f)))
+            Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
+                .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
+                    if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
+                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
+                // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
+                .clickable(enabled = tv || !starting) { if (!starting) toggle() },
+                contentAlignment = Alignment.Center) {
+                if (starting) CircularProgressIndicator(Modifier.fillMaxSize().padding(3.dp), strokeWidth = 2.dp)
+                Icon(Icons.Default.PowerSettingsNew, when {
+                    connected -> "Отключить VPN"
+                    starting -> "Подключение"
+                    else -> "Подключить VPN"
+                },
+                    Modifier.size(62.dp), tint = c.onSurface)
             }
-            ConnectionImportActions(onQuickImport, onScanQr, hasSubscriptions, importing)
+            LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
+            Spacer(Modifier.height(16.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center) {
+                if (connected) {
+                    Icon(Icons.Default.CheckCircle, null, Modifier.size(17.dp), tint = c.primary)
+                    Spacer(Modifier.width(6.dp))
+                }
+                Text(when (status) {
+                    "connected" -> "Подключено"
+                    "starting" -> "Подключение…"
+                    "error" -> "Соединение не установлено"
+                    else -> "Отключено"
+                }, color = if (connected) c.primary else c.onBackground,
+                    textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
+            }
+            TextButton(onClick = onRefreshSubscription,
+                enabled = subscriptionAvailable && !subscriptionRefreshing,
+                modifier = Modifier.tvFocusRing().heightIn(min = 48.dp).semantics {
+                    contentDescription = "Обновить выбранную подписку"
+                }) {
+                if (subscriptionRefreshing) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null,
+                        modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(4.dp))
+                Text("Обновить", fontSize = 13.sp)
+            }
+            if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
+            Spacer(Modifier.height(12.dp))
+            Panel {
+                Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    if (server != null) Text(CountryFlags.flag(server), fontSize = 28.sp)
+                    else Icon(Icons.Default.Storage, null)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(server?.let(::displayServerName) ?: "Выбрать сервер", fontWeight = FontWeight.SemiBold)
+                        server?.let { Caption(protocolLabel(it)) }
+                    }
+                    Icon(Icons.Default.ChevronRight, "К серверам")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Panel {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp)) {
+                    val time = String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+                    listOf((if (download < 0) "—" else sizeLabel(download)) to "Входящий", (if (upload < 0) "—" else sizeLabel(upload)) to "Исходящий",
+                        time to "Время").forEach { (value, label) ->
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Caption(label)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun ConnectionImportActions(
+internal fun ConnectionImportActions(
     onQuickImport: () -> Unit,
     onScanQr: (() -> Unit)?,
     hasSubscriptions: Boolean,

@@ -69,7 +69,9 @@ class QuickSubscriptionUiTest {
                     assertEquals(link, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
                 }
                 compose.awaitVisible(shortcut).performTouchInput { click() }
-                compose.awaitVisible(hasText("Подписка добавлена"))
+                val confirmation = compose.awaitVisible(hasText("Подписка добавлена"))
+                    .getUnclippedBoundsInRoot()
+                assertTrue(confirmation.bottom <= compose.awaitVisible(shortcut).getUnclippedBoundsInRoot().top)
                 assertEquals(1, store.read().size)
                 assertEquals("First", store.read().single().servers.single().name)
 
