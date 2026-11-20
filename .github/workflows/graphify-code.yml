@@ -1,0 +1,65 @@
+name: Graphify local code graph
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'scripts/**'
+      - '.github/workflows/graphify-code.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'scripts/**'
+      - '.github/workflows/graphify-code.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graphify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  code-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated, pinned Graphify
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/phantom-graphify-venv
+          /tmp/phantom-graphify-venv/bin/python -m pip install --disable-pip-version-check 'graphifyy==0.9.100'
+          /tmp/phantom-graphify-venv/bin/graphify --version
+      - name: Generate local AST graph without LLM or telemetry
+        shell: bash
+        env:
+          GRAPHIFY_BACKEND: none
+          GRAPHIFY_QUERY_LOG_DISABLE: '1'
+        run: |
+          set -euo pipefail
+          /tmp/phantom-graphify-venv/bin/graphify extract . --code-only
+          test -s graphify-out/graph.json
+          python -m json.tool graphify-out/graph.json >/dev/null
+          python - <<'PY'
+          import json
+          with open('graphify-out/graph.json', encoding='utf-8') as f:
+              g=json.load(f)
+          print('GRAPHIFY_JSON_VALID', len(g))
+          PY
+      - name: Upload queryable graph
+        uses: actions/upload-artifact@v4
+        with:
+          name: graphify-code-${{ github.sha }}
+          path: |
+            graphify-out/graph.json
+            graphify-out/GRAPH_REPORT.md
+          if-no-files-found: error
+          retention-days: 7
