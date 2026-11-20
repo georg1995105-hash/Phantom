@@ -3,9 +3,11 @@ package xyz.wraithnet.phantom.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.ParcelFileDescriptor
 import android.os.PersistableBundle
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -70,7 +72,36 @@ class QuickSubscriptionUiTest {
                             it.contains("mCurrentFocus") || it.contains("mFocusedApp") || it.contains("mScreenOn")
                         }.joinToString("\n")
                     }
-                    throw AssertionError("Android did not focus the clipboard test window:\n$window", error)
+                    // CI's default launcher (Quickstep) may ANR after heavyweight JNI
+                    // integration tests. Recover ONLY that verified system ANR; keep
+                    // every Phantom focus / import assertion and fail on app ANRs.
+                    val launcherAnr = window.lineSequence().any {
+                        it.contains("mCurrentFocus=") &&
+                            it.contains("Application Not Responding: com.android.launcher3")
+                    }
+                    val root = automation.rootInActiveWindow
+                    val knownTitle = root?.findAccessibilityNodeInfosByText("Quickstep isn't responding")
+                        ?.isNotEmpty() == true
+                    val close = root?.findAccessibilityNodeInfosByText("Close app")?.firstOrNull()
+                    if (!launcherAnr || !knownTitle ||
+                        close?.performAction(AccessibilityNodeInfo.ACTION_CLICK) != true
+                    ) {
+                        throw AssertionError("Android did not focus the clipboard test window:\n$window", error)
+                    }
+                    context.startActivity(Intent(context, MainActivity::class.java).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    })
+                    try {
+                        compose.waitUntil(10_000) {
+                            var focused = false
+                            scenario.onActivity { focused = it.hasWindowFocus() }
+                            focused
+                        }
+                    } catch (retry: ComposeTimeoutException) {
+                        throw AssertionError("System Quickstep ANR was dismissed, but Phantom still " +
+                            "did not regain window focus:\n$window", retry)
+                    }
                 }
                 scenario.onActivity {
                     val clip = ClipData.newPlainText("Phantom test", link)

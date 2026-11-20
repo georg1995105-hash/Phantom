@@ -32,8 +32,9 @@ sys.excepthook = report_crash
 def node(label, attempts=8):
     launcher_recovered = False
     # Native JNI tests can temporarily exhaust the shared CI emulator and
-    # cause a *system Pixel Launcher* ANR, independent of Phantom. Recover
-    # only that specific system dialog, never an app crash or missing UI.
+    # cause a SYSTEM launcher ANR (Pixel Launcher or AOSP Quickstep). Verify
+    # that the focused ANR window belongs to a known launcher package before
+    # dismissing it. Never suppress Phantom ANRs or missing UI assertions.
     for _ in range(max(attempts, 20) if label == "UpgradeCheck" else attempts):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
@@ -42,8 +43,15 @@ def node(label, attempts=8):
             if label in values:
                 return item
         visible_text = " ".join((item.get("text") or "") for item in root.iter("node"))
-        if (label == "UpgradeCheck" and not launcher_recovered and
-                "Pixel Launcher isn't responding" in visible_text):
+        known_launcher = ("Pixel Launcher isn't responding" in visible_text or
+                          "Quickstep isn't responding" in visible_text)
+        focused_window = adb("shell", "dumpsys", "window", "displays") if known_launcher else ""
+        launcher_anr = re.search(
+            r"mCurrentFocus=.*Application Not Responding: "
+            r"(?:com\.android\.launcher3|com\.google\.android\.apps\.nexuslauncher)",
+            focused_window,
+        ) is not None
+        if label == "UpgradeCheck" and not launcher_recovered and launcher_anr:
             dismiss = next((item for item in root.iter("node")
                 if item.get("text") == "Close app"), None)
             if dismiss is not None:
