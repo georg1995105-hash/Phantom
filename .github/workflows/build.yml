@@ -252,7 +252,8 @@ jobs:
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 35
+          # The Android 15 experimental image also crashed in Android SystemUI.
+          api-level: 36
           target: google_apis_ps16k
           arch: x86_64
           profile: pixel_6
