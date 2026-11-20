@@ -15,6 +15,7 @@ import android.os.Message
 import android.os.Messenger
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
@@ -24,6 +25,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import libv2ray.CoreCallbackHandler
 import libv2ray.Libv2ray
 import okhttp3.Credentials
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
@@ -40,8 +42,11 @@ import kotlin.coroutines.resume
 
 private const val CONFIG = "config"
 private const val TARGET = "target"
-private const val DEADLINE = "deadline"
+private const val SETUP_DEADLINE = "setupDeadline"
+private const val NETWORK_TIMEOUT = "networkTimeout"
+private const val SETUP_TIMEOUT_MS = 8_000L
 private const val RESULT = "result"
+private const val LOG_TAG = "PhantomLatency"
 
 /** Bound only for a measurement. The VPN's native processes and TUN stay untouched. */
 abstract class ProfileLatencyService(parallelism: Int) : Service() {
@@ -53,15 +58,19 @@ abstract class ProfileLatencyService(parallelism: Int) : Service() {
         val data = message.data
         val descriptor = data.getParcelable<ParcelFileDescriptor>(CONFIG) ?: return true
         val target = data.getString(TARGET).orEmpty()
-        val deadline = data.getLong(DEADLINE)
+        val deadline = data.getLong(SETUP_DEADLINE)
+        val networkTimeout = data.getInt(NETWORK_TIMEOUT)
         val reply = message.replyTo
         if (!postToWorker {
             val result = runCatching {
                 ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { reader ->
                     if (SystemClock.elapsedRealtime() >= deadline) return@runCatching -1L
-                    measure(reader.readText(), target, deadline)
+                    measure(reader.readText(), target, deadline, networkTimeout)
                 }
-            }.getOrDefault(-1L)
+            }.getOrElse {
+                Log.d(LOG_TAG, "${javaClass.simpleName}: ${it.javaClass.simpleName}")
+                -1L
+            }
             runCatching {
                 reply?.send(Message.obtain().apply { this.data = Bundle().apply { putLong(RESULT, result) } })
             }
@@ -76,7 +85,7 @@ abstract class ProfileLatencyService(parallelism: Int) : Service() {
         false
     }
 
-    protected abstract fun measure(config: String, target: String, deadline: Long): Long
+    protected abstract fun measure(config: String, target: String, deadline: Long, networkTimeout: Int): Long
 
     override fun onBind(intent: Intent): IBinder = inbox.binder
 
@@ -87,7 +96,7 @@ abstract class ProfileLatencyService(parallelism: Int) : Service() {
 }
 
 class XrayLatencyService : ProfileLatencyService(3) {
-    override fun measure(config: String, target: String, deadline: Long): Long {
+    override fun measure(config: String, target: String, deadline: Long, networkTimeout: Int): Long {
         XrayEnvironment.initialize(this, probeOnly = true)
         val password = UUID.randomUUID().toString()
         val port = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
@@ -98,7 +107,8 @@ class XrayLatencyService : ProfileLatencyService(3) {
         })
         try {
             core.startLoop(XrayConfigBuilder.forLatency(config, port, password), 0)
-            return measureHttp(port, password, target, deadline)
+            if (SystemClock.elapsedRealtime() >= deadline) return -1L
+            return measureHttp(port, password, target, networkTimeout)
         } finally {
             core.stopLoop()
         }
@@ -110,22 +120,21 @@ class SingBoxLatencyService : ProfileLatencyService(1) {
         val nativeSession = Any()
     }
 
-    override fun measure(config: String, target: String, deadline: Long): Long = synchronized(nativeSession) {
+    override fun measure(config: String, target: String, deadline: Long, networkTimeout: Int): Long = synchronized(nativeSession) {
         if (SystemClock.elapsedRealtime() >= deadline) return@synchronized -1L
         val manager = getSystemService(ConnectivityManager::class.java)
         val network = manager.activeNetwork ?: return@synchronized -1L
         if (manager.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) != false) {
             return@synchronized -1L
         }
-        val core = SingBoxNativeBackend(this, ::postToWorker, { fd ->
-            runCatching {
-                ParcelFileDescriptor.fromFd(fd).use { network.bindSocket(it.fileDescriptor) }
-            }.isSuccess
-        }, "singbox-latency")
+        // This UID already uses Android's physical default network. The pinned
+        // socket hook is required for the VPN bridge, where the core must bypass TUN.
+        val core = SingBoxNativeBackend(this, ::postToWorker, protectSocket = null, dataDirectory = "singbox-latency")
         val password = UUID.randomUUID().toString()
         try {
             val port = core.start(config, password)
-            measureHttp(port, password, target, deadline)
+            if (SystemClock.elapsedRealtime() >= deadline) return@synchronized -1L
+            measureHttp(port, password, target, networkTimeout)
         } finally {
             core.stop()
         }
@@ -137,22 +146,28 @@ private val http = OkHttpClient.Builder()
     .retryOnConnectionFailure(false)
     .build()
 
-private fun measureHttp(port: Int, password: String, target: String, deadline: Long): Long {
-    val remaining = deadline - SystemClock.elapsedRealtime()
-    if (remaining <= 0L) return -1L
+private fun measureHttp(port: Int, password: String, target: String, timeout: Int): Long {
+    val url = target.toHttpUrl()
+    val authorization = Credentials.basic("phantom", password)
     val client = http.newBuilder()
         .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port)))
         .proxyAuthenticator { _, response ->
             if (response.request.header("Proxy-Authorization") != null) null
             else response.request.newBuilder()
-                .header("Proxy-Authorization", Credentials.basic("phantom", password)).build()
+                .header("Proxy-Authorization", authorization).build()
         }
-        .callTimeout(remaining, TimeUnit.MILLISECONDS)
+        .callTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
         .build()
-    val request = Request.Builder().url(target).header("Connection", "close").build()
+    val request = Request.Builder().url(url).header("Connection", "close").apply {
+        // HTTPS authenticates on CONNECT; never forward local proxy credentials to the origin.
+        if (!url.isHttps) header("Proxy-Authorization", authorization)
+    }.build()
     val started = System.nanoTime()
     return client.newCall(request).execute().use {
-        if (it.code != 204) -1L
+        if (it.code != 204) {
+            Log.d(LOG_TAG, "Probe HTTP status ${it.code}")
+            -1L
+        }
         else TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started).coerceAtLeast(1L)
     }
 }
@@ -185,8 +200,8 @@ internal object ProfileLatencyClient {
                 val service = if (singBox) SingBoxLatencyService::class.java else XrayLatencyService::class.java
                 var binding: ServiceConnection? = null
                 try {
-                    withTimeoutOrNull(timeout.toLong()) {
-                        val deadline = SystemClock.elapsedRealtime() + timeout
+                    withTimeoutOrNull(SETUP_TIMEOUT_MS + timeout) {
+                        val deadline = SystemClock.elapsedRealtime() + SETUP_TIMEOUT_MS
                         suspendCancellableCoroutine<Long?> { task ->
                             val connection = object : ServiceConnection {
                                 override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -202,7 +217,8 @@ internal object ProfileLatencyClient {
                                         data = Bundle().apply {
                                             putParcelable(CONFIG, descriptor)
                                             putString(TARGET, target)
-                                            putLong(DEADLINE, deadline)
+                                            putLong(SETUP_DEADLINE, deadline)
+                                            putInt(NETWORK_TIMEOUT, timeout)
                                         }
                                     }
                                     if (runCatching { Messenger(binder).send(message) }.isFailure && task.isActive) {

@@ -30,17 +30,19 @@ class LatencyProbeAndroidTest {
 
     @Test fun measuresActualResponseThroughEachTransportAndTheProviderBalancer() = runBlocking {
         val cases = JSONObject(fixture("peers.json"))
-        val profiles = listOf("VLESS-XHTTP-REALITY", "VLESS-XHTTP-H3", "hysteria2", "tuic", "anytls")
+        val profiles = listOf("VLESS-XHTTP-REALITY", "VLESS-XHTTP-H3", "VLESS-TCP-HTTP",
+            "hysteria2", "tuic", "anytls", "shadowsocks")
             .map { SubscriptionParser.parse(cases.getString(it), it).let { sub ->
                 sub.servers.single().copy(name = it)
             } } + SubscriptionParser.parse(fixture("provider-balance.json")).servers
-        for (profile in profiles) {
+        val failures = profiles.mapNotNull { profile ->
             val delay = LatencyProbe.measureResult(instrumentation.targetContext, profile, target, 6_000)
             // The runner origin deliberately waits 50 ms before replying. A
             // TCP handshake or a QUIC negotiation cannot satisfy this check.
-            assertTrue("${profile.name} did not report the delayed response: $delay", (delay ?: 0L) >= 45L)
             Log.i("PhantomLatencyTest", "${profile.name}: $delay ms through the actual profile")
+            if ((delay ?: 0L) < 45L) "${profile.name} ($delay)" else null
         }
+        assertTrue("No delayed response for ${failures.joinToString()}", failures.isEmpty())
     }
 
     @Test fun openPortWithInvalidAuthenticationDoesNotProduceAPing() = runBlocking {

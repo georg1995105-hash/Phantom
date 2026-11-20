@@ -15,20 +15,52 @@ object XrayConfigBuilder {
             .put("settings", JSONObject().put("accounts", JSONArray().put(
                 JSONObject().put("user", "phantom").put("pass", password)
             )))
-        // A provider's direct/bypass rule must not produce a proxy latency.
+        // A direct route must not produce a proxy latency. Still retain any
+        // freedom outbound used to dial a real proxy's transport.
         val outbounds = root.getJSONArray("outbounds")
-        for (index in 0 until outbounds.length()) {
-            val outbound = outbounds.getJSONObject(index)
-            if (outbound.optString("protocol") == "freedom") {
-                outbound.put("protocol", "blackhole")
-                outbound.remove("settings")
-                outbound.remove("streamSettings")
-            }
+        val original = (0 until outbounds.length()).map(outbounds::getJSONObject)
+        val tags = original.map { it.optString("tag") }.filter(String::isNotEmpty)
+        val helpers = mutableListOf<String>()
+        val sockets = original.flatMap { outbound ->
+            val stream = outbound.optJSONObject("streamSettings")
+            val xhttp = stream?.let { it.optJSONObject("xhttpSettings") ?: it.optJSONObject("splithttpSettings") }
+            val download = (xhttp?.optJSONObject("extra") ?: xhttp)?.optJSONObject("downloadSettings")
+            listOfNotNull(stream?.optJSONObject("sockopt"), download?.optJSONObject("sockopt"))
         }
+        for ((index, outbound) in original.withIndex()) {
+            if (outbound.optString("protocol") != "freedom") continue
+            val tag = outbound.optString("tag")
+            val detours = sockets.filter { tag.isNotEmpty() && it.optString("dialerProxy") == tag }
+            if (detours.isNotEmpty()) {
+                // Pick a prefix no original tag can select, even after expanding a catch-all.
+                val prefix = ('\uE000'..'\uF8FF').first { candidate -> tags.none { it.first() == candidate } }
+                val helperTag = "${prefix}phantom-probe-dial-$index"
+                helpers.add(helperTag)
+                detours.forEach { it.put("dialerProxy", helperTag) }
+                outbounds.put(JSONObject(outbound.toString()).put("tag", helperTag))
+            }
+            outbounds.put(index, JSONObject().put("tag", tag).put("protocol", "blackhole"))
+        }
+        // Xray's selectors are prefixes. Keep internal dialers out of catch-all balancers and observers.
+        val balancers = root.optJSONObject("routing")?.optJSONArray("balancers") ?: JSONArray()
+        for (index in 0 until balancers.length()) {
+            balancers.optJSONObject(index)?.excludeLatencyDialers("selector", helpers, tags)
+        }
+        root.optJSONObject("observatory")?.excludeLatencyDialers("subjectSelector", helpers, tags)
+        root.optJSONObject("burstObservatory")?.excludeLatencyDialers("subjectSelector", helpers, tags)
         root.remove("api")
         root.remove("metrics")
         root.put("log", JSONObject().put("loglevel", "none").put("access", "none"))
         return root.toString()
+    }
+
+    private fun JSONObject.excludeLatencyDialers(key: String, helpers: List<String>, original: List<String>) {
+        if (helpers.isEmpty()) return
+        val array = optJSONArray(key) ?: return
+        val selectors = (0 until array.length()).map(array::getString)
+        if (helpers.any { helper -> selectors.any { helper.startsWith(it) } }) {
+            put(key, JSONArray(original.filter { tag -> selectors.any { tag.startsWith(it) } }.distinct()))
+        }
     }
 
     fun build(profile: ServerProfile): String {
@@ -245,7 +277,14 @@ object XrayConfigBuilder {
             "host" to json.optString("host"),
             "path" to json.optString("path"),
             "serviceName" to json.optString("path"),
-        )
+            "headerType" to json.optString("type"),
+            "mode" to json.optString("mode").ifBlank {
+                json.optString("type").takeIf { json.optString("net") == "grpc" }.orEmpty()
+            },
+            "authority" to json.optString("authority"),
+            "alpn" to json.optString("alpn"),
+            "fp" to json.optString("fp"),
+        ).filterValues(String::isNotBlank)
         val outbound = JSONObject()
             .put("protocol", "vmess")
             .put("settings", JSONObject().put("vnext", JSONArray().put(JSONObject()
@@ -307,16 +346,32 @@ object XrayConfigBuilder {
         }
         val stream = JSONObject().put("network", network)
         when (network) {
-            "ws" -> stream.put("wsSettings", JSONObject()
-                .put("path", query["path"] ?: "/")
-                .put("headers", JSONObject().put("Host", query["host"] ?: query["sni"] ?: "")))
+            "raw", "tcp" -> if (query["headerType"].equals("http", ignoreCase = true)) {
+                val request = JSONObject()
+                query["path"]?.takeIf(String::isNotBlank)?.let { request.put("path", JSONArray(it.split(','))) }
+                query["host"]?.takeIf(String::isNotBlank)?.let {
+                    request.put("headers", JSONObject().put("Host", JSONArray(it.split(','))))
+                }
+                stream.put("rawSettings", JSONObject().put("header",
+                    JSONObject().put("type", "http").put("request", request)))
+            }
+            "ws" -> stream.put("wsSettings", JSONObject().put("path", query["path"] ?: "/").apply {
+                query["host"]?.takeIf(String::isNotBlank)?.let { put("host", it) }
+            })
             "grpc" -> stream.put("grpcSettings", JSONObject()
-                .put("serviceName", query["serviceName"] ?: query["path"] ?: ""))
+                .put("serviceName", query["serviceName"] ?: query["path"] ?: "")
+                .put("multiMode", query["mode"].equals("multi", ignoreCase = true))
+                .apply { query["authority"]?.takeIf(String::isNotBlank)?.let { put("authority", it) } })
             "splithttp", "xhttp" -> {
                 stream.put("network", "xhttp")
                 val settings = JSONObject().put("path", query["path"] ?: "/")
                     .put("host", query["host"] ?: "").put("mode", query["mode"] ?: "auto")
-                query["extra"]?.let { runCatching { JSONObject(it) }.getOrNull()?.let { ext -> settings.put("extra", ext) } }
+                query["extra"]?.takeIf(String::isNotBlank)?.let {
+                    val extra = runCatching { JSONObject(it) }.getOrElse {
+                        throw IllegalArgumentException("Параметр extra в XHTTP должен содержать JSON-объект")
+                    }
+                    settings.put("extra", extra)
+                }
                 stream.put("xhttpSettings", settings)
             }
             "httpupgrade" -> stream.put("httpupgradeSettings", JSONObject()
@@ -337,7 +392,7 @@ object XrayConfigBuilder {
     private fun tls(query: Map<String, String>) = JSONObject()
         .put("serverName", query["sni"] ?: query["serverName"] ?: "")
         .apply { applyCertificateOptions(query) }
-        .put("alpn", JSONArray().apply { query["alpn"]?.split(',')?.forEach { put(it) } })
+        .put("alpn", JSONArray(query["alpn"].orEmpty().split(',').map(String::trim).filter(String::isNotBlank)))
         .put("fingerprint", query["fp"] ?: "chrome")
 
     private fun JSONObject.applyCertificateOptions(query: Map<String, String>) {

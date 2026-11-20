@@ -11,7 +11,6 @@ import android.net.VpnService
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
@@ -73,27 +72,17 @@ class PhantomVpnService : VpnService() {
     }
 
     /**
-     * Observe Wi-Fi and cellular availability, ignoring the Phantom VPN virtual
-     * interface. Re-establish stale outbound sockets only on a genuine change
-     * of the validated physical route.
+     * The app's UID is excluded from TUN. Its Android default network is the
+     * same route that the core's outbound sockets use.
      */
     private fun physicalRoute(): String? {
         val cm = getSystemService(ConnectivityManager::class.java)
-        return cm.allNetworks.mapNotNull { network ->
-            val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                return@mapNotNull null
-            }
-            val priority = when {
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
-                else -> 3
-            }
-            priority to network.toString()
-        }.sortedBy { it.first }.firstOrNull()?.second
+        val network = cm.activeNetwork ?: return null
+        val capabilities = cm.getNetworkCapabilities(network) ?: return null
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return null
+        return network.toString()
     }
 
     private fun scheduleNetworkCheck() {
@@ -109,9 +98,8 @@ class PhantomVpnService : VpnService() {
                 if (profile.isBlank()) return@withLock
                 // First boot or a real Wi-Fi/mobile handover; do not restart on
                 // unrelated network callbacks or repeated capability updates.
-                if (previous != null || !running) {
-                    startLocked(profile)
-                }
+                if (previous == null && running) lastPhysicalRoute = route
+                else startLocked(profile, commandEpoch.get())
             }
         }
     }
@@ -125,12 +113,8 @@ class PhantomVpnService : VpnService() {
                 network: Network, capabilities: NetworkCapabilities
             ) = scheduleNetworkCheck()
         }
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
         runCatching {
-            cm.registerNetworkCallback(request, callback)
+            cm.registerDefaultNetworkCallback(callback)
             networkCallback = callback
         }
     }

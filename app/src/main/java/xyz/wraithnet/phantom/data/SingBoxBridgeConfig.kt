@@ -14,6 +14,7 @@ object SingBoxBridgeConfig {
 
     fun fromShareLink(
         raw: String, localPort: Int, resolvedServerIp: String? = null, probePassword: String? = null,
+        autoDetectInterface: Boolean = true,
     ): String {
         require(localPort in 1024..65535) { "Неверный локальный порт" }
         val uri = URI(raw.trim())
@@ -72,7 +73,7 @@ object SingBoxBridgeConfig {
             .put("inbounds", JSONArray().put(inbound))
             .put("outbounds", JSONArray().put(outbound))
             .put("route", JSONObject()
-                .put("auto_detect_interface", true)
+                .put("auto_detect_interface", autoDetectInterface)
                 .put("final", "proxy"))
             .toString()
     }

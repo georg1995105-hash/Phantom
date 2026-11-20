@@ -1,7 +1,9 @@
 """Verify the signed production upgrade and its four destinations on the CI emulator."""
 from pathlib import Path
+import hashlib
 import re
 import json
+import secrets
 import shlex
 import subprocess
 import sys
@@ -69,6 +71,25 @@ def wait_compact_latencies(min_count=2, attempts=30):
             return readings
         time.sleep(0.5)
     raise AssertionError(f"Expected {min_count} measured server pings, found {last[:40]}")
+
+
+def verify_tun_transfer():
+    # A separate Android UID enters TUN. This synthetic address exists only
+    # behind the XHTTP peer, so a direct request cannot pass the check.
+    host = "198.18.0.1"
+    payload = secrets.token_bytes(1048576)
+    request = (f"POST /VpnTransfer HTTP/1.1\r\nHost: {host}:34301\r\n"
+               f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n").encode() + payload
+    started = time.monotonic()
+    response = subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "5", "-W", "12", host, "34301"],
+                              input=request, capture_output=True, timeout=25)
+    headers, _, body = response.stdout.partition(b"\r\n\r\n")
+    if (response.returncode != 0 or not re.match(rb"HTTP/1\.[01] 200\b", headers) or
+            body != hashlib.sha256(payload).digest() * 32768):
+        raise AssertionError(f"Android TUN transfer failed: code={response.returncode}, bytes={len(body)}, "
+                             f"stderr={response.stderr[:150]!r}")
+    print(f"Signed APK: Android TUN transferred 1 MiB up and down via XHTTP in {time.monotonic() - started:.2f}s",
+          flush=True)
 
 
 def tap(label):
@@ -215,11 +236,14 @@ adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.int
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", balance]))
 tap("Серверы")
 tap_in_list("Раскрыть подписку Автовыбор")
+wait_compact_latencies(min_count=1)
+print("Signed APK: provider Xray JSON measured latency while VPN was disconnected", flush=True)
 tap("Выбрать сервер Автовыбор")
 tap("Главная")
 node("Автовыбор")
 tap("Подключить VPN")
 node("Подключено")
+verify_tun_transfer()
 print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
 screenshot("provider-auto-connected")
 tap("Серверы")

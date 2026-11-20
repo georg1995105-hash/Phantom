@@ -103,6 +103,65 @@ class XrayTunConfigTest {
         assertTrue(system.getBoolean("statsOutboundDownlink"))
     }
 
+    @Test fun latencyKeepsTransportDialerWhenBlockingTheSameDirectRoute() {
+        val raw = """{"outbounds":[{"tag":"direct","protocol":"freedom","settings":{"domainStrategy":"UseIP"}},
+            {"tag":"proxy","protocol":"vless","streamSettings":{"network":"xhttp","sockopt":{"dialerProxy":"direct"},
+                "xhttpSettings":{"extra":{"downloadSettings":{"sockopt":{"dialerProxy":"direct"}}}}}}],
+            "routing":{"rules":[{"type":"field","outboundTag":"direct","domain":["full:direct.example"]}]}}"""
+        val vpn = XrayConfigBuilder.build(SubscriptionParser.parse(raw).servers.single())
+        val probe = JSONObject(XrayConfigBuilder.forLatency(vpn, 12345, "probe-password"))
+        val outbounds = probe.getJSONArray("outbounds")
+        val stream = outbounds.getJSONObject(1).getJSONObject("streamSettings")
+        val dialer = outbounds.getJSONObject(2)
+        assertEquals("blackhole", outbounds.getJSONObject(0).getString("protocol"))
+        assertEquals("direct", outbounds.getJSONObject(0).getString("tag"))
+        assertEquals("freedom", dialer.getString("protocol"))
+        assertEquals("UseIP", dialer.getJSONObject("settings").getString("domainStrategy"))
+        assertEquals(dialer.getString("tag"), stream.getJSONObject("sockopt").getString("dialerProxy"))
+        assertEquals(dialer.getString("tag"), stream.getJSONObject("xhttpSettings").getJSONObject("extra")
+            .getJSONObject("downloadSettings").getJSONObject("sockopt").getString("dialerProxy"))
+        assertEquals(JSONObject(vpn).getJSONObject("routing").toString(), probe.getJSONObject("routing").toString())
+
+        val wildcard = JSONObject(vpn).apply {
+            getJSONObject("routing").put("balancers", org.json.JSONArray("""[{"tag":"auto","selector":[""]}]"""))
+        }
+        val selection = JSONObject(XrayConfigBuilder.forLatency(wildcard.toString(), 12345, "probe-password"))
+            .getJSONObject("routing").getJSONArray("balancers").getJSONObject(0).getJSONArray("selector")
+        assertEquals("""["direct","proxy"]""", selection.toString())
+    }
+
+    @Test fun rawHttpHeaderAndGrpcAuthorityAreKeptFromShareLinks() {
+        val base = "vless://00000000-0000-0000-0000-000000000001@vpn.example:443"
+        fun stream(query: String) = JSONObject(XrayConfigBuilder.build(
+            SubscriptionParser.parse("$base?$query").servers.single()
+        )).getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+
+        val header = stream("type=tcp&headerType=http&path=%2Fa%2C%2Fb&host=edge.example")
+            .getJSONObject("rawSettings").getJSONObject("header")
+        assertEquals("http", header.getString("type"))
+        val request = header.getJSONObject("request")
+        assertEquals("/b", request.getJSONArray("path").getString(1))
+        assertEquals("edge.example", request.getJSONObject("headers").getJSONArray("Host").getString(0))
+        val grpc = stream("type=grpc&serviceName=tunnel&mode=multi&authority=edge.example")
+            .getJSONObject("grpcSettings")
+        assertTrue(grpc.getBoolean("multiMode"))
+        assertEquals("edge.example", grpc.getString("authority"))
+        assertEquals("tunnel", grpc.getString("serviceName"))
+    }
+
+    @Test fun vmessKeepsTlsFingerprintAndAlpn() {
+        val json = """{"add":"vpn.example","id":"00000000-0000-0000-0000-000000000001",
+            "net":"ws","tls":"tls","sni":"edge.example","fp":"firefox","alpn":"http/1.1"}"""
+        val link = "vmess://" + java.util.Base64.getEncoder().encodeToString(json.toByteArray())
+        val stream = JSONObject(XrayConfigBuilder.build(SubscriptionParser.parse(link).servers.single()))
+            .getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+        val tls = stream.getJSONObject("tlsSettings")
+        assertEquals("firefox", tls.getString("fingerprint"))
+        assertEquals("http/1.1", tls.getJSONArray("alpn").getString(0))
+        assertEquals("edge.example", tls.getString("serverName"))
+        assertFalse(stream.getJSONObject("wsSettings").has("host"))
+    }
+
     @Test fun providerPolicyPreservedWhenEnablingOutboundStatistics() {
         val raw = """{"policy":{"levels":{"0":{"handshake":19}},
             "system":{"statsInboundUplink":false}},

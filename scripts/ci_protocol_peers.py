@@ -69,11 +69,15 @@ def prepare(directory, xray, singbox):
         ("VLESS-HTTPUpgrade", "httpupgrade", "none"), ("VLESS-mKCP", "mkcp", "none"),
         ("VLESS-Vision-REALITY", "raw", "reality"), ("VLESS-XHTTP-REALITY", "xhttp", "reality"),
         ("VLESS-XHTTP-H3", "xhttp", "tls"),
+        ("VLESS-TCP-HTTP", "raw", "none"),
     ]):
         port = 34100 + index
         stream = {"network": network, "security": security}
         query = f"type={network}&security={security}"
         user = {"id": uid}
+        if name == "VLESS-TCP-HTTP":
+            stream["rawSettings"] = {"header": {"type": "http", "request": {"path": ["/phantom"]}}}
+            query += "&headerType=http&path=%2Fphantom"
         if network in ("ws", "xhttp", "httpupgrade"):
             stream[network + "Settings"] = {"path": "/phantom"}
             query += "&path=%2Fphantom"
@@ -134,8 +138,11 @@ def prepare(directory, xray, singbox):
         {"action": "allow", "ip": ["127.0.0.1/32"], "port": "34301", "network": "tcp"},
         {"action": "block"}]}}
     connectivity = {"tag": "connectivity", "protocol": "freedom"}
-    xray_server = {"inbounds": x_in, "outbounds": [origin_only, connectivity],
+    transfer = {"tag": "transfer", "protocol": "freedom", "settings": {"redirect": "127.0.0.1:34301"}}
+    xray_server = {"inbounds": x_in, "outbounds": [origin_only, connectivity, transfer],
                    "routing": {"rules": [
+                       {"type": "field", "inboundTag": ["provider-xhttp"], "network": "tcp",
+                        "ip": ["198.18.0.1"], "port": "34301", "outboundTag": "transfer"},
                        {"type": "field", "inboundTag": ["provider-xhttp"], "network": "tcp",
                         "port": "443", "domain": ["full:www.gstatic.com", "full:cp.cloudflare.com",
                                                  "full:example.com"], "outboundTag": "connectivity"},
@@ -156,6 +163,20 @@ class Probe(http.server.BaseHTTPRequestHandler):
         time.sleep(.05)
         self.send_response(204)
         self.end_headers()
+
+    def do_POST(self):
+        if self.path != "/VpnTransfer" or self.headers.get("Content-Length") != "1048576":
+            self.send_error(400)
+            return
+        received = self.rfile.read(1048576)
+        if len(received) != 1048576:
+            self.send_error(400)
+            return
+        body = hashlib.sha256(received).digest() * 32768
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 if __name__ == "__main__":

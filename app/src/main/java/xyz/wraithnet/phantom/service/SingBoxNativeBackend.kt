@@ -28,7 +28,7 @@ import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
 internal class SingBoxNativeBackend(
     private val context: Context,
     postToWorker: (() -> Unit) -> Boolean,
-    private val protectSocket: (Int) -> Boolean,
+    private val protectSocket: ((Int) -> Boolean)?,
     private val dataDirectory: String,
 ) {
     constructor(vpn: VpnService, postToWorker: (() -> Unit) -> Boolean) :
@@ -85,12 +85,12 @@ internal class SingBoxNativeBackend(
                 "findConnectionOwner" -> ConnectionOwner().apply {
                     userId = -1
                 }
-                "usePlatformAutoDetectInterfaceControl" -> true
+                "usePlatformAutoDetectInterfaceControl" -> protectSocket != null
                 "autoDetectInterfaceControl" -> {
                     // Outbound QUIC/TLS sockets must bypass the VPN TUN itself.
                     val fd = args?.get(0) as? Int
                         ?: error("libbox: нет файлового дескриптора для защиты")
-                    check(protectSocket(fd)) { "Android не разрешил обход VPN для исходящего сокета" }
+                    check(protectSocket?.invoke(fd) == true) { "Android не разрешил обход VPN для исходящего сокета" }
                     null
                 }
                 "startDefaultInterfaceMonitor" -> {
@@ -158,7 +158,8 @@ internal class SingBoxNativeBackend(
         check(hasNext) { "Android не обнаружил физическую сеть для TUIC/AnyTLS" }
         val port = ServerSocket(0).use { it.localPort }
         val resolvedIp = networkEnvironment.resolveOutboundAddress(raw)
-        val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp, probePassword)
+        val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp, probePassword,
+            autoDetectInterface = protectSocket != null)
         val current = CommandServer(callbacks(), platform())
         try {
             current.start()
