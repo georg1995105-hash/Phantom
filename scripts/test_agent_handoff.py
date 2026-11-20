@@ -1,6 +1,6 @@
 import unittest
 
-from check_agent_handoff import validate
+from check_agent_handoff import check_ci_run_result, validate
 
 SHA = "a" * 40
 REPO = "owner/repo"
@@ -56,6 +56,22 @@ class HandoffTest(unittest.TestCase):
     def test_missing_section_rejected(self):
         _, errors = validate(body().replace("## Следующий шаг", "## Later"), SHA, REPO)
         self.assertTrue(any("Следующий шаг" in x for x in errors))
+
+    def test_real_run_matching_head(self):
+        self.assertEqual(check_ci_run_result(
+            {"head_sha": SHA, "status": "completed", "conclusion": "success"}, SHA
+        ), [])
+
+    def test_real_run_rejects_failed_and_stale(self):
+        errors = check_ci_run_result(
+            {"head_sha": "b" * 40, "status": "completed", "conclusion": "failure"}, SHA
+        )
+        self.assertEqual(len(errors), 2)
+
+    def test_real_run_rejects_pending(self):
+        self.assertTrue(check_ci_run_result(
+            {"head_sha": SHA, "status": "in_progress", "conclusion": None}, SHA
+        ))
 
 
 if __name__ == "__main__":

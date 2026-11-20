@@ -3,9 +3,12 @@
 
 This is a consistency check, NOT proof that CI or device tests truly passed.
 """
+import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 
 MARKER = re.compile(r"<!--\s*agent-handoff:v1\s*\n(.*?)\n-->", re.DOTALL)
 FIELDS = {"issue", "phase", "head", "ci", "device"}
@@ -75,6 +78,39 @@ def validate(body: str, head_sha: str, repo: str) -> tuple[bool, list[str]]:
     return True, errors
 
 
+
+def check_ci_run_result(data: dict, expected_sha: str) -> list[str]:
+    """Check GitHub's actual run result, not a self-reported PR claim."""
+    errors = []
+    if data.get("head_sha", "").lower() != expected_sha.lower():
+        errors.append("CI run belongs to a different commit")
+    if data.get("status") != "completed" or data.get("conclusion") != "success":
+        errors.append("CI run is not completed successfully")
+    return errors
+
+
+def verify_ready_run(body: str, repo: str, head_sha: str, token: str) -> list[str]:
+    ci_line = re.search(r"(?m)^ci:\s*passed https://github[.]com/[^/\s]+/[^/\s]+/actions/runs/([0-9]+)\s*$", body)
+    if not ci_line:
+        return ["READY missing a valid passed CI URL"]
+    if not token:
+        return ["READY cannot verify CI run: GH_TOKEN is missing"]
+    url = f"https://api.github.com/repos/{repo}/actions/runs/{ci_line.group(1)}"
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            run = json.load(response)
+    except (OSError, ValueError, urllib.error.HTTPError) as exc:
+        return [f"Cannot verify READY CI run against GitHub API ({type(exc).__name__})"]
+    return check_ci_run_result(run, head_sha)
+
 def main() -> int:
     enrolled, errors = validate(
         os.environ.get("PR_BODY", ""),
@@ -88,7 +124,18 @@ def main() -> int:
         for error in errors:
             print("ERROR:", error)
         return 1
-    print("Handoff metadata is structurally valid. Claims require independent verification.")
+    if re.search(r"(?m)^phase:\s*ready\s*$", os.environ.get("PR_BODY", "")):
+        verified_errors = verify_ready_run(
+            os.environ.get("PR_BODY", ""),
+            os.environ.get("GH_REPO", ""),
+            os.environ.get("PR_HEAD_SHA", ""),
+            os.environ.get("GH_TOKEN", ""),
+        )
+        if verified_errors:
+            for error in verified_errors:
+                print("ERROR:", error)
+            return 1
+    print("Handoff structure validated; READY additionally verifies GitHub CI result. Device claims require human checks.")
     return 0
 
 

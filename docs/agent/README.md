@@ -42,7 +42,7 @@ device: not_tested
 - При новом коммите изменить head и снова указать реальные результаты проверок. Старые ссылки можно оставлять в истории PR, но не как доказательство нового head.
 - Существующие PR без маркера не блокируются. Не изменять их автоматически.
 
-CI `.github/workflows/agent-handoff.yml` проверяет формат PR без дополнительных разрешений и без исполнения текста PR. Тесты — `python3 -m unittest discover -s scripts -p 'test_agent_handoff.py' -v`. Локальная проверка с переменными `PR_BODY`, `PR_HEAD_SHA`, `GH_REPO`.
+CI `.github/workflows/agent-handoff.yml` работает только для PR с маркером, в режиме чтения (`contents:read`, `actions:read`), не исполняет текст PR. Для `ready` дополнительно запрашивает GitHub API и сверяет, что указанный прогон **завершился успешно на этом head SHA**. Это не заменяет оценку охвата проверок и ручное тестирование. Тесты — `python3 -m unittest discover -s scripts -p 'test_agent_handoff.py' -v`. Локальная проверка с переменными `PR_BODY`, `PR_HEAD_SHA`, `GH_REPO`.
 
 ## Минимальная эффективная процедура
 
