@@ -57,7 +57,7 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
             Notification.Builder(context, CHANNEL)
         else Notification.Builder(context)
         builder.setSmallIcon(R.drawable.ic_stat_phantom)
-            .setContentTitle("Phantom VPN")
+            .setContentTitle(context.getString(R.string.app_name))
             .setContentText(message)
             .setAutoCancel(true)
         if (action != null) builder.setContentIntent(action)

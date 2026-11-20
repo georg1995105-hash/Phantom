@@ -116,7 +116,7 @@
             android:exported="false" />
         <service
             android:name=".service.PhantomQuickTileService"
-            android:label="Phantom VPN"
+            android:label="@string/app_name"
             android:icon="@drawable/ic_stat_phantom"
             android:exported="true"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
