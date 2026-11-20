@@ -55,6 +55,8 @@ class PhantomVpnService : VpnService() {
     private var singBoxSession: Any? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var sessionBytes: TrafficBytes? = null
+    private var verifiedLatencyUrl: String? = null
+    private var latencyProbeJob: Job? = null
     private var trafficJob: Job? = null
     private var handoverJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -154,27 +156,23 @@ class PhantomVpnService : VpnService() {
             ACTION_QUERY -> sendStatus(state)
             ACTION_MEASURE_LATENCY -> {
                 val requested = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
-                if (requested.isNotBlank()) ioScope.launch {
+                val epoch = commandEpoch.get()
+                if (requested.isNotBlank() && latencyProbeJob?.isActive != true) latencyProbeJob = ioScope.launch {
                     mutex.withLock {
                         // Use the connected core only. Never start a second VPN or core.
-                        if (!running || state != STATUS_CONNECTED ||
+                        if (epoch != commandEpoch.get() || !running || state != STATUS_CONNECTED ||
                             prefs.getString("vpn_last_profile", null) != requested) return@withLock
                         val active = controller ?: return@withLock
-                        var delayMs = -1L
-                        for (url in listOf(
-                            "https://www.gstatic.com/generate_204",
-                            "https://cp.cloudflare.com/generate_204",
-                            "https://example.com/",
-                        )) {
-                            val ms = runCatching { active.measureDelay(url) }.getOrDefault(-1L)
-                            if (ms > 0L) { delayMs = ms; break }
-                        }
-                        if (!running || prefs.getString("vpn_last_profile", null) != requested)
-                            return@withLock
-                        prefs.edit().putLong("vpn_last_latency_ms", delayMs)
+                        // The JNI call has its own 12 s deadline and must remain
+                        // serialized with StopLoop. Reuse the verified target.
+                        val url = verifiedLatencyUrl ?: return@withLock
+                        val delayMs = runCatching { active.measureDelay(url) }.getOrDefault(-1L)
+                        if (epoch != commandEpoch.get()) return@withLock
+                        val reading = if (delayMs >= 0L) delayMs.coerceAtLeast(1L) else -1L
+                        prefs.edit().putLong("vpn_last_latency_ms", reading)
                             .putInt("vpn_last_latency_profile_hash", requested.hashCode()).apply()
                         sendBroadcast(Intent(ACTION_LATENCY).setPackage(packageName)
-                            .putExtra(EXTRA_LATENCY_MS, delayMs)
+                            .putExtra(EXTRA_LATENCY_MS, reading)
                             .putExtra(EXTRA_LATENCY_PROFILE_HASH, requested.hashCode()))
                     }
                 }
@@ -308,8 +306,9 @@ class PhantomVpnService : VpnService() {
                     "Запрос подключения заменён новым действием"
                 }
                 val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
-                if (value > 0L) {
-                    verifiedDelay = value
+                if (value >= 0L) {
+                    verifiedLatencyUrl = endpoint
+                    verifiedDelay = value.coerceAtLeast(1L)
                     break
                 }
             }
@@ -364,6 +363,7 @@ class PhantomVpnService : VpnService() {
      */
     private fun stopLocked(report: Boolean = true): Boolean {
         running = false
+        verifiedLatencyUrl = null
         trafficJob?.cancel()
         trafficJob = null
         releaseWakeLock()

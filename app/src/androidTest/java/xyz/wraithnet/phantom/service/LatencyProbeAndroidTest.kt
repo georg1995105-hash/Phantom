@@ -16,6 +16,18 @@ import java.net.ServerSocket
 class LatencyProbeAndroidTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun balancedTcpJsonDoesNotAssignItsFirstPeersPingToTheWholeProfile() = runBlocking {
+        ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { listener ->
+            val proxy = JSONObject("""{"protocol":"vless","settings":{"vnext":[
+                {"address":"127.0.0.1","port":${listener.localPort}}]}}""")
+            val profile = ServerProfile("auto", "Автовыбор", "xray", raw = JSONObject()
+                .put("outbounds", org.json.JSONArray().put(proxy).put(proxy)).toString())
+            assertNull(LatencyProbe.measureResult(context, profile))
+            val single = profile.copy(raw = JSONObject().put("outbounds", org.json.JSONArray().put(proxy)).toString())
+            assertEquals("TCP", LatencyProbe.measureResult(context, single)?.source)
+        }
+    }
+
     @Test fun physicalTcpDoesNotRequireAndroidInternetValidation() {
         assertEquals(10, LatencyProbe.physicalNetworkRank(
             notVpn = true, internet = true, validated = false,

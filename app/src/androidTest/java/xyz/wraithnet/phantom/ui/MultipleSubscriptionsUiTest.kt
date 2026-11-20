@@ -59,8 +59,12 @@ class MultipleSubscriptionsUiTest {
         val first = Subscription(
             id = "test-owner-one", title = "Тестовая подписка",
             source = "$endpoint/first",
-            servers = listOf(ServerProfile("same-server-id", "Нидерланды тест", "vless",
-                raw = "vless://00000000-0000-0000-0000-000000000001@a.example:443#NL")),
+            servers = listOf(
+                ServerProfile("same-server-id", "Нидерланды тест", "vless",
+                    raw = "vless://00000000-0000-0000-0000-000000000001@a.example:443#NL"),
+                ServerProfile("other", "Дания тест", "vless",
+                    raw = "vless://00000000-0000-0000-0000-000000000004@d.example:443#DK"),
+            ),
             updatedAt = now,
         )
         val second = Subscription(
@@ -83,7 +87,11 @@ class MultipleSubscriptionsUiTest {
                 val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
                 compose.onNode(secondServer).assertDoesNotExist()
                 compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды тест"))
-                    .performTouchInput { click() }
+                compose.awaitVisible(hasText("Автовыбор")).performTouchInput { click() }
+                compose.runOnIdle {
+                    assertEquals(first.id, prefs.getString("selected_subscription_id", null))
+                    assertEquals("same-server-id", prefs.getString("selected_server_id", null))
+                }
                 compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                     .performTouchInput { click() }
                 compose.awaitVisible(secondServer).performTouchInput { click() }

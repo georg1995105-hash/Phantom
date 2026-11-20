@@ -255,10 +255,6 @@ internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription
         else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
 }
 
-/**
- * Each server stays inside its owning subscription. No synthetic "Автовыбор"
- * row is created, because that would disguise a default as an imported server.
- */
 @Composable
 private fun SubscriptionHeading(
     sub: Subscription,
@@ -324,8 +320,9 @@ private fun SubscriptionHeading(
 internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
     pinnedId: String?, favorites: Set<String>, latency: Map<String, LatencyProbe.PingResult>,
-    probing: Set<String>, refreshing: Set<String>, failed: Set<String>,
-    onRefresh: (Subscription) -> Unit, onProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
+    probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
+    onRefresh: (Subscription) -> Unit, onProbe: (Subscription) -> Unit,
+    onAutoProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
 ) {
     // Keep one group open to avoid an overwhelming combined server list.
@@ -338,12 +335,17 @@ internal fun ServersPage(
             expandedId = selected?.first?.id ?: subscriptions.firstOrNull()?.id
         }
     }
+    val expandedOwner = subscriptions.firstOrNull { it.id == expandedId }
+    val expandedProbing = expandedId in probing
+    LaunchedEffect(expandedOwner?.id, expandedOwner?.servers, expandedProbing) {
+        if (!expandedProbing) expandedOwner?.let(onAutoProbe)
+    }
     // Sort large groups only when subscriptions/favorites change, not on every
     // recomposition triggered by a ping or another subscription's progress.
     val groups = remember(subscriptions, pinnedId, favorites) {
         subscriptions.sortedByDescending { it.id == pinnedId }.map { owner ->
             owner to owner.servers.sortedWith(
-                compareByDescending<ServerProfile> { it.name.contains("Автовыбор", true) }
+                compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                     .thenByDescending { "${owner.id}:${it.id}" in favorites }
             )
         }
@@ -367,7 +369,26 @@ internal fun ServersPage(
                     onRefresh = onRefresh, onProbe = onProbe,
                 )
             }
-            if (expandedId == owner.id) items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
+            if (expandedId != owner.id) return@forEach
+            if (orderedServers.none(ProfileSelection::isProviderAutomatic) &&
+                orderedServers.count { ProtocolSupport.isSupported(it.scheme) } > 1
+            ) item(key = "automatic:${owner.id}") {
+                Panel {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing()
+                        .clickable {
+                            ProfileSelection.automatic(owner) { server ->
+                                latency["${owner.id}:${server.id}"]
+                                    ?.takeUnless { it.source == "VPN" }?.milliseconds
+                            }?.let { choose(owner, it) }
+                        }
+                        .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Автовыбор", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
                 val id = "${owner.id}:${server.id}"
                 val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
                 val remembered = owner.id != selected?.first?.id && server.id == owner.selectedServerId
@@ -377,7 +398,7 @@ internal fun ServersPage(
                         Row(Modifier.weight(1f).tvFocusRing().clickable { choose(owner, server) }
                             .semantics { contentDescription = "Выбрать сервер ${displayServerName(server)}" }
                             .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (server.name.contains("Автовыбор", true))
+                            if (ProfileSelection.isProviderAutomatic(server))
                                 Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
                             else Text(CountryFlags.flag(server), fontSize = 23.sp)
                             Spacer(Modifier.width(10.dp))
@@ -385,7 +406,7 @@ internal fun ServersPage(
                                 Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Caption(protocolLabel(server))
                             }
-                            Caption(SubscriptionPingText.display(latency[id], owner.id in probing))
+                            Caption(SubscriptionPingText.display(latency[id], measuring[id] == server.raw))
                             if (chosen || remembered) Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary)
                         }

@@ -43,8 +43,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
@@ -120,8 +118,9 @@ fun HomeScreen(
     val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
     val selected = selectedMatch?.second
     var refreshing by remember { mutableStateOf(setOf<String>()) }
-    val inFlightProfiles = remember { mutableStateMapOf<String, List<ServerProfile>>() }
-    val probing = inFlightProfiles.keys.toSet()
+    var probing by remember { mutableStateOf(emptySet<String>()) }
+    val measuring = remember { mutableStateMapOf<String, String>() }
+    val scanned = remember { mutableMapOf<String, List<ServerProfile>>() }
     val latencies = remember { mutableStateMapOf<String, LatencyProbe.PingResult>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
@@ -146,18 +145,19 @@ fun HomeScreen(
         }
     }
     fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
+    fun profileRaws(list: List<Subscription>) = list.flatMap { owner ->
+        owner.servers.map { server -> pingKey(owner, server) to server.raw }
+    }.toMap()
+    val currentProfileRaws by remember { derivedStateOf { profileRaws(subscriptions) } }
 
     /** Do not carry an old RTT over to a new endpoint with the same JSON remark/id. */
     fun applySubscriptions(list: List<Subscription>) {
-        val previous = subscriptions.flatMap { owner ->
-            owner.servers.map { server -> pingKey(owner, server) to server.raw }
-        }.toMap()
-        val incoming = list.flatMap { owner ->
-            owner.servers.map { server -> pingKey(owner, server) to server.raw }
-        }.toMap()
+        val previous = currentProfileRaws
+        val incoming = profileRaws(list)
         latencies.keys.toList().filter { key ->
             incoming[key] == null || previous[key] != incoming[key]
         }.forEach { latencies.remove(it) }
+        scanned.keys.retainAll(list.map { it.id }.toSet())
         subscriptions = list
     }
 
@@ -387,17 +387,19 @@ fun HomeScreen(
         }
     }
 
-    val pingLimit = remember { Semaphore(3) }
+    val pingParallelism = LatencyProbe.MAX_PARALLEL_PROBES
+    val pingLimit = remember { Semaphore(pingParallelism) }
     fun probeSubscription(item: Subscription, notify: Boolean = true) {
-        if (inFlightProfiles.containsKey(item.id)) return
+        if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
         val connected = selectedMatch?.takeIf {
             it.first.id == item.id && vpnStatus == "connected" &&
                 prefs.getString("vpn_last_profile", null) == it.second.raw
         }
-        inFlightProfiles[item.id] = item.servers
+        probing = probing + item.id
+        scanned[item.id] = item.servers
         scope.launch {
             val message = try {
-                if (connected != null) {
+                if (notify && connected != null) {
                     runCatching {
                         context.startService(Intent(context, PhantomVpnService::class.java)
                             .setAction(PhantomVpnService.ACTION_MEASURE_LATENCY)
@@ -405,31 +407,41 @@ fun HomeScreen(
                     }
                 }
                 val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
+                val probeOrder = withContext(Dispatchers.Default) {
+                    // Get quick handshakes onto the screen while slow UDP peers are pending.
+                    val (udp, tcp) = servers.partition(LatencyProbe::needsTunnel)
+                    (tcp + udp).filter { it.id != connected?.second?.id }
+                }
                 coroutineScope {
-                    servers.map { server ->
-                        async {
-                            // Do not replace actual VPN RTT with a bare TCP port check.
-                            if (connected?.second?.id != server.id) {
-                                val result = pingLimit.withPermit {
-                                    runCatching { LatencyProbe.measureResult(context.applicationContext, server) }
-                                        .getOrNull()
-                                }
+                    val pending = probeOrder.iterator()
+                    repeat(minOf(pingParallelism, probeOrder.size)) {
+                        launch {
+                            // The workers share this iterator on Main and yield at each probe.
+                            while (pending.hasNext()) {
+                                val server = pending.next()
                                 val key = pingKey(item, server)
-                                val sameProfile = subscriptions.find { it.id == item.id }?.servers
-                                    ?.any { it.id == server.id && it.raw == server.raw } == true
-                                if (sameProfile && latencies[key]?.source != "VPN") {
-                                    if (result != null) latencies[key] = result else latencies.remove(key)
+                                pingLimit.withPermit {
+                                    if (currentProfileRaws[key] != server.raw) return@withPermit
+                                    measuring[key] = server.raw
+                                    try {
+                                        val result = LatencyProbe.measureResult(context.applicationContext, server)
+                                        if (currentProfileRaws[key] == server.raw && latencies[key]?.source != "VPN") {
+                                            if (result != null) latencies[key] = result else latencies.remove(key)
+                                        }
+                                    } finally {
+                                        measuring.remove(key)
+                                    }
                                 }
                             }
                         }
-                    }.awaitAll()
+                    }
                 }
-                val checked = servers.count { latencies[pingKey(item, it)] != null }
-                val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
                 when {
+                    !notify -> ""
                     connected != null -> "Задержка обновится после проверки"
-                    checked > 0 -> "Проверка задержки завершена"
-                    needsTunnel -> "Для проверки задержки подключитесь к серверу"
+                    servers.any { latencies[pingKey(item, it)] != null } -> "Проверка задержки завершена"
+                    withContext(Dispatchers.Default) { servers.any(LatencyProbe::needsTunnel) } ->
+                        "Для проверки задержки подключитесь к серверу"
                     else -> "Не получено ни одного результата проверки"
                 }
             } catch (e: CancellationException) {
@@ -437,28 +449,9 @@ fun HomeScreen(
             } catch (_: Exception) {
                 "Не удалось проверить задержку"
             } finally {
-                inFlightProfiles.remove(item.id)
+                probing = probing - item.id
             }
             if (notify) snackbar.showSnackbar(message)
-        }
-    }
-
-    // Scan on entry; the per-subscription action can refresh that owner's result.
-    // If a refresh replaces profiles during a scan, wait for that owner's old
-    // job before measuring the new snapshot. Recomposition alone does no I/O.
-    var scanned by remember { mutableStateOf(emptyMap<String, List<ServerProfile>>()) }
-    LaunchedEffect(tab, subscriptions, probing) {
-        if (tab != Destination.SERVERS) {
-            scanned = emptyMap()
-        } else {
-            subscriptions.forEach { item ->
-                if (inFlightProfiles[item.id] == item.servers) {
-                    scanned = scanned + (item.id to item.servers)
-                } else if (item.id !in probing && scanned[item.id] != item.servers) {
-                    scanned = scanned + (item.id to item.servers)
-                    probeSubscription(item, notify = false)
-                }
-            }
         }
     }
 
@@ -617,9 +610,10 @@ fun HomeScreen(
                     subscriptionAvailable = selectedMatch != null,
                     hasSubscriptions = subscriptions.isNotEmpty())
                 Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
-                    probing = probing, refreshing = refreshing, failed = refreshFailed,
+                    probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
                     onRefresh = { sub -> scope.launch { refresh(sub) } },
                     onProbe = { sub -> probeSubscription(sub) },
+                    onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
                     favorite = { id ->
                         favorites = if (id in favorites) favorites - id else favorites + id
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()

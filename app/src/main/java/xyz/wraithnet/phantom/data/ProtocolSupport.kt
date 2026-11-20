@@ -15,6 +15,18 @@ object ProtocolSupport {
 
 /** The selected profile is scoped to its parent subscription, not only the link index. */
 object ProfileSelection {
+    fun automatic(owner: Subscription, latency: (ServerProfile) -> Long?): ServerProfile? {
+        val profiles = owner.servers.filter { ProtocolSupport.isSupported(it.scheme) }
+        return profiles.firstOrNull(::isProviderAutomatic)
+            ?: profiles.mapNotNull { server ->
+                latency(server)?.takeIf { it > 0L }?.let { server to it }
+            }.minByOrNull { it.second }?.first
+            ?: profiles.firstOrNull()
+    }
+
+    fun isProviderAutomatic(server: ServerProfile): Boolean =
+        server.name.contains("Автовыбор", ignoreCase = true)
+
     private fun preferred(owner: Subscription): ServerProfile? =
         owner.servers.firstOrNull { it.id == owner.selectedServerId && ProtocolSupport.isSupported(it.scheme) }
             ?: owner.servers.firstOrNull { ProtocolSupport.isSupported(it.scheme) }

@@ -39,6 +39,23 @@ class XrayTunConfigTest {
         assertEquals("tun", root.getJSONObject("routing").getJSONArray("rules")
             .getJSONObject(0).getJSONArray("inboundTag").getString(0))
     }
+
+    @Test fun providerServiceRoutesDoNotCaptureAndroidTraffic() {
+        val raw = """{"inbounds":[{"tag":"monitor","protocol":"dokodemo-door"},
+            {"tag":"socks","protocol":"socks"},{"tag":"http","protocol":"http"}],
+            "outbounds":[{"tag":"proxy-a","protocol":"vless"},{"tag":"proxy-b","protocol":"vless"}],
+            "routing":{"balancers":[{"tag":"auto","selector":["proxy-"]}],"rules":[
+                {"type":"field","inboundTag":["monitor"],"outboundTag":"api"},
+                {"type":"field","inboundTag":["socks","http"],"balancerTag":"auto"}]}}"""
+        val profile = SubscriptionParser.parse(raw).servers.single()
+        val routing = JSONObject(XrayConfigBuilder.build(profile)).getJSONObject("routing")
+        val rules = routing.getJSONArray("rules")
+        assertEquals("[\"monitor\"]", rules.getJSONObject(0).getJSONArray("inboundTag").toString())
+        assertEquals("[\"tun\"]", rules.getJSONObject(1).getJSONArray("inboundTag").toString())
+        assertEquals("auto", rules.getJSONObject(1).getString("balancerTag"))
+        assertEquals("proxy-", routing.getJSONArray("balancers").getJSONObject(0)
+            .getJSONArray("selector").getString(0))
+    }
     @Test fun outboundStatisticsEnabledForShareLinks() {
         val server = ServerProfile(id = "vless", name = "Demo", scheme = "vless",
             raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=xhttp")

@@ -98,15 +98,21 @@ object XrayConfigBuilder {
         // Preserve inbound-based routing rules when migrating local SOCKS/HTTP
         // inbounds to Android's single TUN inbound.
         val oldInbounds = root.optJSONArray("inbounds")
-        val oldTags = (0 until (oldInbounds?.length() ?: 0)).mapNotNull { index ->
-            oldInbounds?.optJSONObject(index)?.optString("tag")?.takeIf { it.isNotBlank() }
+        val clientProtocols = setOf("socks", "http", "mixed", "tun")
+        val clientTags = (0 until (oldInbounds?.length() ?: 0)).mapNotNull { index ->
+            oldInbounds?.optJSONObject(index)
+                ?.takeIf { it.optString("protocol").lowercase() in clientProtocols }
+                ?.optString("tag")?.takeIf { it.isNotBlank() }
         }.toSet()
         root.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
             for (i in 0 until rules.length()) {
                 val rule = rules.optJSONObject(i) ?: continue
                 val tags = rule.optJSONArray("inboundTag") ?: continue
-                if ((0 until tags.length()).any { tags.optString(it) in oldTags }) {
-                    rule.put("inboundTag", JSONArray().put("tun"))
+                val inboundTags = (0 until tags.length()).map { tags.optString(it) }
+                if (inboundTags.any { it in clientTags }) {
+                    rule.put("inboundTag", JSONArray(inboundTags.map {
+                        if (it in clientTags) "tun" else it
+                    }.distinct()))
                 }
             }
         }

@@ -5,26 +5,29 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URI
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /** Measure a TCP handshake, a QUIC version response, or HTTPS through the active VPN. */
 object LatencyProbe {
     const val TCP = "tcp"
     const val PROXY = "proxy"
+    const val MAX_PARALLEL_PROBES = 4
 
     data class PingResult(val milliseconds: Long, val source: String) {
         val label: String get() = "$source · $milliseconds мс"
     }
 
-    private val probeExecutor = Executors.newFixedThreadPool(4) { runnable ->
+    private val probeExecutor = Executors.newFixedThreadPool(MAX_PARALLEL_PROBES) { runnable ->
         Thread(runnable, "phantom-latency").apply { isDaemon = true }
     }
 
@@ -57,6 +60,14 @@ object LatencyProbe {
 
     private fun isH3(values: JSONArray?): Boolean =
         (0 until (values?.length() ?: 0)).any { index -> isH3(values?.optString(index).orEmpty()) }
+
+    private fun singleJsonProxy(root: JSONObject): JSONObject? {
+        val outbounds = root.optJSONArray("outbounds") ?: return root
+        return (0 until outbounds.length()).mapNotNull { outbounds.optJSONObject(it) }
+            .filterNot {
+                it.optString("protocol").lowercase() in setOf("freedom", "blackhole", "dns", "loopback")
+            }.singleOrNull()
+    }
 
     /**
      * A subscription may wrap Hysteria2 in a full Xray JSON while exposing the scheme "xray".
@@ -107,13 +118,7 @@ object LatencyProbe {
     private fun canProbeQuic(server: ServerProfile): Boolean = runCatching {
         val raw = server.raw.trim()
         if (raw.startsWith("{")) {
-            val root = JSONObject(raw)
-            val list = root.optJSONArray("outbounds")
-            val candidates = if (list == null) listOf(root) else
-                (0 until list.length()).mapNotNull { list.optJSONObject(it) }.filter {
-                    it.optString("protocol") !in setOf("freedom", "blackhole", "dns")
-                }
-            val proxy = candidates.singleOrNull() ?: return@runCatching false
+            val proxy = singleJsonProxy(JSONObject(raw)) ?: return@runCatching false
             val stream = proxy.optJSONObject("streamSettings")
             stream?.optJSONObject("finalmask")?.optJSONArray("udp") == null &&
                 stream?.optString("network") !in setOf("kcp", "mkcp")
@@ -131,20 +136,20 @@ object LatencyProbe {
             val raw = server.raw.trim()
             if (raw.startsWith("{")) {
                 val root = JSONObject(raw)
-                val list = root.optJSONArray("outbounds")
-                val outbound = (0 until (list?.length() ?: 0))
-                    .mapNotNull { list?.optJSONObject(it) }
-                    .firstOrNull { it.optString("protocol").lowercase() in setOf(
-                        "vless", "vmess", "trojan", "shadowsocks", "hysteria"
-                    ) } ?: root
+                val outbound = singleJsonProxy(root) ?: return@runCatching null
+                if (outbound.has("proxySettings") ||
+                    !outbound.optJSONObject("streamSettings")?.optJSONObject("sockopt")
+                        ?.optString("dialerProxy").isNullOrBlank()
+                ) return@runCatching null
                 val settings = outbound.optJSONObject("settings") ?: return@runCatching null
+                val peers = settings.optJSONArray("vnext") ?: settings.optJSONArray("servers")
+                if (peers != null && peers.length() != 1) return@runCatching null
+                val peer = peers?.optJSONObject(0)
                 val address = settings.optString("address").ifBlank {
-                    val arr = settings.optJSONArray("vnext") ?: settings.optJSONArray("servers")
-                    arr?.optJSONObject(0)?.optString("address").orEmpty()
+                    peer?.optString("address").orEmpty()
                 }
                 val port = settings.optInt("port").takeIf { it > 0 }
-                    ?: (settings.optJSONArray("vnext") ?: settings.optJSONArray("servers"))
-                        ?.optJSONObject(0)?.optInt("port")
+                    ?: peer?.optInt("port")
                     ?: return@runCatching null
                 if (address.isBlank() || port !in 1..65535) null else address to port
             } else if (raw.startsWith("vmess://", ignoreCase = true)) {
@@ -218,11 +223,12 @@ object LatencyProbe {
 
     /** Does not select a profile, start a VPN, or invoke a second native core. */
     suspend fun measureResult(context: Context, server: ServerProfile): PingResult? =
-        withContext(Dispatchers.IO) {
+        runInterruptible(Dispatchers.IO) {
             val udp = needsTunnel(server)
-            if (udp && !canProbeQuic(server)) return@withContext null
-            val (host, port) = endpoint(server) ?: return@withContext null
+            if (udp && !canProbeQuic(server)) return@runInterruptible null
+            val (host, port) = endpoint(server) ?: return@runInterruptible null
             val timeout = timeoutMs(context)
+            val begin = System.nanoTime()
             val task = probeExecutor.submit<Long> {
                 // Loopback is used by offline instrumentation tests only.
                 val local = host.equals("localhost", true) || host == "127.0.0.1" ||
@@ -231,17 +237,17 @@ object LatencyProbe {
                 if (!local && physical == null) return@submit -1L
                 val addresses = if (local) InetAddress.getAllByName(host)
                     else physical!!.getAllByName(host)
-                val begin = System.nanoTime()
-                for (address in addresses) {
+                for ((index, address) in addresses.withIndex()) {
                     val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - begin)
                     val remaining = (timeout.toLong() - elapsed).toInt()
-                    if (remaining <= 0) break
+                    if (remaining <= 0 || Thread.currentThread().isInterrupted) break
+                    val attemptTimeout = (remaining / (addresses.size - index)).coerceAtLeast(1)
                     try {
                         val attempt = System.nanoTime()
                         if (udp) {
-                            if (!QuicRtt.measure(physical, address, port, remaining)) continue
+                            if (!QuicRtt.measure(physical, address, port, attemptTimeout)) continue
                         } else (if (local) Socket() else physical!!.socketFactory.createSocket()).use {
-                            it.connect(InetSocketAddress(address, port), remaining)
+                            it.connect(InetSocketAddress(address, port), attemptTimeout)
                         }
                         return@submit TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - attempt)
                             .coerceAtLeast(1L)
@@ -252,10 +258,13 @@ object LatencyProbe {
                 -1L
             }
             val millis = try {
-                task.get(timeout.toLong() + 500L, TimeUnit.MILLISECONDS)
-            } catch (_: Exception) {
-                task.cancel(true)
+                task.get(timeout.toLong(), TimeUnit.MILLISECONDS)
+            } catch (_: TimeoutException) {
                 -1L
+            } catch (_: ExecutionException) {
+                -1L
+            } finally {
+                task.cancel(true)
             }
             if (millis > 0L) PingResult(millis, if (udp) "QUIC" else "TCP") else null
         }

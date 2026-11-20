@@ -193,6 +193,7 @@ node("Подключено")
 tap("Серверы")
 # Regression: a remote TCP probe must bypass the running Android VPN and use
 # validated physical network DNS+socket; the selected TUIC still reports VPN RTT.
+node("Автовыбор")
 node("PhysicalTcpProbe")
 wait_compact_latencies(min_count=2)
 tap("Проверить задержку подписки AndroidCheckA")
