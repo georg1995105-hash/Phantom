@@ -255,6 +255,16 @@ internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription
         else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
 }
 
+/** Correct Russian declension also for lone keys and double-digit counts. */
+internal fun serverCountLabel(count: Int): String {
+    val suffix = if (count % 100 in 11..14) "серверов" else when (count % 10) {
+        1 -> "сервер"
+        2, 3, 4 -> "сервера"
+        else -> "серверов"
+    }
+    return "$count $suffix"
+}
+
 @Composable
 private fun SubscriptionHeading(
     sub: Subscription,
@@ -285,8 +295,8 @@ private fun SubscriptionHeading(
                 Column(Modifier.weight(1f)) {
                     Text(displayTitle, fontWeight = FontWeight.SemiBold, maxLines = 2,
                         overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                    Text(if (remote) "${sub.servers.size} серверов · ${timeLabel(sub.updatedAt)}"
-                        else "Импортированная конфигурация · ${sub.servers.size} серверов",
+                    Text(if (remote) "${serverCountLabel(sub.servers.size)} · ${timeLabel(sub.updatedAt)}"
+                        else "Импортированная конфигурация · ${serverCountLabel(sub.servers.size)}",
                         color = c.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
                     if (failed) Text("Ошибка обновления · серверы сохранены",
                         color = c.error, fontSize = 11.sp, maxLines = 2)
@@ -623,8 +633,8 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
                                 if (pinnedId == sub.id) Icon(Icons.Default.PushPin, "Закреплена",
                                     Modifier.padding(start = 6.dp).size(15.dp), tint = c.primary)
                             }
-                            Caption(if (remote) sub.servers.size.toString() + " серверов · " + timeLabel(sub.updatedAt)
-                                else "Ключ или конфигурация · " + sub.servers.size.toString() + " серверов")
+                            Caption(if (remote) serverCountLabel(sub.servers.size) + " · " + timeLabel(sub.updatedAt)
+                                else "Ключ или конфигурация · " + serverCountLabel(sub.servers.size))
                             if (sub.id in failed)
                                 Text("Ошибка обновления · серверы сохранены", fontSize = 11.sp, color = c.error)
                         }
