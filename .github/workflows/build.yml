@@ -149,7 +149,9 @@ jobs:
           fi
 
       - name: Test universal APK audit itself
-        run: python3 -m unittest discover -s scripts -p 'test_universal_audit.py' -v
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_universal_audit.py' -v
+          python3 -m unittest discover -s scripts -p 'test_installed_native.py' -v
 
       - name: Verify all native ABI and 16 KiB ELF segments in signed universal APK
         run: |

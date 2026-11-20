@@ -19,16 +19,48 @@ def adb(*args):
     return subprocess.check_output(["adb", *args], text=True).strip()
 
 
-def verify_native(apk, package="xyz.wraithnet.phantom"):
-    dump = adb("shell", "dumpsys", "package", package)
+ABI_DIRECTORY = {
+    "armeabi-v7a": "arm",
+    "arm64-v8a": "arm64",
+    "x86": "x86",
+    "x86_64": "x86_64",
+}
+
+
+def installed_native_dir(dump, package_paths):
+    """Resolve the installed library directory without relying on dumpsys layout.
+
+    Android 15 emulators may omit nativeLibraryDir from 'dumpsys package'.
+    'pm path' reports the package's installed base.apk location reliably.
+    """
     abi_match = re.search(r"\bprimaryCpuAbi=([\w-]+)", dump)
-    lib_match = re.search(r"\bnativeLibraryDir=(/[^\s]+)", dump)
-    if abi_match is None or lib_match is None:
-        raise AssertionError("Android PackageManager did not report the native ABI/library directory")
+    if abi_match is None:
+        raise AssertionError("Android did not expose an installed package primaryCpuAbi")
     abi = abi_match.group(1)
     if abi not in SUPPORTED:
         raise AssertionError(f"Unsupported device ABI chosen by Android: {abi}")
-    native_dir = lib_match.group(1)
+
+    # Prefer the explicit PackageManager path when it is present.
+    lib_match = re.search(r"\bnativeLibraryDir=(/[^\s]+)", dump)
+    if lib_match:
+        return abi, lib_match.group(1)
+
+    base = next((
+        line[len("package:"):].strip()
+        for line in package_paths.splitlines()
+        if line.startswith("package:/") and line.endswith("/base.apk")
+    ), None)
+    if base is None:
+        raise AssertionError("Android 'pm path' did not expose the installed base.apk")
+    # With useLegacyPackaging=true the .so files are extracted next to base.apk.
+    native_dir = base.rsplit("/", 1)[0] + "/lib/" + ABI_DIRECTORY[abi]
+    return abi, native_dir
+
+
+def verify_native(apk, package="xyz.wraithnet.phantom"):
+    dump = adb("shell", "dumpsys", "package", package)
+    package_paths = adb("shell", "pm", "path", package)
+    abi, native_dir = installed_native_dir(dump, package_paths)
     with zipfile.ZipFile(apk) as z:
         for lib in REQUIRED:
             archive_file = f"lib/{abi}/{lib}"
