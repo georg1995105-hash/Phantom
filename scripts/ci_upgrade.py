@@ -408,7 +408,10 @@ adb("shell", "svc", "data", "disable")
 tap("Главная")
 tap("Обновить выбранную подписку")
 tap("Подписка")
-node("Данные могут быть устаревшими", attempts=36)
+# After failed offline refresh the new card shows an explicit owner-scoped
+# error while preserving servers. Check the current UI contract, not text
+# removed with the old duplicate subscription summary.
+node("Ошибка обновления · серверы сохранены", attempts=36)
 tap("Серверы")
 node("OfflineSubscriptionCheck")
 

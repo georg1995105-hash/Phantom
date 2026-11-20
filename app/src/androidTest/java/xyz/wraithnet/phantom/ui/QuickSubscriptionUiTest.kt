@@ -9,6 +9,7 @@ import android.os.ParcelFileDescriptor
 import android.os.PersistableBundle
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.test.ComposeTimeoutException
+import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasContentDescription
@@ -123,6 +124,14 @@ class QuickSubscriptionUiTest {
                 compose.awaitVisible(shortcut).performTouchInput { click() }
                 compose.awaitVisible(hasText("Эта подписка уже добавлена"))
                 assertEquals(1, store.read().size)
+                // Assert real lifecycle cleanup before ActivityScenario.close().
+                // Shared emulator stress can leave the activity PAUSED even after
+                // all clipboard assertions passed; explicitly finish the activity,
+                // then require Android to actually dispatch onDestroy.
+                scenario.onActivity { activity ->
+                    if (!activity.isFinishing) activity.finishAndRemoveTask()
+                }
+                compose.waitUntil(15_000) { scenario.state == Lifecycle.State.DESTROYED }
             }
         } finally {
             store.write(previous)
