@@ -93,8 +93,9 @@ class MultipleSubscriptionsUiTest {
                     assertEquals(first.id, prefs.getString("selected_subscription_id", null))
                     assertEquals("provider-auto", prefs.getString("selected_server_id", null))
                 }
-                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
+                compose.awaitVisible(hasContentDescription("Свернуть подписку $secondTitle"))
                     .performTouchInput { click() }
+                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                 compose.awaitVisible(secondServer).performTouchInput { click() }
                 compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
                 compose.runOnIdle {

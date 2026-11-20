@@ -872,6 +872,10 @@ fun HomeScreen(
                 scope.launch {
                     try {
                         persist { current -> current.filterNot { sub -> sub.id == id } }
+                        if (pinnedSubId == id) {
+                            pinnedSubId = null
+                            prefs.edit().remove("pinned_sub_id").apply()
+                        }
                         favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
                     } catch (_: Exception) {
