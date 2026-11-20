@@ -224,7 +224,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back virtualscene
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back imagefile:${{ runner.temp }}/phantom-subscription.png
           pre-emulator-launch-script: bash scripts/ci_qr_camera.sh
           disable-animations: true
           script: |
@@ -281,7 +281,7 @@ jobs:
           exit "$result"
 
       - name: Upload upgrade screenshots
-        if: github.event_name != 'push' && success()
+        if: ${{ !cancelled() && github.event_name != 'push' && hashFiles('upgrade-screens/*.png') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: upgrade-screens

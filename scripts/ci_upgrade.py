@@ -252,7 +252,12 @@ node("Отключено")
 # Scan the public HTTPS subscription through the actual Android camera.
 adb("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
 tap("Сканировать QR-код подписки")
-node("К серверам", attempts=20)
+try:
+    node("К серверам", attempts=20)
+except AssertionError:
+    screenshot("qr-failure")
+    print(adb("logcat", "-d", "-s", "CameraPreview", "CameraInstance", "CameraManager", "DecoderThread"))
+    raise
 tap("Подписка")
 node("OfflineSubscriptionCheck", attempts=20)
 print("Camera QR imported a subscription without a second confirmation", flush=True)

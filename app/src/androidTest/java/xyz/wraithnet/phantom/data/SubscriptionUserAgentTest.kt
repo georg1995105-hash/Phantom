@@ -72,8 +72,9 @@ class SubscriptionUserAgentTest {
                 }
                 expire()
                 ActivityScenario.launch(MainActivity::class.java).use {
-                    received("foreground automatic refresh")
+                    // Pump Compose's test clock while LaunchedEffect waits before refreshing.
                     compose.waitUntil(10_000) { store.read().single().updatedAt > 0L }
+                    received("foreground automatic refresh")
                 }
                 expire()
                 val worker = TestListenableWorkerBuilder<SubscriptionRefreshWorker>(context).build()

@@ -24,7 +24,12 @@ def key(button):
 
 
 def nodes():
-    adb("shell", "uiautomator", "dump", "/sdcard/tv-ui.xml")
+    result = subprocess.run(["adb", "shell", "uiautomator", "dump", "/sdcard/tv-ui.xml"],
+                            capture_output=True, text=True)
+    if "null root node" in result.stderr:
+        return []
+    result.check_returncode()
+    assert "UI hierchary dumped to" in result.stdout or "UI hierarchy dumped to" in result.stdout, result
     return list(ET.fromstring(adb("shell", "cat", "/sdcard/tv-ui.xml")).iter("node"))
 
 
@@ -111,6 +116,12 @@ if page_size_16k:
     adb("shell", "setprop", "pm.16kb.app_compat.disabled", "true")
     assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
     assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
+    # UIAutomator must run as Android's shell user, which owns its automation session.
+    adb("unroot")
+    adb("wait-for-device")
+    assert adb("shell", "id", "-u") == "2000"
+    key("WAKEUP")
+    adb("shell", "wm", "dismiss-keyguard")
     CATEGORY = "android.intent.category.LAUNCHER"
     device = "Android x86_64 16 KiB"
 else:
