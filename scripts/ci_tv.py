@@ -112,29 +112,22 @@ def tap(label):
 page_size_16k = sys.argv[1:] == ["--16k"]
 if page_size_16k:
     assert adb("shell", "getconf", "PAGE_SIZE") == "16384"
-    adb("root")
-    adb("wait-for-device")
-    assert adb("shell", "id", "-u") == "0"
-    adb("shell", "setprop", "bionic.linker.16kb.app_compat.enabled", "false")
-    adb("shell", "setprop", "pm.16kb.app_compat.disabled", "true")
+    assert adb("shell", "id", "-u") == "2000"
+    # On the debuggable system image, elevate only the two property writes.
+    # Restarting adbd for root interrupts package streaming and UI automation.
+    assert adb("shell", "su", "0", "id", "-u") == "0"
+    adb("shell", "su", "0", "setprop", "bionic.linker.16kb.app_compat.enabled", "false")
+    adb("shell", "su", "0", "setprop", "pm.16kb.app_compat.disabled", "true")
     assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
     assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
+    key("WAKEUP")
+    adb("shell", "wm", "dismiss-keyguard")
     CATEGORY = "android.intent.category.LAUNCHER"
     device = "Android x86_64 16 KiB"
 else:
     assert "android.software.leanback" in adb("shell", "pm", "list", "features")
     device = "TV x86"
 install_apk(APK, "-g")
-if page_size_16k:
-    # UIAutomator must run as Android's shell user, which owns its automation session.
-    # Complete the APK install before restarting adbd to avoid breaking its stream.
-    adb("unroot")
-    adb("wait-for-device")
-    assert adb("shell", "id", "-u") == "2000"
-    assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
-    assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
-    key("WAKEUP")
-    adb("shell", "wm", "dismiss-keyguard")
 assert verify_native(APK, PACKAGE) == ("x86_64" if page_size_16k else "x86")
 resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
