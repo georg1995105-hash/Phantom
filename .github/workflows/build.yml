@@ -94,14 +94,36 @@ jobs:
       - name: Build release APK
         env:
           RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           chmod +x gradlew
           set +e
           tasks=(:app:testDebugUnitTest :app:lintRelease :app:assembleRelease)
+          beta_args=()
           if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
             tasks+=(:app:testBetaUnitTest :app:lintBeta :app:assembleBeta)
           fi
-          ./gradlew --no-daemon --max-workers=1 --stacktrace "${tasks[@]}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
+            # Each published beta must increase versionCode, even within the
+            # same stable base version: beta.1=34001, beta.2=34002, etc.
+            if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-beta\.([1-9][0-9]*)$ ]]; then
+              echo "::error::Expected a tag like v0.3.7-beta.2"; exit 1
+            fi
+            beta_base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+            beta_number="${BASH_REMATCH[4]}"
+            stable_version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
+            stable_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' app/build.gradle.kts)
+            if [[ "$beta_base" != "$stable_version" || ! "$stable_code" =~ ^[0-9]+$ ]]; then
+              echo "::error::Beta base must equal the source stable version"; exit 1
+            fi
+            if (( beta_number > 999 )); then
+              echo "::error::Beta ordinal must be between 1 and 999"; exit 1
+            fi
+            beta_code=$((stable_code * 1000 + beta_number))
+            beta_args+=("-PphantomBetaVersion=${RELEASE_TAG#v}" "-PphantomBetaCode=$beta_code")
+            echo "Building beta version=${RELEASE_TAG#v} versionCode=$beta_code"
+          fi
+          ./gradlew --no-daemon --max-workers=1 --stacktrace "${beta_args[@]}" "${tasks[@]}"
           result=$?
           if [ "$result" -ne 0 ]; then
             report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
