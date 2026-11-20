@@ -12,6 +12,41 @@ import time
 import uuid
 
 
+def provider_balance(uid, host, port, stream):
+    def outbound(tag, address, endpoint_port):
+        return {"tag": tag, "protocol": "vless",
+                "settings": {"vnext": [{"address": address, "port": endpoint_port,
+                                       "users": [{"id": uid, "encryption": "none"}]}]},
+                "streamSettings": stream}
+
+    return [{
+        "remarks": "Автовыбор",
+        "inbounds": [
+            {"tag": "monitor", "protocol": "dokodemo-door"},
+            {"tag": "client", "protocol": "socks",
+             "sniffing": {"enabled": True, "routeOnly": True, "destOverride": ["http", "tls", "quic"]}},
+        ],
+        "outbounds": [
+            {"tag": "block", "protocol": "blackhole"},
+            outbound("pool-offline", "127.0.0.1", 34999),
+            outbound("fallback", host, port),
+        ],
+        "burstObservatory": {"subjectSelector": ["pool-"], "pingConfig": {
+            "destination": "http://127.0.0.1:34301/Observe",
+            "interval": "10s", "timeout": "1s", "sampling": 1,
+        }},
+        "routing": {
+            "balancers": [{"tag": "auto", "selector": ["pool-"], "fallbackTag": "fallback",
+                           "strategy": {"type": "leastLoad"}}],
+            "rules": [
+                {"type": "field", "inboundTag": ["monitor"], "outboundTag": "block"},
+                {"type": "field", "inboundTag": ["client"], "balancerTag": "auto"},
+                {"type": "field", "network": "tcp,udp", "balancerTag": "auto"},
+            ],
+        },
+    }]
+
+
 def prepare(directory, xray, singbox):
     cert, key = (str(directory / n) for n in ("cert.pem", "key.pem"))
     subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
@@ -23,6 +58,7 @@ def prepare(directory, xray, singbox):
     uid, password = str(uuid.uuid4()), secrets.token_hex(16)
     host = "10.0.2.2"
     x_in, s_in, cases = [], [], {}
+    balance = None
     keys = subprocess.check_output([xray, "x25519"], text=True).splitlines()
     private, public = [line.split(":", 1)[1].strip() for line in keys[:2]]
     sid = secrets.token_hex(4)
@@ -54,8 +90,12 @@ def prepare(directory, xray, singbox):
         if security == "tls":
             stream["tlsSettings"] = {**tls, "alpn": ["h3"]}
             query += f"&sni=localhost&alpn=h3&pcs={digest}"
-        x_in.append({"port": port, "listen": "127.0.0.1", "protocol": "vless",
-                     "settings": {"clients": [user], "decryption": "none"}, "streamSettings": stream})
+        inbound = {"port": port, "listen": "127.0.0.1", "protocol": "vless",
+                   "settings": {"clients": [user], "decryption": "none"}, "streamSettings": stream}
+        if name == "VLESS-XHTTP":
+            inbound["tag"] = "provider-xhttp"
+            balance = provider_balance(uid, host, port, stream)
+        x_in.append(inbound)
         cases[name] = f"vless://{uid}@{host}:{port}?{query}"
     # Use independent implementations for the remaining protocols.
     for offset, protocol in enumerate(("vmess", "trojan", "shadowsocks", "hysteria2", "tuic", "anytls")):
@@ -88,15 +128,22 @@ def prepare(directory, xray, singbox):
             link = f"{protocol}://{auth}@{host}:{port}?{query}"
         s_in.append(inbound)
         cases[protocol] = link
-    # All peers bind only to runner loopback. Xray denies private destinations
-    # by default, so permit precisely the HTTP probe and block everything else.
+    # All peers bind only to runner loopback. Limit egress to the test origin
+    # and, on the XHTTP peer, Phantom's certificate-checked HTTPS probes.
     origin_only = {"protocol": "freedom", "settings": {"finalRules": [
         {"action": "allow", "ip": ["127.0.0.1/32"], "port": "34301", "network": "tcp"},
         {"action": "block"}]}}
-    for file, config in (("x.json", {"inbounds": x_in, "outbounds": [origin_only]}),
+    connectivity = {"tag": "connectivity", "protocol": "freedom"}
+    xray_server = {"inbounds": x_in, "outbounds": [origin_only, connectivity],
+                   "routing": {"rules": [
+                       {"type": "field", "inboundTag": ["provider-xhttp"], "network": "tcp",
+                        "port": "443", "domain": ["full:www.gstatic.com", "full:cp.cloudflare.com",
+                                                 "full:example.com"], "outboundTag": "connectivity"},
+                   ]}}
+    for file, config in (("x.json", xray_server),
                          ("s.json", {"inbounds": s_in, "outbounds": [{"type": "direct"}]})):
         (directory / file).write_text(json.dumps(config))
-    return cases, [
+    return cases, balance, [
         [xray, "run", "-c", str(directory / "x.json")],
         [singbox, "run", "-c", str(directory / "s.json")],
         ["openssl", "s_server", "-accept", "127.0.0.1:34302", "-cert", cert, "-key", key,
@@ -113,7 +160,7 @@ class Probe(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as temporary:
-        cases, commands = prepare(Path(temporary), *sys.argv[1:3])
+        cases, balance, commands = prepare(Path(temporary), *sys.argv[1:3])
         children = []
         try:
             for command in commands:
@@ -123,6 +170,7 @@ if __name__ == "__main__":
                 raise RuntimeError("A protocol peer failed to start")
             path = Path(sys.argv[3])
             path.parent.mkdir(parents=True, exist_ok=True)
+            path.with_name("provider-balance.json").write_text(json.dumps(balance))
             path.write_text(json.dumps(cases))
             http.server.ThreadingHTTPServer(("127.0.0.1", 34301), Probe).serve_forever()
         finally:

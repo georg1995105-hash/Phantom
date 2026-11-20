@@ -4,7 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.ParcelFileDescriptor
 import android.os.PersistableBundle
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasContentDescription
@@ -53,10 +55,22 @@ class QuickSubscriptionUiTest {
                     assertTrue(add.right <= qr.left)
                     assertTrue(qr.top < add.bottom && add.top < qr.bottom)
                 }
-                compose.waitUntil(10_000) {
-                    var focused = false
-                    scenario.onActivity { focused = it.hasWindowFocus() }
-                    focused
+                try {
+                    compose.waitUntil(10_000) {
+                        var focused = false
+                        scenario.onActivity { focused = it.hasWindowFocus() }
+                        focused
+                    }
+                } catch (error: ComposeTimeoutException) {
+                    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+                    val window = ParcelFileDescriptor.AutoCloseInputStream(
+                        automation.executeShellCommand("dumpsys window displays")
+                    ).bufferedReader().useLines { lines ->
+                        lines.filter {
+                            it.contains("mCurrentFocus") || it.contains("mFocusedApp") || it.contains("mScreenOn")
+                        }.joinToString("\n")
+                    }
+                    throw AssertionError("Android did not focus the clipboard test window:\n$window", error)
                 }
                 scenario.onActivity {
                     val clip = ClipData.newPlainText("Phantom test", link)

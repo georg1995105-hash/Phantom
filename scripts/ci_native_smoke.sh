@@ -2,6 +2,11 @@
 # Execute in a single shell. The emulator-runner action executes each YAML line
 # as a separate command, so a multi-line inline script cannot preserve 'set +e'.
 set -uo pipefail
+# Compose can drive a view while Android still denies clipboard reads to its
+# window. Keep this disposable emulator awake during Gradle and the native tests.
+adb shell svc power stayon true || exit $?
+adb shell input keyevent KEYCODE_WAKEUP || exit $?
+adb shell wm dismiss-keyguard || exit $?
 timeout --signal=TERM --kill-after=15s 480s ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
 rc=$?
 adb logcat -d -s PhantomUserAgent:I

@@ -205,6 +205,24 @@ node("Подключено")
 tap("Отключить VPN")
 node("Отключено")
 
+# Import the same provider JSON used by the native routing test. The first
+# outbound blocks traffic and the observed peer is down, so CONNECTED requires
+# the actual Xray balancer and its XHTTP fallback.
+balance = Path("app/src/androidTest/assets/provider-balance.json").read_text()
+adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
+                        "-t", "text/plain", "--es", "android.intent.extra.TEXT", balance]))
+tap("Серверы")
+tap_in_list("Раскрыть подписку Автовыбор")
+tap("Выбрать сервер Автовыбор")
+tap("Главная")
+node("Автовыбор")
+tap("Подключить VPN")
+node("Подключено")
+print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
+screenshot("provider-auto-connected")
+tap("Отключить VPN")
+node("Отключено")
+
 # Select an installed system app through the real split-tunneling screen.
 tap("Настройки")
 tap("Туннелирование")
