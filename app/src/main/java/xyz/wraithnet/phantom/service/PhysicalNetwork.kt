@@ -3,7 +3,6 @@ package xyz.wraithnet.phantom.service
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.os.Build
 
 /** Pick the default for this UID, or an accessible underlying network when the default is a VPN. */
 @Suppress("DEPRECATION")
@@ -14,12 +13,7 @@ internal fun ConnectivityManager.physicalNetwork(): Network? {
     } == true && !getLinkProperties(network)?.interfaceName.isNullOrBlank()
 
     val active = activeNetwork
-    if (active != null) {
-        if (usable(active)) return active
-        if (Build.VERSION.SDK_INT >= 31) {
-            getNetworkCapabilities(active)?.underlyingNetworks?.firstOrNull(::usable)?.let { return it }
-        }
-    }
+    if (active != null && usable(active)) return active
     return allNetworks.filter(::usable).maxByOrNull { network ->
         val caps = getNetworkCapabilities(network) ?: return@maxByOrNull 0
         (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 8 else 0) +
