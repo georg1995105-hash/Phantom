@@ -379,14 +379,19 @@ screenshot("forest-subscriptions")
 # expandable subscription cards. Do not weaken its existence assertion.
 adb("shell", "wm", "size", "720x1600")
 renewal_hint = "В магазине выберите „Моя подписка“ → „Продлить“"
-for attempt in range(6):
+for attempt in range(10):
     try:
         node(renewal_hint, attempts=1)
         break
     except AssertionError:
-        if attempt == 5:
+        if attempt == 9:
+            print("Subscription screen did not expose renewal hint after in-content swipes",
+                  flush=True)
             raise
-        adb("shell", "input", "swipe", "350", "1330", "350", "400", "300")
+        # At 720x1600, y=1330 falls within bottom NavigationBar, which
+        # consumes the gesture instead of scrolling the subscription list.
+        # Keep both touch points safely inside the LazyColumn viewport.
+        adb("shell", "input", "swipe", "350", "1000", "350", "320", "420")
 node(renewal_hint)
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")

@@ -38,6 +38,7 @@ class MultipleSubscriptionsUiTest {
         val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
         val oldSub = prefs.getString("selected_subscription_id", null)
         val oldServer = prefs.getString("selected_server_id", null)
+        val oldPinned = prefs.getString("pinned_sub_id", null)
         val now = System.currentTimeMillis()
         val server = MockWebServer()
         val releaseResponses = CountDownLatch(1)
@@ -77,7 +78,8 @@ class MultipleSubscriptionsUiTest {
         try {
             store.write(listOf(first, second))
             prefs.edit().putString("selected_subscription_id", first.id)
-                .putString("selected_server_id", "same-server-id").commit()
+                .putString("selected_server_id", "same-server-id")
+                .remove("pinned_sub_id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 compose.awaitVisible(hasContentDescription("Вкладка Серверы")).performTouchInput { click() }
                 val firstTitle = "${first.title} · 1"
@@ -93,9 +95,10 @@ class MultipleSubscriptionsUiTest {
                     assertEquals(first.id, prefs.getString("selected_subscription_id", null))
                     assertEquals("provider-auto", prefs.getString("selected_server_id", null))
                 }
-                compose.awaitVisible(hasContentDescription("Свернуть подписку $secondTitle"))
-                    .performTouchInput { click() }
+                // Server groups start with the first owner's group open. The
+                // second group must be opened before choosing its server.
                 compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
+                    .performTouchInput { click() }
                 compose.awaitVisible(secondServer).performTouchInput { click() }
                 compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
                 compose.runOnIdle {
@@ -126,8 +129,10 @@ class MultipleSubscriptionsUiTest {
                 compose.awaitVisible(hasContentDescription("Обновить подписку $firstTitle"))
                 compose.awaitVisible(hasContentDescription("Обновить подписку $secondTitle"))
                 compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
-                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
+                // On the details tab the selected owner's card starts expanded.
+                compose.awaitVisible(hasContentDescription("Свернуть подписку $secondTitle"))
                     .performTouchInput { click() }
+                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                 compose.awaitVisible(hasContentDescription("Вкладка Серверы"))
                     .performTouchInput { click() }
                 // App recreation must not reset ownership to the first
@@ -141,7 +146,8 @@ class MultipleSubscriptionsUiTest {
             server.close()
             store.write(saved)
             prefs.edit().putString("selected_subscription_id", oldSub)
-                .putString("selected_server_id", oldServer).commit()
+                .putString("selected_server_id", oldServer)
+                .putString("pinned_sub_id", oldPinned).commit()
         }
     }
 }

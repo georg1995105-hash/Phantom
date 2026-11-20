@@ -669,7 +669,8 @@ internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: Stri
         }
         item {
             Text("В магазине выберите „Моя подписка“ → „Продлить“",
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    .semantics { contentDescription = "В магазине выберите „Моя подписка“ → „Продлить“" },
                 textAlign = TextAlign.Center, softWrap = true,
                 style = MaterialTheme.typography.bodySmall,
                 color = c.onSurfaceVariant)
