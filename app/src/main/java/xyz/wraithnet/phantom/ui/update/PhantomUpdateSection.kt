@@ -46,10 +46,10 @@ fun PhantomUpdateSection() {
         }
     }
 
-    fun install(file: File) {
+    suspend fun install(file: File) {
         try {
             val launched = PhantomUpdates.openInstaller(context, file)
-            status = if (launched) "Подтвердите установку в Android"
+            status = if (launched) "Android устанавливает обновление или запросит подтверждение"
                 else "Разрешите установку приложений и нажмите «Установить» снова"
         } catch (e: Exception) {
             status = e.message ?: "Не удалось открыть установщик"
@@ -104,7 +104,11 @@ fun PhantomUpdateSection() {
                     onClick = {
                         val file = downloadedFile
                         if (file != null && file.exists()) {
-                            install(file)
+                            downloading = true
+                            scope.launch {
+                                try { install(file) }
+                                finally { downloading = false }
+                            }
                         } else {
                             val selected = release ?: return@Button
                             downloading = true
