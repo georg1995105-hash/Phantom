@@ -2,6 +2,10 @@ package xyz.wraithnet.phantom.data
 
 import android.content.Context
 import android.os.Build
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import org.json.JSONArray
 import xyz.wraithnet.phantom.BuildConfig
 
 data class DownloadedSubscription(
@@ -15,13 +19,35 @@ data class DownloadedSubscription(
 )
 
 object SubscriptionFetcher {
+    private const val PHANTOM_SUBSCRIPTIONS_HOST = "sub2.wraithnet.xyz"
+    private val shortId = Regex("[A-Za-z0-9_-]{1,64}")
+
+    private fun firstPartyPath(url: HttpUrl): Boolean =
+        url.isHttps && url.host == PHANTOM_SUBSCRIPTIONS_HOST && url.port == 443 &&
+            url.username.isEmpty() && url.password.isEmpty() &&
+            shortId.matches(url.pathSegments.first()) &&
+            (url.pathSegments.dropLastWhile(String::isEmpty).let {
+                it.size == 1 || it.size == 2 && it[1] == "json"
+            })
+
+    internal fun usesProviderJson(url: String): Boolean =
+        url.toHttpUrlOrNull()?.let(::firstPartyPath) == true
+
+    internal fun requestUrl(source: String): String {
+        val url = source.toHttpUrl()
+        if (!firstPartyPath(url)) return source
+        // Remnawave's explicit format route delivers the provider's Xray
+        // templates and keeps Phantom's own User-Agent and device identity.
+        return url.newBuilder().encodedPath("/${url.pathSegments.first()}/json").build().toString()
+    }
+
     suspend fun download(
         context: Context,
         url: String,
         hwid: String,
     ): DownloadedSubscription = PhantomHttp.get(
         context = context,
-        url = url,
+        url = requestUrl(url),
         headers = mapOf(
             "User-Agent" to "Phantom/${BuildConfig.VERSION_NAME}",
             "x-hwid" to hwid,
@@ -35,6 +61,14 @@ object SubscriptionFetcher {
         val bytes = response.body?.byteStream() ?: error("Пустой ответ сервера подписки")
         val body = bytes.use { PhantomHttp.readUtf8Limited(it, 3 * 1024 * 1024) }
         require(body.isNotBlank()) { "Сервер вернул пустую подписку" }
+        if (usesProviderJson(url)) {
+            // An error page or a list of share links must not replace the
+            // saved JSON subscription and silently discard routing.
+            val parsed = runCatching { JSONArray(body.trimStart().removePrefix("\uFEFF")) }.getOrNull()
+            require(parsed != null && parsed.length() > 0 && (0 until parsed.length()).all {
+                (parsed.optJSONObject(it)?.optJSONArray("outbounds")?.length() ?: 0) > 0
+            }) { "Сервер не вернул профили Xray JSON" }
+        }
         DownloadedSubscription(
             body = body,
             title = SubscriptionHeaders.decodeTitle(response.header("profile-title")),

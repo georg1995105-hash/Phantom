@@ -619,7 +619,8 @@ fun HomeScreen(
                         prefs.edit().putStringSet("favorite_servers", favorites).apply()
                     }, choose = { owner, server ->
                         if (ProtocolSupport.isSupported(server.scheme)) {
-                            val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id
+                            val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
+                                vpnStatus == "connected" && prefs.getString("vpn_last_profile", null) != server.raw
                             softTap()
                             selectedId = server.id
                             selectedSubId = owner.id

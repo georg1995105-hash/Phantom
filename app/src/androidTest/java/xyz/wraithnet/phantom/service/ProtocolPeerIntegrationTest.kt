@@ -18,23 +18,30 @@ import java.net.ServerSocket
 import java.net.URL
 
 class ProtocolPeerIntegrationTest {
-    @Test fun providerRoutingReachesXhttpPeerWithoutHittingAServiceRule() {
+    @Test fun providerAutoSelectReachesXhttpFallbackWithoutHittingAServiceRule() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val assets = instrumentation.context.assets
         org.junit.Assume.assumeTrue("Requires CI protocol peers", "peers.json" in assets.list("").orEmpty())
         val cases = JSONObject(assets.open("peers.json").bufferedReader().use { it.readText() })
         val server = SubscriptionParser.parse(cases.getString("VLESS-XHTTP")).servers.single()
         val outbound = JSONObject(XrayConfigBuilder.build(server)).getJSONArray("outbounds").getJSONObject(0)
+            .put("tag", "fallback")
+        val offline = JSONObject(outbound.toString()).put("tag", "pool-offline")
+        offline.getJSONObject("settings").getJSONArray("vnext").getJSONObject(0)
+            .put("address", "127.0.0.1").put("port", ServerSocket(0).use { it.localPort })
         val provider = JSONObject("""{
             "remarks":"Автовыбор",
             "inbounds":[{"tag":"monitor","protocol":"dokodemo-door"},{"tag":"client","protocol":"socks"}],
             "outbounds":[{"tag":"block","protocol":"blackhole"}],
-            "routing":{"balancers":[{"tag":"auto","selector":["proxy"]}],"rules":[
+            "burstObservatory":{"subjectSelector":["pool-"],"pingConfig":{
+                "destination":"http://127.0.0.1:34301/Observe","interval":"10s","timeout":"1s","sampling":1}},
+            "routing":{"balancers":[{"tag":"auto","selector":["pool-"],"fallbackTag":"fallback",
+                "strategy":{"type":"leastLoad"}}],"rules":[
                 {"type":"field","inboundTag":["monitor"],"outboundTag":"block"},
                 {"type":"field","inboundTag":["client"],"balancerTag":"auto"}]}
         }""")
-        provider.getJSONArray("outbounds").put(outbound)
-        val profile = SubscriptionParser.parse(provider.toString()).servers.single()
+        provider.getJSONArray("outbounds").put(offline).put(outbound)
+        val profile = SubscriptionParser.parse(JSONArray().put(provider).toString()).servers.single()
         val config = JSONObject(XrayConfigBuilder.build(profile))
         val port = ServerSocket(0).use { it.localPort }
         // Exercise the effective routing in the real core without changing Android VPN consent.

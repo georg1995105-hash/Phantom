@@ -31,18 +31,4 @@ class QuickImportAndPingTextTest {
         assertEquals("—", SubscriptionPingText.display(LatencyProbe.PingResult(0, "TCP"), false))
     }
 
-    @Test fun automaticSelectionUsesOnlyTheOwnersSupportedProfiles() {
-        val unsupported = ServerProfile("unsupported", "Other", "ssh", raw = "unsupported")
-        val first = ServerProfile("first", "Netherlands", "vless", raw = "first")
-        val fastest = ServerProfile("second", "Germany", "hy2", raw = "second")
-        val owner = Subscription("a", "First", "", listOf(unsupported, first, fastest))
-        val delays = mapOf(unsupported.id to 1L, first.id to 60L, fastest.id to 32L)
-
-        assertEquals(fastest, ProfileSelection.automatic(owner) { delays[it.id] })
-        assertEquals(first, ProfileSelection.automatic(owner) { null })
-        val imported = ServerProfile("provider", "🇪🇺 Автовыбор", "xray", raw = "{}")
-        assertEquals(imported, ProfileSelection.automatic(owner.copy(servers = owner.servers + imported)) {
-            delays[it.id]
-        })
-    }
 }

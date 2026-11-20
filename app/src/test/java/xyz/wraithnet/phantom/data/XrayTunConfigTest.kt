@@ -56,6 +56,25 @@ class XrayTunConfigTest {
         assertEquals("proxy-", routing.getJSONArray("balancers").getJSONObject(0)
             .getJSONArray("selector").getString(0))
     }
+
+    @Test fun providerSocksSniffingAndObservatorySurviveTunAdaptation() {
+        val raw = """{"inbounds":[
+            {"tag":"http","protocol":"http","sniffing":{"enabled":true,"destOverride":["http","tls"]}},
+            {"tag":"socks","protocol":"socks","sniffing":{"enabled":true,"routeOnly":true,
+                "destOverride":["http","tls","quic"]}}],
+            "outbounds":[{"tag":"proxy","protocol":"vless"}],
+            "burstObservatory":{"subjectSelector":["proxy"],"pingConfig":{"sampling":1,"timeout":"3s"}},
+            "routing":{"balancers":[{"tag":"auto","selector":["proxy"],"fallbackTag":"proxy",
+                "strategy":{"type":"leastLoad"}}]}}"""
+        val config = JSONObject(XrayConfigBuilder.build(SubscriptionParser.parse(raw).servers.single()))
+        val sniffing = config.getJSONArray("inbounds").getJSONObject(0).getJSONObject("sniffing")
+        assertTrue(sniffing.getBoolean("routeOnly"))
+        assertEquals("quic", sniffing.getJSONArray("destOverride").getString(2))
+        assertEquals("3s", config.getJSONObject("burstObservatory").getJSONObject("pingConfig").getString("timeout"))
+        val balancer = config.getJSONObject("routing").getJSONArray("balancers").getJSONObject(0)
+        assertEquals("leastLoad", balancer.getJSONObject("strategy").getString("type"))
+        assertEquals("proxy", balancer.getString("fallbackTag"))
+    }
     @Test fun outboundStatisticsEnabledForShareLinks() {
         val server = ServerProfile(id = "vless", name = "Demo", scheme = "vless",
             raw = "vless://00000000-0000-0000-0000-000000000001@example.org:443?type=xhttp")

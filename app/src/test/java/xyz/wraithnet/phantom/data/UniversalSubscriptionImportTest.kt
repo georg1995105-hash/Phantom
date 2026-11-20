@@ -11,6 +11,23 @@ class UniversalSubscriptionImportTest {
     private val trojan =
         "trojan://examplePassword@proxy.example.org:443?security=tls#Netherlands"
 
+    @Test fun requestsProviderJsonOnlyForThePhantomSubscriptionEndpoint() {
+        val original = "https://sub2.wraithnet.xyz/testOnlyId016ABC"
+        assertEquals("$original/json", SubscriptionFetcher.requestUrl(original))
+        assertEquals("$original/json?platform=android",
+            SubscriptionFetcher.requestUrl("$original/?platform=android"))
+        assertEquals("$original/json", SubscriptionFetcher.requestUrl("$original/json"))
+        val unchanged = listOf(
+            "https://sub.example.org/testOnlyId016ABC",
+            "https://sub2.wraithnet.xyz.example.org/testOnlyId016ABC",
+            "https://sub2.wraithnet.xyz:8443/testOnlyId016ABC",
+            "http://sub2.wraithnet.xyz/testOnlyId016ABC",
+            "$original/clash",
+            "https://sub2.wraithnet.xyz/",
+        )
+        unchanged.forEach { assertEquals(it, SubscriptionFetcher.requestUrl(it)) }
+    }
+
     @Test fun importSingleVlessLink() {
         val parsed = SubscriptionParser.parse(vless)
         assertEquals(1, parsed.servers.size)

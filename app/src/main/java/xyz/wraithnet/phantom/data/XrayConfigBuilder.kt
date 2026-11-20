@@ -91,19 +91,20 @@ object XrayConfigBuilder {
             .put("outbounds", JSONArray().put(input))
         val outbounds = root.optJSONArray("outbounds")
         require(outbounds != null && outbounds.length() > 0) { "Нет исходящих соединений в Xray JSON" }
-        val tun = JSONObject().put("tag", "tun").put("port", 0).put("protocol", "tun")
-            .put("settings", JSONObject().put("name", "tun0").put("mtu", 1400))
-            .put("sniffing", JSONObject().put("enabled", true)
-                .put("destOverride", JSONArray().put("http").put("tls").put("quic")))
         // Preserve inbound-based routing rules when migrating local SOCKS/HTTP
         // inbounds to Android's single TUN inbound.
         val oldInbounds = root.optJSONArray("inbounds")
-        val clientProtocols = setOf("socks", "http", "mixed", "tun")
-        val clientTags = (0 until (oldInbounds?.length() ?: 0)).mapNotNull { index ->
-            oldInbounds?.optJSONObject(index)
-                ?.takeIf { it.optString("protocol").lowercase() in clientProtocols }
-                ?.optString("tag")?.takeIf { it.isNotBlank() }
-        }.toSet()
+        val clientProtocols = listOf("tun", "socks", "mixed", "http")
+        val clients = (0 until (oldInbounds?.length() ?: 0)).mapNotNull { oldInbounds?.optJSONObject(it) }
+            .filter { it.optString("protocol").lowercase() in clientProtocols }
+        val clientTags = clients.map { it.optString("tag") }.filter { it.isNotBlank() }.toSet()
+        val sniffing = clients.sortedBy { clientProtocols.indexOf(it.optString("protocol").lowercase()) }
+            .firstNotNullOfOrNull { it.optJSONObject("sniffing") }
+            ?: JSONObject().put("enabled", true)
+                .put("destOverride", JSONArray().put("http").put("tls").put("quic"))
+        val tun = JSONObject().put("tag", "tun").put("port", 0).put("protocol", "tun")
+            .put("settings", JSONObject().put("name", "tun0").put("mtu", 1400))
+            .put("sniffing", sniffing)
         root.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
             for (i in 0 until rules.length()) {
                 val rule = rules.optJSONObject(i) ?: continue

@@ -370,24 +370,6 @@ internal fun ServersPage(
                 )
             }
             if (expandedId != owner.id) return@forEach
-            if (orderedServers.none(ProfileSelection::isProviderAutomatic) &&
-                orderedServers.count { ProtocolSupport.isSupported(it.scheme) } > 1
-            ) item(key = "automatic:${owner.id}") {
-                Panel {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing()
-                        .clickable {
-                            ProfileSelection.automatic(owner) { server ->
-                                latency["${owner.id}:${server.id}"]
-                                    ?.takeUnless { it.source == "VPN" }?.milliseconds
-                            }?.let { choose(owner, it) }
-                        }
-                        .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Автовыбор", fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
             items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
                 val id = "${owner.id}:${server.id}"
                 val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id

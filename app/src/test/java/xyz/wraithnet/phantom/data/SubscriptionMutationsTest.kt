@@ -116,4 +116,22 @@ class SubscriptionMutationsTest {
         assertEquals(501L, after.updatedAt)
         assertEquals(listOf(after), SubscriptionMutations.replaceDownloaded(listOf(after), before, downloaded))
     }
+
+    @Test fun providerJsonMigrationKeepsSelectedServerWithTheSameUniqueName() {
+        val original = subscription("a", "https://sub2.wraithnet.xyz/testOnlyId016ABC", "NL")
+            .copy(selectedServerId = "same-id", title = "Моя подписка", customTitle = "Моя подписка")
+        val other = subscription("b", "https://b.example/sub", "NL")
+        val refreshed = SubscriptionParser.parse("""[
+            {"remarks":"Автовыбор","outbounds":[{"protocol":"vless"}],"routing":{
+                "balancers":[{"tag":"auto","selector":["pool"]}]}},
+            {"remarks":"NL","outbounds":[{"protocol":"vless"}]}
+        ]""")
+        val after = SubscriptionMutations.replaceDownloaded(listOf(original, other), original, refreshed)
+        val selected = ProfileSelection.resolve(after, original.id, original.selectedServerId, null)?.second
+        assertEquals("Моя подписка", after.first().title)
+        assertEquals(original.selectedServerId, selected?.id)
+        assertEquals("xray", selected?.scheme)
+        assertEquals("Автовыбор", after.first().servers.first().name)
+        assertEquals(other, after.last())
+    }
 }

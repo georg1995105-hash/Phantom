@@ -62,8 +62,8 @@ class MultipleSubscriptionsUiTest {
             servers = listOf(
                 ServerProfile("same-server-id", "Нидерланды тест", "vless",
                     raw = "vless://00000000-0000-0000-0000-000000000001@a.example:443#NL"),
-                ServerProfile("other", "Дания тест", "vless",
-                    raw = "vless://00000000-0000-0000-0000-000000000004@d.example:443#DK"),
+                ServerProfile("provider-auto", "Автовыбор", "xray",
+                    raw = """{"remarks":"Автовыбор","outbounds":[{"protocol":"vless"}]}"""),
             ),
             updatedAt = now,
         )
@@ -87,14 +87,16 @@ class MultipleSubscriptionsUiTest {
                 val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
                 compose.onNode(secondServer).assertDoesNotExist()
                 compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды тест"))
-                compose.awaitVisible(hasText("Автовыбор")).performTouchInput { click() }
+                compose.awaitVisible(hasContentDescription("Выбрать сервер Автовыбор"))
+                    .performTouchInput { click() }
                 compose.runOnIdle {
                     assertEquals(first.id, prefs.getString("selected_subscription_id", null))
-                    assertEquals("same-server-id", prefs.getString("selected_server_id", null))
+                    assertEquals("provider-auto", prefs.getString("selected_server_id", null))
                 }
                 compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                     .performTouchInput { click() }
                 compose.awaitVisible(secondServer).performTouchInput { click() }
+                compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
                 compose.runOnIdle {
                     assertEquals(second.id, prefs.getString("selected_subscription_id", null))
                     assertEquals("same-server-id", prefs.getString("selected_server_id", null))

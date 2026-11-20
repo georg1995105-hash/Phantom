@@ -42,7 +42,9 @@ object SubscriptionMutations {
             title = latest.customTitle ?: downloaded.title,
             updateIntervalSeconds =
                 latest.customIntervalSeconds ?: downloaded.updateIntervalSeconds,
-            servers = retainServerIds(latest.servers, downloaded.servers),
+            servers = retainServerIds(
+                latest.servers, downloaded.servers, SubscriptionFetcher.usesProviderJson(latest.source)
+            ),
         )
         return current.toMutableList().apply { set(ownerIndex, saved) }
     }
@@ -50,12 +52,21 @@ object SubscriptionMutations {
     private fun retainServerIds(
         previous: List<ServerProfile>,
         incoming: List<ServerProfile>,
+        matchProviderNames: Boolean,
     ): List<ServerProfile> {
         val previousByContent = previous.groupBy { it.raw }.mapValues { ArrayDeque(it.value) }
         val retained = incoming.map { previousByContent[it.raw]?.removeFirstOrNull()?.id }
         val used = retained.filterNotNull().toMutableSet()
+        // The same Phantom VPN profiles have identical remarks in the links
+        // and Xray JSON responses. Match only unique names within this owner.
+        val oldByName = if (matchProviderNames) previous.groupBy { it.name } else emptyMap()
+        val incomingByName = if (matchProviderNames) incoming.groupingBy { it.name }.eachCount() else emptyMap()
+        val matched = incoming.mapIndexed { index, profile ->
+            retained[index] ?: oldByName[profile.name]?.singleOrNull()?.id
+                ?.takeIf { incomingByName[profile.name] == 1 && used.add(it) }
+        }
         return incoming.mapIndexed { index, profile ->
-            val id = retained[index] ?: if (used.add(profile.id)) profile.id else UUID.randomUUID().toString()
+            val id = matched[index] ?: if (used.add(profile.id)) profile.id else UUID.randomUUID().toString()
             profile.copy(id = id)
         }
     }
