@@ -9,6 +9,7 @@ import hashlib
 import re
 import subprocess
 import sys
+import time
 import zipfile
 
 SUPPORTED = {"armeabi-v7a", "arm64-v8a", "x86", "x86_64"}
@@ -17,6 +18,17 @@ REQUIRED = ("libbox.so", "libgojni.so")
 
 def adb(*args):
     return subprocess.check_output(["adb", *args], text=True).strip()
+
+
+def install_apk(apk, *flags):
+    # Match PackageInstaller's full-file OTA path. Android 11's Incremental
+    # Service confuses x86 with x86_64 when extracting compressed libraries.
+    start = time.monotonic()
+    output = adb("install", "--no-incremental", *flags, apk)
+    if "Success" not in output.splitlines():
+        raise AssertionError(f"Full APK install failed: {output}")
+    print(f"Full APK install ({'+'.join(flags) or 'fresh'}): {time.monotonic() - start:.2f} s",
+          flush=True)
 
 
 ABI_DIRECTORY = {
@@ -66,14 +78,19 @@ def verify_native(apk, package="xyz.wraithnet.phantom"):
             archive_file = f"lib/{abi}/{lib}"
             contents = z.read(archive_file)
             expected = hashlib.sha256(contents).hexdigest()
-            actual = adb("shell", "sha256sum", f"{native_dir}/{lib}").split()[0]
+            result = adb("shell", "sha256sum", f"{native_dir}/{lib}").split()
+            actual = result[0] if result else ""
             if not re.fullmatch("[0-9a-f]{64}", actual):
                 raise AssertionError(f"Android failed to hash {archive_file}")
             if expected != actual:
+                candidates = [other for other in sorted(SUPPORTED) if other != abi and
+                              hashlib.sha256(z.read(f"lib/{other}/{lib}")).hexdigest() == actual]
                 raise AssertionError(
-                    f"{archive_file}: Android extracted different ELF bytes than the signed APK"
+                    f"{archive_file}: installed SHA-256 {actual} != APK {expected}; "
+                    f"matching other APK ABIs: {candidates}"
                 )
     print(f"Android installed native ELF verified: ABI={abi}, both Go libraries identical", flush=True)
+    return abi
 
 
 if __name__ == "__main__":

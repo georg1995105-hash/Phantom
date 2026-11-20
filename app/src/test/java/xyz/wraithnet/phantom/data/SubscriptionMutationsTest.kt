@@ -100,4 +100,20 @@ class SubscriptionMutationsTest {
         assertEquals(b, chosen?.first)
         assertEquals("DE", chosen?.second?.name)
     }
+
+    @Test fun reorderedServersKeepTheirIdsAndTheOwnersRememberedSelection() {
+        val before = SubscriptionParser.parse(
+            "vless://id@a.example:443#First\nvless://id@b.example:443#Second"
+        ).copy(updatedAt = 500L)
+        val selected = before.servers.last()
+        val latest = before.copy(selectedServerId = selected.id)
+        val downloaded = SubscriptionParser.parse(before.servers.reversed().joinToString("\n") { it.raw })
+            .copy(updatedAt = 500L)
+        val after = SubscriptionMutations.replaceDownloaded(listOf(latest), before, downloaded).single()
+        assertEquals(before.servers.reversed(), after.servers)
+        assertEquals(selected.id, after.selectedServerId)
+        assertEquals(selected, ProfileSelection.resolve(listOf(after), after.id, null, null)?.second)
+        assertEquals(501L, after.updatedAt)
+        assertEquals(listOf(after), SubscriptionMutations.replaceDownloaded(listOf(after), before, downloaded))
+    }
 }

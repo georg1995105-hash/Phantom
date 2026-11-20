@@ -1,5 +1,7 @@
 package xyz.wraithnet.phantom.data
 
+import java.util.UUID
+
 /**
  * Apply a downloaded subscription to its ORIGINAL owner, never by server name
  * or position in a combined list. Remote responses cannot resurrect a deleted
@@ -24,7 +26,7 @@ object SubscriptionMutations {
         val latest = current[ownerIndex]
         // A background response based on an older snapshot cannot overwrite
         // a newer successful refresh of the same subscription.
-        if (latest.updatedAt > original.updatedAt) {
+        if (latest.updatedAt != original.updatedAt) {
             require(!strict) {
                 "Подписка уже обновлена другим запросом"
             }
@@ -35,10 +37,26 @@ object SubscriptionMutations {
             source = latest.source,
             customTitle = latest.customTitle,
             customIntervalSeconds = latest.customIntervalSeconds,
+            selectedServerId = latest.selectedServerId,
+            updatedAt = maxOf(downloaded.updatedAt, latest.updatedAt + 1),
             title = latest.customTitle ?: downloaded.title,
             updateIntervalSeconds =
                 latest.customIntervalSeconds ?: downloaded.updateIntervalSeconds,
+            servers = retainServerIds(latest.servers, downloaded.servers),
         )
         return current.toMutableList().apply { set(ownerIndex, saved) }
+    }
+
+    private fun retainServerIds(
+        previous: List<ServerProfile>,
+        incoming: List<ServerProfile>,
+    ): List<ServerProfile> {
+        val previousByContent = previous.groupBy { it.raw }.mapValues { ArrayDeque(it.value) }
+        val retained = incoming.map { previousByContent[it.raw]?.removeFirstOrNull()?.id }
+        val used = retained.filterNotNull().toMutableSet()
+        return incoming.mapIndexed { index, profile ->
+            val id = retained[index] ?: if (used.add(profile.id)) profile.id else UUID.randomUUID().toString()
+            profile.copy(id = id)
+        }
     }
 }

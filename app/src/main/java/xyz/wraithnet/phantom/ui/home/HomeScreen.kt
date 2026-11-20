@@ -40,12 +40,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.ServerProfile
@@ -110,6 +113,7 @@ fun HomeScreen(
         }
     }
     val scope = rememberCoroutineScope()
+    val subscriptionChanges = remember { Mutex() }
     var subscriptions by remember { mutableStateOf(store.read()) }
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
     var selectedSubId by remember { mutableStateOf(prefs.getString("selected_subscription_id", null)) }
@@ -161,10 +165,23 @@ fun HomeScreen(
     suspend fun persist(change: (List<Subscription>) -> List<Subscription>) {
         // Large lists (5,000 nodes) must never be serialized/committed on
         // Android's UI thread. Only the Compose state is applied on Main.
-        val updated = withContext(Dispatchers.IO) { store.update(change) }
-        applySubscriptions(updated)
+        subscriptionChanges.withLock {
+            val updated = withContext(Dispatchers.IO) { store.update(change) }
+            applySubscriptions(updated)
+        }
     }
 
+    suspend fun reloadSubscriptions() {
+        subscriptionChanges.withLock {
+            val stored = withContext(Dispatchers.IO) { store.read() }
+            if (stored != subscriptions) applySubscriptions(stored)
+        }
+    }
+
+    DisposableEffect(store) {
+        val unsubscribe = store.observeChanges { scope.launch { reloadSubscriptions() } }
+        onDispose { unsubscribe() }
+    }
     // Cached VPN RTT belongs only to the actually running profile.
     LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
         val current = selectedMatch?.takeIf {
@@ -257,7 +274,8 @@ fun HomeScreen(
                     }
                     current + subscription
                 }
-                if (selected == null) {
+                if (ProfileSelection.resolve(subscriptions.filterNot { it.id == subscription.id },
+                        selectedSubId, selectedId, pinnedSubId) == null) {
                     selectedId = subscription.servers.firstOrNull()?.id
                     selectedSubId = subscription.id
                     prefs.edit().putString("selected_server_id", selectedId)
@@ -271,6 +289,8 @@ fun HomeScreen(
                 importBusy = false
                 snackbar.currentSnackbarData?.dismiss()
                 snackbar.showSnackbar("Подписка добавлена")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val message = e.message ?: "Не удалось добавить подписку"
                 if (importMode != null) importError = message
@@ -323,7 +343,7 @@ fun HomeScreen(
         if (item.id in refreshing) return
         lastAttempt[item.id] = System.currentTimeMillis()
         refreshing = refreshing + item.id
-        try {
+        val message = try {
             val remote = SubscriptionFetcher.download(context, item.source, store.deviceId())
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
@@ -348,15 +368,19 @@ fun HomeScreen(
                 )
             }
             refreshFailed = refreshFailed - item.id
-            if (!quiet) {
-                softTap()
-                snackbar.showSnackbar("Подписка обновлена")
-            }
-        } catch (e: Exception) {
+            if (!quiet) softTap()
+            "Подписка обновлена"
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             refreshFailed = refreshFailed + item.id
-            if (!quiet) snackbar.showSnackbar("Не удалось обновить подписку. Сохранённые серверы доступны.")
+            "Не удалось обновить подписку. Сохранённые серверы доступны."
         } finally {
             refreshing = refreshing - item.id
+        }
+        if (!quiet) {
+            snackbar.currentSnackbarData?.dismiss()
+            snackbar.showSnackbar(message)
         }
     }
 
@@ -400,9 +424,9 @@ fun HomeScreen(
                 val checked = servers.count { latencies[pingKey(item, it)] != null }
                 val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
                 if (notify) snackbar.showSnackbar(when {
-                    connected != null -> "Задержка VPN обновится после HTTPS-проверки"
+                    connected != null -> "Задержка обновится после проверки"
                     checked > 0 -> "Проверка задержки завершена"
-                    needsTunnel -> "Для проверки UDP/H3 подключите нужный сервер"
+                    needsTunnel -> "Для проверки задержки подключитесь к серверу"
                     else -> "Не получено ни одного результата проверки"
                 })
             } catch (e: Exception) {
@@ -433,8 +457,7 @@ fun HomeScreen(
     }
 
     LaunchedEffect(refreshVersion) {
-        val stored = store.read()
-        if (stored != subscriptions) applySubscriptions(stored)
+        reloadSubscriptions()
     }
 
     // Refresh stale subscriptions while the UI exists; manual refresh is always available.
@@ -594,6 +617,15 @@ fun HomeScreen(
                             selectedSubId = owner.id
                             prefs.edit().putString("selected_server_id", server.id)
                                 .putString("selected_subscription_id", owner.id).apply()
+                            scope.launch {
+                                persist { current ->
+                                    current.map { item ->
+                                        if (item.id == owner.id && item.servers.any { it.id == server.id })
+                                            item.copy(selectedServerId = server.id)
+                                        else item
+                                    }
+                                }
+                            }
                             if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                         } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                     }, add = { importError = null; importMode = "manual" })

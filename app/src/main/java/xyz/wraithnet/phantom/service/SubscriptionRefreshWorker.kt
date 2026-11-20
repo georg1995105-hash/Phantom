@@ -3,6 +3,7 @@ package xyz.wraithnet.phantom.service
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.CancellationException
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.SubscriptionParser
@@ -38,6 +39,8 @@ class SubscriptionRefreshWorker(context: Context, parameters: WorkerParameters) 
                     totalBytes = downloaded.totalBytes ?: old.totalBytes,
                     expiresAt = downloaded.expiresAt ?: old.expiresAt,
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 failure = true
             }

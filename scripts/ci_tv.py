@@ -1,15 +1,17 @@
-"""Exercise the universal APK with an Android TV launcher and D-pad on the 32-bit TV image."""
+"""Exercise both native VPN cores on x86 TV and the x86_64 16 KiB image."""
 import json
 import re
 from pathlib import Path
 import shlex
 import subprocess
-from ci_verify_installed_native import verify_native
+from ci_verify_installed_native import install_apk, verify_native
+import sys
 import time
 import xml.etree.ElementTree as ET
 
 PACKAGE = "xyz.wraithnet.phantom"
 CATEGORY = "android.intent.category.LEANBACK_LAUNCHER"
+APK = "app/build/outputs/apk/release/phantom-universal-release.apk"
 
 
 def adb(*args):
@@ -61,10 +63,13 @@ def report_singbox_exit():
 
 def wait_label(label):
     for _ in range(18):
-        visible = [value for node in nodes() for field in ("text", "content-desc")
-                   for value in node.get(field, "").splitlines() if value]
-        if label in visible:
-            return
+        visible = []
+        for node in nodes():
+            labels = [value for field in ("text", "content-desc")
+                      for value in node.get(field, "").splitlines() if value]
+            if label in labels:
+                return node
+            visible.extend(labels)
     # Never suppress a real VPN connection failure as an emulator flake.
     # Show the app's own diagnostic dialog so the failure is actionable.
     diagnostic = []
@@ -91,16 +96,29 @@ def wait_label(label):
     )
 
 
-assert "android.software.leanback" in adb("shell", "pm", "list", "features")
-adb("install", "-g", "app/build/outputs/apk/release/phantom-universal-release.apk")
-verify_native("app/build/outputs/apk/release/phantom-universal-release.apk", PACKAGE)
-assert "primaryCpuAbi=x86\n" in adb("shell", "dumpsys", "package", PACKAGE) + "\n"
+def tap(label):
+    left, top, right, bottom = map(int, re.findall(r"\d+", wait_label(label).get("bounds")))
+    adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
+
+
+page_size_16k = sys.argv[1:] == ["--16k"]
+if page_size_16k:
+    assert adb("shell", "getconf", "PAGE_SIZE") == "16384"
+    adb("shell", "setprop", "bionic.linker.16kb.app_compat.enabled", "false")
+    adb("shell", "setprop", "pm.16kb.app_compat.disabled", "true")
+    assert adb("shell", "getprop", "bionic.linker.16kb.app_compat.enabled") == "false"
+    assert adb("shell", "getprop", "pm.16kb.app_compat.disabled") == "true"
+    CATEGORY = "android.intent.category.LAUNCHER"
+    device = "Android x86_64 16 KiB"
+else:
+    assert "android.software.leanback" in adb("shell", "pm", "list", "features")
+    device = "TV x86"
+install_apk(APK, "-g")
+assert verify_native(APK, PACKAGE) == ("x86_64" if page_size_16k else "x86")
 resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
 assert PACKAGE + "/.MainActivity" in resolve
 cases = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
-# Diagnose whether the failure belongs to Xray/Hysteria2 or specifically
-# the second Go runtime. Never treat a failed TUIC check as a passing build.
 component = resolve.splitlines()[-1]
 for index, (protocol, label) in enumerate((
     ("hysteria2", "TVCheckXray"), ("tuic", "TVCheckTUIC")
@@ -116,23 +134,37 @@ for index, (protocol, label) in enumerate((
     launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
                  "-c", CATEGORY, "-n", component)
     assert "Status: ok" in launch, launch
-    wait_label("Подключить VPN")
-    key("DPAD_CENTER")
+    startup = re.search(r"^TotalTime: (\d+)$", launch, re.MULTILINE)
+    print(f"{device} cold launch: {startup.group(1) if startup else 'unavailable'} ms",
+          flush=True)
+    if page_size_16k:
+        tap("Подключить VPN")
+    else:
+        wait_label("Подключить VPN")
+        key("DPAD_CENTER")
     try:
         wait_label("Подключено")
     except AssertionError as ex:
-        raise AssertionError(f"TV {protocol} tunnel did not connect: {ex}") from ex
-    key("DPAD_CENTER")
+        raise AssertionError(f"{device} {protocol} tunnel did not connect: {ex}") from ex
+    memory = adb("shell", "dumpsys", "meminfo", PACKAGE)
+    totals = [line.strip() for line in memory.splitlines()
+              if "TOTAL PSS:" in line or line.lstrip().startswith("** MEMINFO")]
+    print(f"{device} {protocol} memory: {' | '.join(totals)}", flush=True)
+    if page_size_16k:
+        tap("Отключить VPN")
+    else:
+        key("DPAD_CENTER")
     wait_label("Отключено")
-    print(f"TV x86 native {protocol}: connected and disconnected", flush=True)
-# Move to the bottom navigation using only directional keys.
-for _ in range(7):
-    key("DPAD_DOWN")
-for _ in range(4):
-    key("DPAD_LEFT")
-key("DPAD_RIGHT")
-key("DPAD_CENTER")
-wait_label("В избранное")
-key("BACK")
-wait_label("Подключить VPN")
-print("Android TV launcher, universal x86 runtime, D-pad VPN, server list and Back passed")
+    print(f"{device} native {protocol}: connected and disconnected", flush=True)
+if not page_size_16k:
+    # Move to the bottom navigation using only directional keys.
+    for _ in range(7):
+        key("DPAD_DOWN")
+    for _ in range(4):
+        key("DPAD_LEFT")
+    key("DPAD_RIGHT")
+    key("DPAD_CENTER")
+    wait_label("В избранное")
+    key("BACK")
+    wait_label("Подключить VPN")
+    print("Android TV launcher, universal x86 runtime, D-pad VPN, server list and Back passed")

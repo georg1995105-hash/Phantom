@@ -131,9 +131,12 @@ jobs:
             unsigned="$dir/app-$abi-release-unsigned.apk"
             signed="$dir/phantom-$abi-release.apk"
             "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 "$unsigned" "aligned-$abi.apk"
+            # Android 11 incremental extraction matches lib/x86_64 for lib/x86.
+            # Distribute a standalone package with v2/v3 signing for full installs.
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
               --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
               --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+              --v4-signing-enabled false \
               --out "$signed" "aligned-$abi.apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
             rm "aligned-$abi.apk"
@@ -155,8 +158,12 @@ jobs:
 
       - name: Verify all native ABI and 16 KiB ELF segments in signed universal APK
         run: |
+          apk=app/build/outputs/apk/release/phantom-universal-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          stat --format='Universal APK: %s bytes' "$apk"
+          sha256sum "$apk"
           python3 scripts/audit_universal_apk.py \
-            app/build/outputs/apk/release/phantom-universal-release.apk
+            "$apk"
 
       - name: Prepare loopback protocol peers
         if: github.event_name != 'push'
@@ -177,11 +184,11 @@ jobs:
           cat peers.log
           exit 1
 
-      - name: Verify signed 0.3.4 baseline and upgrade signer
+      - name: Verify signed 0.3.6 baseline and upgrade signer
         if: github.event_name != 'push'
         run: |
-          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.4/phantom-arm64-v8a-release.apk
-          echo '84c663077b5b76e158ac7384f2737f65587a9377679732b066508ae77a72d7e9  previous.apk' | sha256sum -c -
+          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.6/phantom-x86_64-release.apk
+          echo '0ddfb16b7ff788934251154a925843717d38a7c7e9669ef1629d8acded8bc8ff  previous.apk' | sha256sum -c -
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           cert='Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
           "$signer" verify --print-certs previous.apk | grep -Fx "$cert"
@@ -196,6 +203,7 @@ jobs:
             # The production signing key never enters a PR runner.
             "$signer" sign --ks app/keystore.jks --ks-key-alias ci-ephemeral \
               --ks-pass pass:phantom-ci-only-2026 --key-pass pass:phantom-ci-only-2026 \
+              --v4-signing-enabled false \
               --out previous-ci.apk previous.apk
             mv previous-ci.apk previous.apk
             "$signer" verify previous.apk
@@ -237,6 +245,22 @@ jobs:
           disable-animations: true
           script: python3 scripts/ci_tv.py
 
+      - name: Test signed universal APK on Android with 16 KiB pages
+        id: android_16k
+        if: github.event_name != 'push'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis_ps16k
+          arch: x86_64
+          profile: pixel_6
+          avd-name: phantom-16k
+          disk-size: 3072M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          disable-animations: true
+          script: python3 scripts/ci_tv.py --16k
+
       - name: Enforce successful Android and TV device tests
         if: github.event_name != 'push'
         run: |
@@ -248,6 +272,10 @@ jobs:
             echo "::error::Android TV VPN and D-pad tests failed"
             exit 1
           fi
+          if [ "${{ steps.android_16k.outcome }}" != "success" ]; then
+            echo "::error::Android 16 KiB runtime tests failed"
+            exit 1
+          fi
 
       - name: Upload upgrade screenshots
         if: github.event_name != 'push' && success()
@@ -257,12 +285,18 @@ jobs:
           path: upgrade-screens/
           retention-days: 7
 
+      - name: Stage universal PR test APK
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p pr-artifact
+          cp app/build/outputs/apk/release/phantom-universal-release.apk pr-artifact/Phantom.apk
+
       - name: Upload PR test APK
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-pr-universal-ci-signed
-          path: app/build/outputs/apk/release/phantom-universal-release.apk
+          path: pr-artifact/Phantom.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 2

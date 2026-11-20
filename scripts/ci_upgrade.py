@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
-from ci_verify_installed_native import verify_native
+from ci_verify_installed_native import install_apk, verify_native
 
 PACKAGE = "xyz.wraithnet.phantom"
 ACTIVITY = PACKAGE + "/.MainActivity"
@@ -95,11 +95,20 @@ def screenshot(name):
     (path / (name + ".png")).write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
 
 
-old, new, native = sys.argv[1:]
+def installed_version():
+    dump = adb("shell", "dumpsys", "package", PACKAGE)
+    code = re.search(r"\bversionCode=(\d+)", dump).group(1)
+    name = re.search(r"\bversionName=(\S+)", dump).group(1)
+    return int(code), name
+
+
+old, new = sys.argv[1:]
 # Native smoke installs a debug package on this disposable emulator.
 if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
-adb("install", "-g", old)
+install_apk(old, "-g")
+previous_code, previous_name = installed_version()
+assert previous_name == "0.3.6"
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 adb("shell", "am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.VIEW",
@@ -113,7 +122,12 @@ node("Светлая")
 tap("Серверы")
 tap("В избранное")
 tap("Главная")
-adb("install", "-r", new)
+install_apk(new, "-r")
+verify_native(new, PACKAGE)
+current_code, current_name = installed_version()
+assert (current_code, current_name) == (34, "0.3.7") and current_code > previous_code
+print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} ({current_code})",
+      flush=True)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 node("UpgradeCheck")
 node("Отключено")
@@ -142,13 +156,7 @@ tap("Серверы")
 node("Убрать из избранного")
 
 
-# The arm64 APK upgrade above verifies the installed package and user data.
-# Use the signed release matching this emulator's CPU for the native TUN run.
-adb("install", "-r", native)
-verify_native(native, PACKAGE)
-adb("shell", "am", "start", "-W", "-n", ACTIVITY)
-tap("Серверы")
-node("Убрать из избранного")
+# Continue through the native TUN checks in the package installed above.
 tap("Настройки")
 tap("Тема оформления")
 tap_in_list("Тёмно-зелёная")
@@ -171,8 +179,10 @@ profiles = [
 payload = json.dumps(profiles, separators=(",", ":"))
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", payload]))
-tap("AndroidCheckA")
+tap("Раскрыть подписку AndroidCheckA")
+tap("Выбрать сервер AndroidCheckA")
 tap("Главная")
+node("AndroidCheckA")
 adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
 tap("Подключить VPN")
 node("Подключено")
@@ -191,7 +201,7 @@ tap("Главная")
 tap("PING")
 wait_compact_latencies(min_count=2)
 screenshot("forest-servers")
-tap("AndroidCheckB")
+tap("Выбрать сервер AndroidCheckB")
 tap("Главная")
 node("AndroidCheckB")
 node("Подключено")
@@ -252,7 +262,8 @@ adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.int
 tap("Подписка")
 node("OfflineSubscriptionCheck", attempts=20)
 tap("Серверы")
-tap("OfflineSubscriptionCheck")
+tap("Раскрыть подписку OfflineSubscriptionCheck")
+tap("Выбрать сервер OfflineSubscriptionCheck")
 tap("Главная")
 tap("Обновить выбранную подписку")
 node("Подписка обновлена")

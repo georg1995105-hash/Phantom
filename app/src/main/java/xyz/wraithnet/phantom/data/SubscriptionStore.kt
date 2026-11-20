@@ -1,6 +1,7 @@
 package xyz.wraithnet.phantom.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -56,6 +57,14 @@ class SubscriptionStore(context: Context) {
 
     fun read(): List<Subscription> = synchronized(lock) { readLocked() }
 
+    fun observeChanges(onChange: () -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == CURRENT) onChange()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
     private fun writeLocked(items: List<Subscription>) {
         val json = JSONArray(items.map(::toJson)).toString()
         val old = prefs.getString(CURRENT, null)
@@ -90,6 +99,7 @@ class SubscriptionStore(context: Context) {
         item.expiresAt?.let { put("expiresAt", it) }
         item.customTitle?.let { put("customTitle", it) }
         item.customIntervalSeconds?.let { put("customIntervalSeconds", it) }
+        item.selectedServerId?.let { put("selectedServerId", it) }
         put("servers", JSONArray(item.servers.map { server -> JSONObject().apply {
             put("id", server.id); put("name", server.name); put("scheme", server.scheme)
             put("address", server.address); put("port", server.port ?: JSONObject.NULL)
@@ -107,6 +117,7 @@ class SubscriptionStore(context: Context) {
         totalBytes = item.optLongOrNull("totalBytes"), expiresAt = item.optLongOrNull("expiresAt"),
         customTitle = item.optString("customTitle").takeIf { it.isNotBlank() },
         customIntervalSeconds = item.optLongOrNull("customIntervalSeconds"),
+        selectedServerId = item.optString("selectedServerId").takeIf { it.isNotBlank() },
         servers = buildList {
             val array = item.optJSONArray("servers") ?: JSONArray()
             for (i in 0 until array.length()) {

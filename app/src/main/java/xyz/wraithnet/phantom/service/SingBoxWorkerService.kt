@@ -140,11 +140,11 @@ class SingBoxWorkerService : VpnService() {
                             // classified, credential-free error, then retire the
                             // non-reusable native runtime unconditionally.
                             fail(recipient, safe)
-                            if (!mainHandler.postDelayed({
-                                    if (!destroyed) retireProcess("ошибка запуска")
-                                }, 500L)) {
-                                retireProcess("ошибка запуска")
-                            }
+                            retireAfterStartupError()
+                        } catch (_: LinkageError) {
+                            lastStopReason = "ошибка загрузки JNI"
+                            fail(recipient, "Android не загрузил нативную библиотеку sing-box")
+                            retireAfterStartupError()
                         }
                     }) fail(recipient, "Сервис sing-box закрыт Android")
                 }
@@ -176,6 +176,14 @@ class SingBoxWorkerService : VpnService() {
             }
         }
     })
+
+    private fun retireAfterStartupError() {
+        if (!mainHandler.postDelayed({
+                if (!destroyed) retireProcess(lastStopReason)
+            }, 500L)) {
+            retireProcess(lastStopReason)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder {
         boundClient = true

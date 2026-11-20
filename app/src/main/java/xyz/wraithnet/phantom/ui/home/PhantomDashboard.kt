@@ -356,10 +356,12 @@ internal fun ServersPage(
             if (expandedId == owner.id) items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
                 val id = "${owner.id}:${server.id}"
                 val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
-                Panel(chosen) {
+                val remembered = owner.id != selected?.first?.id && server.id == owner.selectedServerId
+                Panel(chosen || remembered) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 60.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.weight(1f).tvFocusRing().clickable { choose(owner, server) }
+                            .semantics { contentDescription = "Выбрать сервер ${displayServerName(server)}" }
                             .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (server.name.contains("Автовыбор", true))
                                 Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
@@ -370,7 +372,7 @@ internal fun ServersPage(
                                 Caption(protocolLabel(server))
                             }
                             Caption(SubscriptionPingText.display(latency[id], owner.id in probing))
-                            if (chosen) Icon(Icons.Default.CheckCircle, "Выбран", Modifier.size(18.dp),
+                            if (chosen || remembered) Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp),
                                 tint = MaterialTheme.colorScheme.primary)
                         }
                         IconButton(modifier = Modifier.tvFocusRing(), onClick = { favorite(id) }) {
