@@ -615,7 +615,7 @@ fun HomeScreen(
                         } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                     }, add = { importError = null; importMode = "manual" })
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
-                    selectedMatch?.first?.id, refreshing, refreshFailed,
+                    selectedMatch?.first?.id, pinnedSubId, refreshing, refreshFailed,
                     onRefresh = { sub -> scope.launch { refresh(sub) } },
                     manage = { activeSubMenu = it.id }, add = { showImportMenu = true },
                     shop = { renew ->

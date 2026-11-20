@@ -118,6 +118,17 @@ class MultipleSubscriptionsUiTest {
                 assertEquals(2, subscriptions.size)
                 assertEquals(refreshedLink, subscriptions.first().servers.single().raw)
                 assertEquals(second.copy(selectedServerId = "same-server-id"), subscriptions.last())
+                compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
+                    .performTouchInput { click() }
+                compose.onNode(hasText("Выбрать подписку")).assertDoesNotExist()
+                compose.onNode(hasText("Мои подписки и ключи")).assertDoesNotExist()
+                compose.awaitVisible(hasContentDescription("Обновить подписку $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Обновить подписку $secondTitle"))
+                compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
+                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
+                    .performTouchInput { click() }
+                compose.awaitVisible(hasContentDescription("Вкладка Серверы"))
+                    .performTouchInput { click() }
                 // App recreation must not reset ownership to the first
                 // subscription even when both servers have the same ID.
                 scenario.recreate()
