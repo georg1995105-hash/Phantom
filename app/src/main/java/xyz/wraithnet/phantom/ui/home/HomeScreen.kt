@@ -476,6 +476,7 @@ fun HomeScreen(
     var otaChecking by remember { mutableStateOf(false) }
     var otaDownload by remember { mutableStateOf(false) }
     var otaProgress by remember { mutableIntStateOf(0) }
+    var otaSpeed by remember { mutableLongStateOf(0L) }
     var otaFile by remember { mutableStateOf<File?>(null) }
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
@@ -546,7 +547,10 @@ fun HomeScreen(
                 val file = otaFile?.takeIf { it.exists() } ?: run {
                     otaDownload = true
                     otaProgress = 0
-                    PhantomUpdates.download(context, release) { otaProgress = it }
+                    otaSpeed = 0L
+                    PhantomUpdates.download(context, release,
+                        onProgress = { otaProgress = it },
+                        onSpeed = { otaSpeed = it })
                         .also { otaFile = it }
                 }
                 val launched = PhantomUpdates.openInstaller(context, file)
@@ -695,6 +699,7 @@ fun HomeScreen(
             release = availableUpdate!!,
             downloading = otaDownload,
             progress = otaProgress,
+            speedBytesPerSecond = otaSpeed,
             readyToInstall = otaFile?.exists() == true,
             error = otaError,
             onLater = { showOtaSheet = false; otaDismissed = true },
