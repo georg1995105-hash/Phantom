@@ -6,7 +6,7 @@
 
 **[⬇ Скачать Phantom VPN — последняя стабильная версия (универсальный APK)](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk)**
 
-[Страница загрузки](https://georg1995105-hash.github.io/Phantom/) · [Лёгкий APK для ARM64](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk) · [История версий](https://github.com/georg1995105-hash/Phantom/releases/latest) · [Все релизы](https://github.com/georg1995105-hash/Phantom/releases)
+[Страница загрузки](https://app.veor.pro/) · [Лёгкий APK для ARM64](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk) · [История версий](https://github.com/georg1995105-hash/Phantom/releases/latest) · [Все релизы](https://github.com/georg1995105-hash/Phantom/releases)
 
 > Ссылка «Скачать» **не привязана к номеру версии**. Она ведёт на универсальный APK из последнего официального стабильного GitHub Release. Черновые, тестовые и beta-выпуски не заменяют стабильную версию.
 
