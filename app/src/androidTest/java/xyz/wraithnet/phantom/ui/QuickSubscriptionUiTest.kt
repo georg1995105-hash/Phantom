@@ -28,7 +28,10 @@ import xyz.wraithnet.phantom.MainActivity
 import xyz.wraithnet.phantom.data.SubscriptionStore
 
 @RunWith(AndroidJUnit4::class)
-class QuickSubscriptionUiTest {
+// Keep this UI-only test ahead of memory-intensive JNI tests when AndroidJUnitRunner
+// discovers tests in class-name order. Shared emulator system launcher ANR after JNI
+// stress can otherwise prevent ActivityScenario teardown despite passing UI checks.
+class AQuickSubscriptionUiTest {
     @get:Rule val compose = createEmptyComposeRule()
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
