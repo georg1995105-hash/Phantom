@@ -377,8 +377,11 @@ fun HomeScreen(
         scanned[item.id] = item.servers
         scope.launch {
             val message = try {
-                val probeOrder = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
-                    .sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
+                val autoTuic = LatencyProbe.autoTuicEnabled(context)
+                val probeOrder = item.servers.filter {
+                    ProtocolSupport.isSupported(it.scheme) &&
+                        (notify || ProtocolSupport.shouldAutoProbe(it.scheme, autoTuic))
+                }.sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 val remaining = probeOrder.iterator()
                 // Keep individual failures local: a broken TUIC JNI/session
                 // must not cancel healthy VLESS, HY2 or XHTTP pings.
@@ -637,6 +640,7 @@ fun HomeScreen(
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
                         manage = { activeSubMenu = it.id },
                         onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
+                        onManualPing = { sub -> probeSubscription(sub, notify = true) },
                         favorite = { id ->
                             favorites = if (id in favorites) favorites - id else favorites + id
                             prefs.edit().putStringSet("favorite_servers", favorites).apply()
