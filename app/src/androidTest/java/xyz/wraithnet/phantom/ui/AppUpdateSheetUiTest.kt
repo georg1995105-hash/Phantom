@@ -34,7 +34,7 @@ class AppUpdateSheetUiTest {
             scenario.onActivity { activity ->
                 activity.setContent {
                     PhantomTheme {
-                        if (shown) AppUpdateSheet(release, downloading, 40, false, null,
+                        if (shown) AppUpdateSheet(release, downloading, 40, 128L * 1024L, false, null,
                             onLater = { shown = false }, onUpdate = { downloading = true })
                     }
                 }
@@ -51,7 +51,7 @@ class AppUpdateSheetUiTest {
             compose.awaitVisible(hasText("Меньше")).performClick()
             compose.onNode(hasText("Дополнительный пункт", substring = true)).assertDoesNotExist()
             compose.awaitVisible(update).performClick()
-            compose.awaitVisible(hasText("Загрузка 40%"))
+            compose.awaitVisible(hasText("Загрузка 40% · 128 КБ/с"))
             compose.awaitVisible(later and isNotEnabled())
             compose.runOnIdle { downloading = false }
             compose.awaitVisible(later and isEnabled()).performClick()
