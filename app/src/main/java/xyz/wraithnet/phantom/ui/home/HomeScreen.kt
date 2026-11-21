@@ -73,6 +73,7 @@ import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.ui.settings.DnsSettingsScreen
 import xyz.wraithnet.phantom.service.VpnBootPolicy
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
+import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.service.PhantomQuickTileService
 import xyz.wraithnet.phantom.data.SubscriptionParser
@@ -1045,6 +1046,7 @@ private fun PhantomSettings(
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
+    var showPing by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
     var showDns by remember { mutableStateOf(false) }
 
@@ -1059,6 +1061,7 @@ private fun PhantomSettings(
         return
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     if (showDns) { DnsSettingsScreen(onBack = { showDns = false }); return }
 
@@ -1097,6 +1100,7 @@ private fun PhantomSettings(
                 SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune) { toggle("network") }
                 if (group == "network") {
                     funActionRow("DNS", Icons.Default.Dns) { showDns = true }
+                    funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
