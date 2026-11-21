@@ -429,8 +429,7 @@ jobs:
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
           test -s "release-assets/phantom-universal-release.apk"
-          if [[ "$RELEASE_TAG" == "v0.3.7" ]]; then
-            # All prior ABI-specific OTA clients must retain a matching asset even
+          # All prior ABI-specific OTA clients must retain a matching asset even
           # when a later release becomes the latest stable version.
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
             test -s "release-assets/phantom-$abi-release.apk"
