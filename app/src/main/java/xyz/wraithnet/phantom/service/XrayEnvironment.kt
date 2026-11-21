@@ -15,7 +15,7 @@ object XrayEnvironment {
     private val lock = Any()
     @Volatile private var initialized = false
 
-    fun initialize(context: Context) {
+    fun initialize(context: Context, probeOnly: Boolean = false) {
         if (initialized) return
         synchronized(lock) {
             if (initialized) return
@@ -24,16 +24,19 @@ object XrayEnvironment {
             for (name in listOf("geoip.dat", "geosite.dat")) {
                 val target = File(assets, name)
                 if (!target.exists() || target.length() < 1024) {
-                    val temp = File(assets, "$name.tmp")
-                    app.assets.open(name).use { input ->
-                        temp.outputStream().use { output -> input.copyTo(output) }
+                    val temp = File.createTempFile(name, ".tmp", assets)
+                    try {
+                        app.assets.open(name).use { input ->
+                            temp.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        require(temp.renameTo(target)) { "Не удалось подготовить $name" }
+                    } finally {
+                        temp.delete()
                     }
-                    if (target.exists()) target.delete()
-                    require(temp.renameTo(target)) { "Не удалось подготовить $name" }
                 }
             }
             Seq.setContext(app)
-            Libv2ray.initCoreEnv(assets.absolutePath, getOrCreateXudpKey(app))
+            Libv2ray.initCoreEnv(assets.absolutePath, if (probeOnly) newXudpKey() else getOrCreateXudpKey(app))
             initialized = true
         }
     }
@@ -42,14 +45,16 @@ object XrayEnvironment {
         val prefs = context.getSharedPreferences("phantom_core", Context.MODE_PRIVATE)
         val current = prefs.getString("xudp_base_key", null)
         if (current != null && isValidKey(current)) return current
-        val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-        val created = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+        val created = newXudpKey()
         check(isValidKey(created)) { "Ошибка генерации ключа XUDP" }
         check(prefs.edit().putString("xudp_base_key", created).commit()) {
             "Не удалось сохранить ключ XUDP"
         }
         return created
     }
+
+    private fun newXudpKey(): String = Base64.getUrlEncoder().withoutPadding()
+        .encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
 
     internal fun isValidKey(value: String): Boolean =
         runCatching { Base64.getUrlDecoder().decode(value).size == 32 }

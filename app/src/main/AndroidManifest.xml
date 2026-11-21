@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Per-app VPN requires enumerating user + system packages, including those without launchers.
          Local-only usage; no installed-app inventory is uploaded. Play review declaration required. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -80,6 +83,8 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/update_paths" />
         </provider>
+        <receiver android:name=".service.PhantomUpdateInstallReceiver"
+            android:exported="false" />
         <receiver
             android:name=".service.PhantomBootReceiver"
             android:enabled="true"
@@ -102,8 +107,16 @@
             android:process=":singbox"
             android:exported="false" />
         <service
+            android:name=".service.XrayLatencyService"
+            android:process=":xray_latency"
+            android:exported="false" />
+        <service
+            android:name=".service.SingBoxLatencyService"
+            android:process=":singbox_latency"
+            android:exported="false" />
+        <service
             android:name=".service.PhantomQuickTileService"
-            android:label="Phantom VPN"
+            android:label="@string/app_name"
             android:icon="@drawable/ic_stat_phantom"
             android:exported="true"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">

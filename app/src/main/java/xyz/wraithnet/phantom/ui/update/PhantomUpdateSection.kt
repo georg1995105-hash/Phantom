@@ -27,6 +27,7 @@ fun PhantomUpdateSection() {
     var release by remember { mutableStateOf<PhantomRelease?>(null) }
     var downloadedFile by remember { mutableStateOf<File?>(null) }
     var progress by remember { mutableIntStateOf(0) }
+    var downloadSpeed by remember { mutableLongStateOf(0L) }
     var status by remember { mutableStateOf<String?>(null) }
 
     fun check() {
@@ -46,10 +47,10 @@ fun PhantomUpdateSection() {
         }
     }
 
-    fun install(file: File) {
+    suspend fun install(file: File) {
         try {
             val launched = PhantomUpdates.openInstaller(context, file)
-            status = if (launched) "Подтвердите установку в Android"
+            status = if (launched) "Android устанавливает обновление или запросит подтверждение"
                 else "Разрешите установку приложений и нажмите «Установить» снова"
         } catch (e: Exception) {
             status = e.message ?: "Не удалось открыть установщик"
@@ -91,7 +92,8 @@ fun PhantomUpdateSection() {
                 progress = { progress.toFloat() / 100f },
                 modifier = Modifier.fillMaxWidth()
             )
-            Text("Загрузка " + progress + "%", fontSize = 12.sp)
+            Text("Загрузка " + progress + "%" + if (downloadSpeed > 0L)
+                " · ${downloadSpeed / 1024L} КБ/с" else "", fontSize = 12.sp)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = ::check, enabled = !checking && !downloading) {
@@ -104,7 +106,11 @@ fun PhantomUpdateSection() {
                     onClick = {
                         val file = downloadedFile
                         if (file != null && file.exists()) {
-                            install(file)
+                            downloading = true
+                            scope.launch {
+                                try { install(file) }
+                                finally { downloading = false }
+                            }
                         } else {
                             val selected = release ?: return@Button
                             downloading = true
@@ -112,7 +118,9 @@ fun PhantomUpdateSection() {
                             status = null
                             scope.launch {
                                 try {
-                                    val apk = PhantomUpdates.download(context, selected) { p -> progress = p }
+                                    val apk = PhantomUpdates.download(context, selected,
+                                        onProgress = { p -> progress = p },
+                                        onSpeed = { downloadSpeed = it })
                                     downloadedFile = apk
                                     install(apk)
                                 } catch (e: Exception) {

@@ -1,13 +1,16 @@
 """Verify the signed production upgrade and its four destinations on the CI emulator."""
 from pathlib import Path
+import hashlib
 import re
 import json
-import os
+import secrets
 import shlex
 import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import urllib.request
+from ci_verify_installed_native import install_apk, verify_native
 
 PACKAGE = "xyz.wraithnet.phantom"
 ACTIVITY = PACKAGE + "/.MainActivity"
@@ -29,8 +32,9 @@ sys.excepthook = report_crash
 def node(label, attempts=8):
     launcher_recovered = False
     # Native JNI tests can temporarily exhaust the shared CI emulator and
-    # cause a *system Pixel Launcher* ANR, independent of Phantom. Recover
-    # only that specific system dialog, never an app crash or missing UI.
+    # cause a SYSTEM launcher ANR (Pixel Launcher or AOSP Quickstep). Verify
+    # that the focused ANR window belongs to a known launcher package before
+    # dismissing it. Never suppress Phantom ANRs or missing UI assertions.
     for _ in range(max(attempts, 20) if label == "UpgradeCheck" else attempts):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
@@ -39,8 +43,15 @@ def node(label, attempts=8):
             if label in values:
                 return item
         visible_text = " ".join((item.get("text") or "") for item in root.iter("node"))
-        if (label == "UpgradeCheck" and not launcher_recovered and
-                "Pixel Launcher isn't responding" in visible_text):
+        known_launcher = ("Pixel Launcher isn't responding" in visible_text or
+                          "Quickstep isn't responding" in visible_text)
+        focused_window = adb("shell", "dumpsys", "window", "displays") if known_launcher else ""
+        launcher_anr = re.search(
+            r"mCurrentFocus=.*Application Not Responding: "
+            r"(?:com\.android\.launcher3|com\.google\.android\.apps\.nexuslauncher)",
+            focused_window,
+        ) is not None
+        if label == "UpgradeCheck" and not launcher_recovered and launcher_anr:
             dismiss = next((item for item in root.iter("node")
                 if item.get("text") == "Close app"), None)
             if dismiss is not None:
@@ -54,16 +65,39 @@ def node(label, attempts=8):
     raise AssertionError(f"Missing UI element {label!r}, visible: {list(filter(None, visible))}")
 
 
-def node_prefix(prefix, attempts=20):
-    """Find a dynamic latency reading without assuming its numerical value."""
+def wait_compact_latencies(min_count=2, attempts=30):
+    """Verify numerical RTTs without old TCP/QUIC/VPN source prefixes."""
+    last = []
     for _ in range(attempts):
         adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
         root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
-        for item in root.iter("node"):
-            if any((item.get(field) or "").startswith(prefix) for field in ("text", "content-desc")):
-                return item
+        last = [(item.get("text") or "") for item in root.iter("node")]
+        readings = [v for v in last if re.fullmatch(r"[1-9][0-9]* мс", v)]
+        assert not any(re.match(r"^(?:VPN|TCP|QUIC) · ", v) for v in last), (
+            "Legacy transport labels leaked into server UI"
+        )
+        if len(readings) >= min_count:
+            return readings
         time.sleep(0.5)
-    raise AssertionError(f"Missing UI reading starting with {prefix!r}")
+    raise AssertionError(f"Expected {min_count} measured server pings, found {last[:40]}")
+
+
+def verify_tun_transfer(host="198.18.0.1"):
+    # A separate Android UID enters TUN. This synthetic address exists only
+    # behind the XHTTP peer, so a direct request cannot pass the check.
+    payload = secrets.token_bytes(1048576)
+    request = (f"POST /VpnTransfer HTTP/1.1\r\nHost: {host}:34301\r\n"
+               f"Content-Length: {len(payload)}\r\nConnection: close\r\n\r\n").encode() + payload
+    started = time.monotonic()
+    response = subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "5", "-W", "12", host, "34301"],
+                              input=request, capture_output=True, timeout=25)
+    headers, _, body = response.stdout.partition(b"\r\n\r\n")
+    if (response.returncode != 0 or not re.match(rb"HTTP/1\.[01] 200\b", headers) or
+            body != hashlib.sha256(payload).digest() * 32768):
+        raise AssertionError(f"Android TUN transfer failed: code={response.returncode}, bytes={len(body)}, "
+                             f"stderr={response.stderr[:150]!r}")
+    print(f"Signed APK: Android TUN transferred 1 MiB up and down via XHTTP in {time.monotonic() - started:.2f}s",
+          flush=True)
 
 
 def tap(label):
@@ -83,17 +117,47 @@ def tap_in_list(label):
     tap(label)
 
 
+def visible_after_scroll(label, max_swipes=6):
+    """Prove a CTA is reachable in compact landscape/TV layouts, not only above the fold."""
+    for attempt in range(max_swipes + 1):
+        try:
+            return node(label, attempts=1)
+        except AssertionError:
+            if attempt == max_swipes:
+                raise
+            adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
+            root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
+            bounds = [list(map(int, re.findall(r"\d+", n.get("bounds", ""))))
+                      for n in root.iter("node")]
+            bounds = [b for b in bounds if len(b) == 4]
+            assert bounds, "UI hierarchy has no bounds"
+            width = max(b[2] for b in bounds)
+            height = max(b[3] for b in bounds)
+            assert width > 0 and height > 0, "Invalid Android display bounds"
+            adb("shell", "input", "swipe", str(width // 2), str(int(height * .73)),
+                str(width // 2), str(int(height * .27)), "360")
+
+
 def screenshot(name):
     path = Path("upgrade-screens")
     path.mkdir(exist_ok=True)
     (path / (name + ".png")).write_bytes(subprocess.check_output(["adb", "exec-out", "screencap", "-p"]))
 
 
-old, new, native = sys.argv[1:]
+def installed_version():
+    dump = adb("shell", "dumpsys", "package", PACKAGE)
+    code = re.search(r"\bversionCode=(\d+)", dump).group(1)
+    name = re.search(r"\bversionName=(\S+)", dump).group(1)
+    return int(code), name
+
+
+old, new = sys.argv[1:]
 # Native smoke installs a debug package on this disposable emulator.
 if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
-adb("install", "-g", old)
+install_apk(old, "-g")
+previous_code, previous_name = installed_version()
+assert (previous_code, previous_name) == (38, "0.3.11")
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 adb("shell", "am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.VIEW",
@@ -107,21 +171,26 @@ node("Светлая")
 tap("Серверы")
 tap("В избранное")
 tap("Главная")
-adb("install", "-r", new)
+install_apk(new, "-r")
+verify_native(new, PACKAGE)
+current_code, current_name = installed_version()
+assert (current_code, current_name) == (39, "0.3.12") and current_code > previous_code
+print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} ({current_code})",
+      flush=True)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 node("UpgradeCheck")
 node("Отключено")
-node("PING")
 node("Обновить выбранную подписку")
 tap("Обновить выбранную подписку")
 node("UpgradeCheck")
 screenshot("home")
-tap("PING")
+tap("Серверы")
 node("UpgradeCheck")
 node("Убрать из избранного")
 screenshot("servers")
-tap("Подписка")
 node("Добавить подписку или ключ")
+tap("Подписка")
+node("В магазин")
 screenshot("subscriptions")
 tap("Настройки")
 node("Тема оформления")
@@ -136,12 +205,7 @@ tap("Серверы")
 node("Убрать из избранного")
 
 
-# The arm64 APK upgrade above verifies the installed package and user data.
-# Use the signed release matching this emulator's CPU for the native TUN run.
-adb("install", "-r", native)
-adb("shell", "am", "start", "-W", "-n", ACTIVITY)
-tap("Серверы")
-node("Убрать из избранного")
+# Continue through the native TUN checks in the package installed above.
 tap("Настройки")
 tap("Тема оформления")
 tap_in_list("Тёмно-зелёная")
@@ -156,16 +220,18 @@ adb("shell", "svc", "data", "enable")
 peers = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
 profiles = [
     peers["tuic"] + "#AndroidCheckA",
+    "vless://00000000-0000-4000-8000-000000000001@10.0.2.2:34304#BareTcp",
     peers["hysteria2"] + "#QuicProbe",
     peers["anytls"] + "#AndroidCheckB",
-    # A TCP-only regression fixture: real HTTPS endpoint, deliberately not a VPN server.
-    "vless://00000000-0000-4000-8000-000000000001@example.com:443#PhysicalTcpProbe",
+    peers["VLESS-XHTTP"] + "#XhttpProbe",
 ]
 payload = json.dumps(profiles, separators=(",", ":"))
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", payload]))
-tap("AndroidCheckA")
+tap("Раскрыть подписку AndroidCheckA")
+tap("Выбрать сервер AndroidCheckA")
 tap("Главная")
+node("AndroidCheckA")
 adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
 tap("Подключить VPN")
 node("Подключено")
@@ -176,19 +242,94 @@ adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
 node("Подключено")
 tap("Серверы")
-# Regression: a remote TCP probe must bypass the running Android VPN and use
-# validated physical network DNS+socket; the selected TUIC still reports VPN RTT.
-node("PhysicalTcpProbe")
-node_prefix("VPN · ")
-node_prefix("QUIC · ")
+# This port accepts a TCP handshake but has no proxy. The active TUIC peer rejects traffic to it.
+def entry_counts():
+    with urllib.request.urlopen("http://127.0.0.1:34301/TcpEntryCounts", timeout=2) as response:
+        return json.load(response)
+
+
+node("XhttpProbe")
+wait_compact_latencies(min_count=3)
+before, payloads = entry_counts()
+subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "2", "-W", "2", "10.0.2.2", "34304"],
+               input=b"via-tun", capture_output=True, timeout=8)
+assert entry_counts()[1] == payloads, "Control UID unexpectedly reached the physical TCP entry"
+tap("Управление подпиской AndroidCheckA")
+tap("Проверить пинг всех серверов")
+# Three TCP peers already worked before this change. TUIC has no TCP listener,
+# so a fourth number must come from its isolated QUIC/HTTPS latency probe.
+# Hysteria2 TCP SYN is intentionally not converted into a synthetic UDP RTT.
+wait_compact_latencies(min_count=4, attempts=65)
+print("Native TUIC ping and original TCP server pings are both visible", flush=True)
+for _ in range(30):
+    count, sent = entry_counts()
+    if count > before:
+        break
+    time.sleep(.2)
+assert count > before and sent == payloads, "Phantom did not open a fresh physical TCP socket"
+print("TCP handshake on the physical network with another TUIC node active; zero application bytes", flush=True)
 tap("Главная")
-tap("PING")
-node_prefix("TCP · ")
-node_prefix("VPN · ")
+node("Подключено")
+node("AndroidCheckA")
+tap("Серверы")
 screenshot("forest-servers")
-tap("AndroidCheckB")
+tap("Выбрать сервер AndroidCheckB")
 tap("Главная")
 node("AndroidCheckB")
+node("Подключено")
+tap("Отключить VPN")
+node("Отключено")
+tap("Серверы")
+tap("Свернуть подписку AndroidCheckA")
+tap("Главная")
+
+# Import the same provider JSON used by the native routing test. The first
+# outbound blocks traffic and the observed peer is down, so CONNECTED requires
+# the actual Xray balancer and its XHTTP fallback.
+balance = Path("app/src/androidTest/assets/provider-balance.json").read_text()
+adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
+                        "-t", "text/plain", "--es", "android.intent.extra.TEXT", balance]))
+tap("Серверы")
+tap_in_list("Выбрать сервер Автовыбор")
+# This fixture uses a provider-only fallback DNS name. Its routed behavior is verified below.
+tap("Главная")
+node("Автовыбор")
+tap("Подключить VPN")
+node("Подключено")
+verify_tun_transfer()
+verify_tun_transfer("through-tun.phantom.test")
+print("Android system DNS resolved the provider-only name and transferred data through TUN", flush=True)
+# Lose the physical network, regain it, then prove the requested VPN still transports bytes.
+adb("shell", "svc", "data", "disable")
+adb("shell", "svc", "wifi", "disable")
+for _ in range(24):
+    physical = adb("shell", "ip", "-4", "route", "show", "table", "all")
+    if not re.search(r"^default .*dev (?:wlan|eth|rmnet|radio)\w*", physical, re.M):
+        break
+    time.sleep(.5)
+else:
+    raise AssertionError("Android retained a physical default route during the offline check")
+adb("shell", "svc", "wifi", "enable")
+try:
+    deadline = time.monotonic() + 50
+    while True:
+        try:
+            verify_tun_transfer("through-tun.phantom.test")
+            break
+        except (AssertionError, subprocess.TimeoutExpired):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1)
+    node("Подключено")
+    print("Provider DNS and TUN transfer recovered after loss and return of Wi-Fi", flush=True)
+finally:
+    adb("shell", "svc", "data", "enable")
+
+print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
+screenshot("provider-auto-connected")
+tap("Серверы")
+node("Выбрать сервер Автовыбор")
+tap("Главная")
 node("Подключено")
 tap("Отключить VPN")
 node("Отключено")
@@ -235,37 +376,48 @@ adb("shell", "cmd", "statusbar", "click-tile", component)
 adb("shell", "cmd", "statusbar", "collapse")
 node("Отключено")
 
-# Use HTTPS from the checked-out public commit, with no subscriber credentials.
-sha = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-# Pull request workflows check out a generated merge commit. Use the head
-# commit for the externally retrievable raw file.
-with open(os.environ["GITHUB_EVENT_PATH"]) as event_file:
-    sha = json.load(event_file).get("pull_request", {}).get("head", {}).get("sha", sha)
-url = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/{sha}/scripts/fixtures/import-subscription.txt"
-adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
-                        "-t", "text/plain", "--es", "android.intent.extra.TEXT", url]))
-tap("Подписка")
-node("OfflineSubscriptionCheck", attempts=20)
+# Scan the public HTTPS subscription through the actual Android camera.
+adb("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
+tap("Сканировать QR-код подписки")
+try:
+    node("К серверам", attempts=20)
+except AssertionError:
+    screenshot("qr-failure")
+    print(adb("logcat", "-d", "-s", "CameraPreview", "CameraInstance", "CameraManager", "DecoderThread"))
+    raise
 tap("Серверы")
-tap("OfflineSubscriptionCheck")
+tap_in_list("Раскрыть подписку OfflineSubscriptionCheck")
+node("OfflineSubscriptionCheck", attempts=20)
+print("Camera QR imported a subscription without a second confirmation", flush=True)
+tap_in_list("Выбрать сервер OfflineSubscriptionCheck")
 tap("Главная")
 tap("Обновить выбранную подписку")
 node("Подписка обновлена")
+tap("Серверы")
+node("Управление подпиской OfflineSubscriptionCheck")
 tap("Подписка")
-try:
-    node("Данные могут быть устаревшими", attempts=1)
-except AssertionError:
-    pass
-else:
-    raise AssertionError("Online subscription refresh failed")
-node("OfflineSubscriptionCheck")
+node("В магазин")
 screenshot("forest-subscriptions")
-# Verify that the renewal hint is centered and wraps on a narrow device.
+# Verify that renewal guidance stays reachable on a narrow device.
 adb("shell", "wm", "size", "720x1600")
-node("В магазине выберите „Моя подписка“ → „Продлить“")
+renewal_hint = "Продлить: в магазине «Моя подписка» → «Продлить»."
+for attempt in range(10):
+    try:
+        node(renewal_hint, attempts=1)
+        break
+    except AssertionError:
+        if attempt == 9:
+            print("Subscription screen did not expose renewal hint after in-content swipes",
+                  flush=True)
+            raise
+        # At 720x1600, y=1330 falls within bottom NavigationBar, which
+        # consumes the gesture instead of scrolling the subscription list.
+        # Keep both touch points safely inside the scrollable content.
+        adb("shell", "input", "swipe", "350", "1000", "350", "320", "420")
+node(renewal_hint)
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")
-for action in ("Купить подписку Phantom", "Продлить подписку Phantom"):
+for action in ("В магазин",):
     adb("logcat", "-c")
     tap_in_list(action)
     time.sleep(1)
@@ -277,7 +429,42 @@ adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 tap("Главная")
 tap("Обновить выбранную подписку")
-tap("Подписка")
-node("Данные могут быть устаревшими", attempts=36)
+tap("Серверы")
+# After failed offline refresh the new card shows an explicit owner-scoped
+# error while preserving servers. Check the current UI contract, not text
+# removed with the old duplicate subscription summary.
+node("Ошибка обновления · серверы сохранены", attempts=36)
 tap("Серверы")
 node("OfflineSubscriptionCheck")
+
+try:
+    adb("shell", "wm", "user-rotation", "lock", "1")
+    tap("Подписка")
+    visible_after_scroll("В магазин")
+    for tab in ("Главная", "Серверы", "Подписка", "Настройки"):
+        node(tab)
+    screenshot("phone-landscape")
+finally:
+    adb("shell", "wm", "user-rotation", "free")
+
+# Treat phone-size CI emulation as a second, tablet-sized form factor without
+# launching another Go runtime or requiring a physical tablet on GitHub runners.
+# Exercise portrait and landscape (>600dp width), navigation and persisted data.
+try:
+    adb("shell", "wm", "density", "240")
+    for size, shot in (("1600x2560", "tablet-portrait"),
+                       ("2560x1600", "tablet-landscape")):
+        adb("shell", "wm", "size", size)
+        adb("shell", "am", "force-stop", PACKAGE)
+        adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+        node("Главная")
+        tap("Серверы")
+        node("OfflineSubscriptionCheck")
+        tap("Подписка")
+        visible_after_scroll("В магазин")
+        tap("Настройки")
+        node("Настройки")
+        screenshot(shot)
+finally:
+    adb("shell", "wm", "size", "reset")
+    adb("shell", "wm", "density", "reset")

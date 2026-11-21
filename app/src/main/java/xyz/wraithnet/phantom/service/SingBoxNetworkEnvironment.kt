@@ -7,11 +7,11 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import io.nekohasekai.libbox.InterfaceUpdateListener
 import java.lang.reflect.Proxy
 import java.net.NetworkInterface
 import java.net.InetAddress
 import java.net.Inet4Address
-import java.net.URI
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,9 +25,12 @@ import java.util.concurrent.ConcurrentHashMap
  * This adapter publishes actual Android network data while excluding the VPN
  * TUN itself from the default upstream selection.
  */
-internal class SingBoxNetworkEnvironment(context: Context) {
+internal class SingBoxNetworkEnvironment(
+    context: Context,
+    private val postToWorker: (() -> Unit) -> Boolean,
+) {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    private val callbacks = ConcurrentHashMap<Any, ConnectivityManager.NetworkCallback>()
+    private val callbacks = ConcurrentHashMap<InterfaceUpdateListener, ConnectivityManager.NetworkCallback>()
 
     /**
      * Resolve the TUIC/AnyTLS server using Android's physical network, bypassing
@@ -35,13 +38,13 @@ internal class SingBoxNetworkEnvironment(context: Context) {
      * sing-box 1.14 requires a resolver when dialing outbound hostnames; an IP
      * literal avoids using the incomplete app-provided DNS transport.
      */
-    fun resolveOutboundAddress(raw: String): String {
-        val host = URI(raw.trim()).host?.takeIf { it.isNotBlank() }
+    fun resolveOutboundAddress(raw: String, pinned: Network? = null): String {
+        val host = xyz.wraithnet.phantom.data.ShareLinkCodec.endpointUri(raw).host?.removeSurrounding("[", "]")?.takeIf { it.isNotBlank() }
             ?: error("Не указан адрес TUIC/AnyTLS")
         if (host.contains(':') || host.all { it.isDigit() || it == '.' }) {
             return host.substringBefore('%')
         }
-        val network = physicalNetwork()
+        val network = pinned ?: connectivity.physicalNetwork()
             ?: error("Нет доступной физической сети для DNS TUIC/AnyTLS")
         val addresses = try {
             network.getAllByName(host).toList()
@@ -54,55 +57,32 @@ internal class SingBoxNetworkEnvironment(context: Context) {
         return resolved.hostAddress.substringBefore('%')
     }
 
-    private fun physicalNetwork(): Network? {
-        return connectivity.allNetworks
-            .mapNotNull { network ->
-                val caps = connectivity.getNetworkCapabilities(network) ?: return@mapNotNull null
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                ) return@mapNotNull null
-                val link = connectivity.getLinkProperties(network)
-                if (link?.interfaceName.isNullOrBlank()) return@mapNotNull null
-                val rank =
-                    (if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 100 else 0) +
-                    (if (network == connectivity.activeNetwork) 80 else 0) +
-                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) 20 else 0) +
-                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) 15 else 0) +
-                    (if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) 10 else 0)
-                Triple(network, caps, rank)
-            }.maxByOrNull { it.third }?.first
-    }
-
-    private fun notifyDefault(listener: Any) {
-        val network = physicalNetwork()
+    private fun notifyDefault(listener: InterfaceUpdateListener) {
+        val network = connectivity.physicalNetwork()
         val caps = network?.let(connectivity::getNetworkCapabilities)
         val name = network?.let(connectivity::getLinkProperties)?.interfaceName
         val index = name?.let { runCatching { NetworkInterface.getByName(it)?.index }.getOrNull() }
             ?: -1
         val costly = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) == false
         val constrained = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED) == false
-        val method = listener.javaClass.methods.firstOrNull {
-            it.name.equals("updateDefaultInterface", ignoreCase = true) &&
-                it.parameterCount == 4
-        } ?: error("libbox: нет callback обновления сетевого интерфейса")
-        method.invoke(listener, name ?: "", index, costly, constrained)
+        listener.updateDefaultInterface(name ?: "", index, costly, constrained)
     }
 
-    fun startDefaultInterfaceMonitor(listener: Any) {
+    fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         if (callbacks.containsKey(listener)) return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                runCatching { notifyDefault(listener) }
+            private fun scheduleUpdate() {
+                // Android immediately publishes current networks on ConnectivityThread.
+                // Keep these JNI calls out of native startup and service teardown.
+                postToWorker {
+                    if (callbacks[listener] === this) runCatching { notifyDefault(listener) }
+                }
             }
-            override fun onLost(network: Network) {
-                runCatching { notifyDefault(listener) }
-            }
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                runCatching { notifyDefault(listener) }
-            }
-            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) {
-                runCatching { notifyDefault(listener) }
-            }
+
+            override fun onAvailable(network: Network) = scheduleUpdate()
+            override fun onLost(network: Network) = scheduleUpdate()
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = scheduleUpdate()
+            override fun onLinkPropertiesChanged(network: Network, links: LinkProperties) = scheduleUpdate()
         }
         callbacks[listener] = callback
         try {
@@ -112,6 +92,7 @@ internal class SingBoxNetworkEnvironment(context: Context) {
                     .build(),
                 callback
             )
+            // libbox asks for the first interface before startOrReloadService returns.
             notifyDefault(listener)
         } catch (e: Exception) {
             callbacks.remove(listener)
@@ -120,7 +101,7 @@ internal class SingBoxNetworkEnvironment(context: Context) {
         }
     }
 
-    fun closeDefaultInterfaceMonitor(listener: Any) {
+    fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener) {
         callbacks.remove(listener)?.let { callback ->
             runCatching { connectivity.unregisterNetworkCallback(callback) }
         }

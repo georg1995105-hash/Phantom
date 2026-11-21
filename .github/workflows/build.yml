@@ -3,6 +3,12 @@ name: Build APK
 on:
   workflow_dispatch:
     inputs:
+      release_channel:
+        description: 'Manual release channel (beta is a separate Android package)'
+        required: true
+        default: stable
+        type: choice
+        options: [stable, beta]
       release_tag:
         description: 'If set, publish signed APK as a GitHub Release with this tag'
         required: false
@@ -18,9 +24,17 @@ permissions:
   contents: read
   actions: read
 
+# A new PR commit supersedes older unverified PR builds. Do not cancel
+# production releases: they use distinct refs and cancel-in-progress=false.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    # The reviewed PR branch may be released on the owner's explicit manual action.
+    # No merge to main or release on PR push is implied.
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/qa/universal-hardening-20261120' && github.actor == 'georg1995105-hash') || (github.ref == 'refs/heads/fix/tuic-ota-recovery-20261121' && github.actor == 'georg1995105-hash' && inputs.release_tag == '')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -80,9 +94,48 @@ jobs:
           grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
 
       - name: Build release APK
+        env:
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --max-workers=2 --stacktrace :app:testDebugUnitTest :app:assembleRelease
+          set +e
+          tasks=(:app:testDebugUnitTest :app:lintRelease :app:assembleRelease)
+          beta_args=()
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
+            tasks+=(:app:testBetaUnitTest :app:lintBeta :app:assembleBeta)
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
+            # Each published beta must increase versionCode, even within the
+            # same stable base version: beta.1=34001, beta.2=34002, etc.
+            if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-beta\.([1-9][0-9]*)$ ]]; then
+              echo "::error::Expected a tag like v0.3.7-beta.2"; exit 1
+            fi
+            beta_base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+            beta_number="${BASH_REMATCH[4]}"
+            stable_version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
+            stable_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' app/build.gradle.kts)
+            if [[ "$beta_base" != "$stable_version" || ! "$stable_code" =~ ^[0-9]+$ ]]; then
+              echo "::error::Beta base must equal the source stable version"; exit 1
+            fi
+            if (( beta_number > 999 )); then
+              echo "::error::Beta ordinal must be between 1 and 999"; exit 1
+            fi
+            beta_code=$((stable_code * 1000 + beta_number))
+            beta_args+=("-PphantomBetaVersion=${RELEASE_TAG#v}" "-PphantomBetaCode=$beta_code")
+            echo "Building beta version=${RELEASE_TAG#v} versionCode=$beta_code"
+          fi
+          ./gradlew --no-daemon --max-workers=1 --stacktrace "${beta_args[@]}" "${tasks[@]}"
+          result=$?
+          if [ "$result" -ne 0 ]; then
+            report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
+            if [ -f "$report" ]; then
+              echo "::group::Android Lint full findings"
+              sed -n '1,220p' "$report"
+              echo "::endgroup::"
+            fi
+          fi
+          exit "$result"
 
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
@@ -114,9 +167,12 @@ jobs:
             unsigned="$dir/app-$abi-release-unsigned.apk"
             signed="$dir/phantom-$abi-release.apk"
             "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 "$unsigned" "aligned-$abi.apk"
+            # Android 11 incremental extraction matches lib/x86_64 for lib/x86.
+            # Distribute a standalone package with v2/v3 signing for full installs.
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
               --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
               --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+              --v4-signing-enabled false \
               --out "$signed" "aligned-$abi.apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
             rm "aligned-$abi.apk"
@@ -126,9 +182,42 @@ jobs:
               unzip -Z1 "$dir/phantom-universal-release.apk" "lib/$abi/$lib" > /dev/null
             done
           done
+          # Sign beta separately; its package identity cannot replace stable.
+          beta_dir=app/build/outputs/apk/beta
+          if [[ -f "$beta_dir/app-universal-beta-unsigned.apk" ]]; then
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 \
+              "$beta_dir/app-universal-beta-unsigned.apk" "aligned-beta.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+              --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
+              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+              --v4-signing-enabled false \
+              --out "$beta_dir/phantom-beta-universal-release.apk" "aligned-beta.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$beta_dir/phantom-beta-universal-release.apk"
+            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$beta_dir/phantom-beta-universal-release.apk" | grep -F "package: name='xyz.wraithnet.phantom.beta'"
+            rm "aligned-beta.apk"
+          fi
           # Never keep the production signing material on the test runner.
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             rm -f app/keystore.jks
+          fi
+
+      - name: Test universal APK audit itself
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_universal_audit.py' -v
+          python3 -m unittest discover -s scripts -p 'test_installed_native.py' -v
+
+      - name: Verify all native ABI and 16 KiB ELF segments in signed universal APK
+        run: |
+          apk=app/build/outputs/apk/release/phantom-universal-release.apk
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          stat --format='Universal APK: %s bytes' "$apk"
+          sha256sum "$apk"
+          python3 scripts/audit_universal_apk.py \
+            "$apk"
+          beta=app/build/outputs/apk/beta/phantom-beta-universal-release.apk
+          if [[ -f "$beta" ]]; then
+            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$beta"
+            python3 scripts/audit_universal_apk.py "$beta"
           fi
 
       - name: Prepare loopback protocol peers
@@ -150,11 +239,11 @@ jobs:
           cat peers.log
           exit 1
 
-      - name: Verify signed 0.3.4 baseline and upgrade signer
+      - name: Verify signed 0.3.11 baseline and upgrade signer
         if: github.event_name != 'push'
         run: |
-          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.4/phantom-arm64-v8a-release.apk
-          echo '84c663077b5b76e158ac7384f2737f65587a9377679732b066508ae77a72d7e9  previous.apk' | sha256sum -c -
+          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.11/phantom-x86_64-release.apk
+          echo 'b1d9d981d8ca2916139364a2244df45b3793636c35e2f386a8da0f7b9cdf9c0f  previous.apk' | sha256sum -c -
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           cert='Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
           "$signer" verify --print-certs previous.apk | grep -Fx "$cert"
@@ -169,6 +258,7 @@ jobs:
             # The production signing key never enters a PR runner.
             "$signer" sign --ks app/keystore.jks --ks-key-alias ci-ephemeral \
               --ks-pass pass:phantom-ci-only-2026 --key-pass pass:phantom-ci-only-2026 \
+              --v4-signing-enabled false \
               --out previous-ci.apk previous.apk
             mv previous-ci.apk previous.apk
             "$signer" verify previous.apk
@@ -179,8 +269,43 @@ jobs:
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
 
-      - name: Test universal APK with an Android TV remote
+      - name: Run dual Go runtime JNI smoke test on Android
+        id: android_native
         if: github.event_name != 'push'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          # Pixel Launcher from google_apis displayed its ANR over the clipboard test.
+          target: default
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back imagefile:${{ runner.temp }}/phantom-subscription.png
+          pre-emulator-launch-script: bash scripts/ci_qr_camera.sh
+          disable-animations: true
+          script: |
+            bash scripts/ci_emulator.sh
+
+      - name: Install verified Android TV x86 system image
+        id: android_tv_image
+        if: github.event_name != 'push'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          archive=$(mktemp "$RUNNER_TEMP/android-tv.XXXXXX.zip")
+          trap 'rm -f "$archive"' EXIT
+          curl -fsSL --max-time 120 -o "$archive" \
+            https://dl.google.com/android/repository/sys-img/android-tv/x86-30_r04.zip
+          printf '%s  %s\n' da16c0dbf88fecbc4b64912c184bc0d6c955c9483a5894cca47f55f6744c02d3 "$archive" | sha256sum -c -
+          image_root="$ANDROID_HOME/system-images/android-30/android-tv"
+          mkdir -p "$image_root"
+          unzip -oq "$archive" -d "$image_root"
+          sdkmanager --list_installed | grep -F 'system-images;android-30;android-tv;x86'
+
+      - name: Test universal APK with an Android TV remote
+        id: android_tv
+        if: github.event_name != 'push' && steps.android_tv_image.outcome == 'success'
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 30
@@ -193,43 +318,83 @@ jobs:
           disable-animations: true
           script: python3 scripts/ci_tv.py
 
-      - name: Run dual Go runtime JNI smoke test on Android
+      - name: Test signed universal APK on Android with 16 KiB pages
+        id: android_16k
         if: github.event_name != 'push'
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 35
-          target: google_apis
+          # The Android 15 experimental image also crashed in Android SystemUI.
+          api-level: 36
+          target: google_apis_ps16k
           arch: x86_64
           profile: pixel_6
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          avd-name: phantom-16k
+          disk-size: 3072M
+          # The 16 KiB Google APIs image had LMK deaths with the default guest RAM.
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -memory 4096
           disable-animations: true
-          script: |
-            bash scripts/ci_emulator.sh
+          script: python3 scripts/ci_tv.py --16k
+
+      - name: Enforce successful device tests
+        if: github.event_name != 'push'
+        run: |
+          result=0
+          if [ "${{ steps.android_native.outcome }}" != "success" ]; then
+            echo "::error::Android instrumentation and upgrade tests failed"
+            result=1
+          fi
+          if [ "${{ steps.android_tv.outcome }}" != "success" ]; then
+            echo "::error::Android TV VPN and D-pad tests failed"
+            result=1
+          fi
+          if [ "${{ steps.android_16k.outcome }}" != "success" ]; then
+            echo "::error::Android 16 KiB runtime tests failed"
+            result=1
+          fi
+          exit "$result"
 
       - name: Upload upgrade screenshots
-        if: github.event_name != 'push' && success()
+        if: ${{ !cancelled() && github.event_name != 'push' && hashFiles('upgrade-screens/*.png') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: upgrade-screens
           path: upgrade-screens/
           retention-days: 7
 
+      - name: Stage universal PR test APK
+        if: github.event_name == 'pull_request'
+        run: |
+          mkdir -p pr-artifact
+          cp app/build/outputs/apk/release/phantom-universal-release.apk pr-artifact/Phantom.apk
+
       - name: Upload PR test APK
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-pr-universal-ci-signed
-          path: app/build/outputs/apk/release/phantom-universal-release.apk
+          path: pr-artifact/Phantom.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 2
 
       - name: Upload verified release APKs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.release_channel == 'stable'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
+          # Keep ABI-named APK assets while older installed clients still select
+          # architecture-specific assets from the latest GitHub Release.
           path: app/build/outputs/apk/release/phantom-*-release.apk
+          compression-level: 0
+          retention-days: 2
+
+      - name: Upload verified beta APK
+        if: github.event_name == 'workflow_dispatch' && inputs.release_channel == 'beta'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phantom-beta-release
+          path: app/build/outputs/apk/beta/phantom-beta-universal-release.apk
           compression-level: 0
           retention-days: 2
 
@@ -256,23 +421,74 @@ jobs:
           merge-multiple: true
 
       - name: Validate requested version and assets
+        if: inputs.release_channel == 'stable'
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
-          for abi in arm64-v8a armeabi-v7a x86_64 x86 universal; do
+          test -s "release-assets/phantom-universal-release.apk"
+          # All prior ABI-specific OTA clients must retain a matching asset even
+          # when a later release becomes the latest stable version.
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
             test -s "release-assets/phantom-$abi-release.apk"
           done
           sha256sum release-assets/phantom-*-release.apk
 
+      - name: Stage official universal and legacy architecture APKs
+        if: inputs.release_channel == 'stable'
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p publish-assets
+          cp release-assets/phantom-*-release.apk publish-assets/
+          sha256sum publish-assets/phantom-*-release.apk
+
       - name: Publish official release
+        if: inputs.release_channel == 'stable'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: PHANTOM VPN ${{ inputs.release_tag }}
-          files: release-assets/phantom-*-release.apk
+          files: publish-assets/phantom-*-release.apk
           prerelease: false
           body_path: RELEASE_NOTES.md
+
+      - name: Ensure Android build tools for beta APK validation
+        if: inputs.release_channel == 'beta'
+        run: |
+          set -euo pipefail
+          if [[ ! -x "$ANDROID_HOME/build-tools/35.0.0/aapt" || ! -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" ]]; then
+            sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+            test -n "$sdkmanager"
+            "$sdkmanager" --install "build-tools;35.0.0"
+          fi
+
+      - name: Validate beta tag and signed artifact
+        if: inputs.release_channel == 'beta'
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          beta=release-assets/phantom-beta-universal-release.apk
+          test -s "$beta"
+          actual=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$beta" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          test -n "$actual"
+          test "$RELEASE_TAG" = "v$actual"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$beta"
+          sha256sum "$beta"
+
+      - name: Publish prerelease to beta channel
+        if: inputs.release_channel == 'beta'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          target_commitish: ${{ github.sha }}
+          name: PHANTOM VPN Beta ${{ inputs.release_tag }}
+          files: release-assets/phantom-beta-universal-release.apk
+          prerelease: true
+          make_latest: false
+          body_path: BETA_RELEASE_NOTES.md

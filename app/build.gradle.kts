@@ -12,10 +12,11 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 33
-        versionName = "0.3.6"
+        versionCode = 39
+        versionName = "0.3.12"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
+        buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -44,6 +45,12 @@ android {
                 "proguard-rules.pro"
             )
         }
+        create("beta") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".beta"
+            buildConfigField("String", "UPDATE_CHANNEL", "\"beta\"")
+            matchingFallbacks += listOf("release")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -57,8 +64,25 @@ android {
         buildConfig = true
     }
     packaging {
+        // Universal download APK: preserve identical ELF bytes; Android extracts
+        // compressed JNI libraries during install. Acceptance is gated by
+        // native/TV tests and 16 KB ELF checks in CI.
+        jniLibs {
+            useLegacyPackaging = true
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("beta")) { variant ->
+        val betaVersion = providers.gradleProperty("phantomBetaVersion").orElse("0.3.12-beta.1")
+        val betaCode = providers.gradleProperty("phantomBetaCode").map { it.toInt() }.orElse(39001)
+        variant.outputs.forEach { output ->
+            output.versionName.set(betaVersion)
+            output.versionCode.set(betaCode)
         }
     }
 }
@@ -75,14 +99,17 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("androidx.activity:activity-compose:1.9.3")
-    implementation(platform("androidx.compose:compose-bom:2024.11.00"))
+    val composeBom = platform("androidx.compose:compose-bom:2024.11.00")
+    implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.1")
-    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.work:work-testing:2.12.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

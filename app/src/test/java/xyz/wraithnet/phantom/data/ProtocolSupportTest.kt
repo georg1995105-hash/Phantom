@@ -8,13 +8,24 @@ class ProtocolSupportTest {
         id = id, name = id, scheme = scheme, raw = "$scheme://example.com"
     )
 
+    @Test fun automaticTuicProbeIsOptInWithoutDisablingExistingPings() {
+        assertFalse(ProtocolSupport.shouldAutoProbe("tuic", false))
+        assertFalse(ProtocolSupport.shouldAutoProbe("TUIC", false))
+        assertTrue(ProtocolSupport.shouldAutoProbe("tuic", true))
+        for (scheme in listOf("vless", "xray", "json", "hysteria2", "hy2",
+            "anytls", "vmess", "trojan", "ss")) {
+            assertTrue(scheme, ProtocolSupport.shouldAutoProbe(scheme, false))
+            assertTrue(scheme, ProtocolSupport.shouldAutoProbe(scheme, true))
+        }
+    }
+
     @Test fun supportedProtocolsIncludeBothEngines() {
         listOf("vless", "vmess", "trojan", "ss", "xray", "hy2", "hysteria2",
             "tuic", "anytls").forEach { assertTrue(it, ProtocolSupport.isSupported(it)) }
         assertFalse(ProtocolSupport.isSupported("wireguard"))
-        assertTrue(ProtocolSupport.needsConnectedPing("tuic"))
-        assertTrue(ProtocolSupport.needsConnectedPing("hysteria2"))
-        assertFalse(ProtocolSupport.needsConnectedPing("anytls"))
+        assertTrue(SingBoxBridgeConfig.requiresSingBox(server("tuic", "tuic")))
+        assertTrue(SingBoxBridgeConfig.requiresSingBox(server("anytls", "anytls")))
+        assertFalse(SingBoxBridgeConfig.requiresSingBox(server("hy2", "hysteria2")))
     }
 
     @Test fun selectingTuicRemainsStableAfterMainSubscriptionImport() {
@@ -46,5 +57,11 @@ class ProtocolSupportTest {
         val tuic = Subscription("tuic", "tuic", "tuic", listOf(server("t", "tuic")))
         assertEquals("t", ProfileSelection.resolve(
             listOf(tuic), null, "t", null)?.second?.id)
+    }
+
+    @Test fun unsupportedServersInExistingOwnerDoNotSelectDifferentSubscription() {
+        val owner = Subscription("a", "A", "a", listOf(server("old", "unsupported")))
+        val other = Subscription("b", "B", "b", listOf(server("other", "vless")))
+        assertNull(ProfileSelection.resolve(listOf(owner, other), owner.id, "old", null))
     }
 }

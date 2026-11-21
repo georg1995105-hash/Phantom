@@ -1,6 +1,7 @@
 package xyz.wraithnet.phantom.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -8,20 +9,86 @@ import java.util.UUID
 class SubscriptionStore(context: Context) {
     private val prefs = context.getSharedPreferences("phantom_data", Context.MODE_PRIVATE)
 
-    fun deviceId(): String = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
-        prefs.edit().putString("device_id", it).apply()
+    companion object {
+        // The UI and WorkManager run in the app process. A shared process-wide lock
+        // protects their read-modify-write operations and durable rollback snapshot.
+        private val lock = Any()
+        private const val CURRENT = "subscriptions"
+        private const val PREVIOUS = "subscriptions_previous"
     }
 
-    fun read(): List<Subscription> = runCatching {
-        val array = JSONArray(prefs.getString("subscriptions", "[]"))
-        buildList {
+    fun deviceId(): String = synchronized(lock) {
+        prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also {
+            check(prefs.edit().putString("device_id", it).commit()) {
+                "Не удалось сохранить ID устройства"
+            }
+        }
+    }
+
+    private fun decode(json: String): List<Subscription> {
+        val array = JSONArray(json)
+        return buildList {
             for (i in 0 until array.length()) add(fromJson(array.getJSONObject(i)))
         }
-    }.getOrDefault(emptyList())
-
-    fun write(items: List<Subscription>) {
-        prefs.edit().putString("subscriptions", JSONArray(items.map(::toJson)).toString()).apply()
     }
+
+    /** Do not silently turn malformed saved subscriptions into an empty list. */
+    private fun readLocked(): List<Subscription> {
+        val current = prefs.getString(CURRENT, null) ?: return emptyList()
+        return try {
+            decode(current)
+        } catch (failure: Exception) {
+            val previous = prefs.getString(PREVIOUS, null)
+            if (previous != null) {
+                val recovered = runCatching { decode(previous) }.getOrNull()
+                if (recovered != null) {
+                    check(prefs.edit().putString(CURRENT, previous).commit()) {
+                        "Не удалось восстановить предыдущие подписки"
+                    }
+                    return recovered
+                }
+            }
+            throw IllegalStateException(
+                "Хранилище подписок повреждено. Данные не удалены; требуется восстановление",
+                failure
+            )
+        }
+    }
+
+    fun read(): List<Subscription> = synchronized(lock) { readLocked() }
+
+    fun observeChanges(onChange: () -> Unit): () -> Unit {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == CURRENT) onChange()
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        return { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+
+    private fun writeLocked(items: List<Subscription>) {
+        val json = JSONArray(items.map(::toJson)).toString()
+        val old = prefs.getString(CURRENT, null)
+        if (old == json) return
+        // Check validity before a backup can overwrite the last good snapshot.
+        val editor = prefs.edit().putString(CURRENT, json)
+        if (old != null && runCatching { decode(old) }.isSuccess) {
+            editor.putString(PREVIOUS, old)
+        }
+        check(editor.commit()) { "Не удалось сохранить подписки" }
+    }
+
+    fun write(items: List<Subscription>) = synchronized(lock) {
+        readLocked() // Fail closed on unrecoverable corruption, never erase keys.
+        writeLocked(items)
+    }
+
+    /** Atomic UI/Worker mutation; always transform the newest saved snapshot. */
+    fun update(transform: (List<Subscription>) -> List<Subscription>): List<Subscription> =
+        synchronized(lock) {
+            val updated = transform(readLocked())
+            writeLocked(updated)
+            updated
+        }
 
     private fun toJson(item: Subscription) = JSONObject().apply {
         put("id", item.id); put("title", item.title); put("source", item.source)
@@ -32,6 +99,10 @@ class SubscriptionStore(context: Context) {
         item.expiresAt?.let { put("expiresAt", it) }
         item.customTitle?.let { put("customTitle", it) }
         item.customIntervalSeconds?.let { put("customIntervalSeconds", it) }
+        item.selectedServerId?.let { put("selectedServerId", it) }
+        item.announcement?.let { put("announcement", it) }
+        item.supportUrl?.let { put("supportUrl", it) }
+        item.webPageUrl?.let { put("webPageUrl", it) }
         put("servers", JSONArray(item.servers.map { server -> JSONObject().apply {
             put("id", server.id); put("name", server.name); put("scheme", server.scheme)
             put("address", server.address); put("port", server.port ?: JSONObject.NULL)
@@ -49,6 +120,10 @@ class SubscriptionStore(context: Context) {
         totalBytes = item.optLongOrNull("totalBytes"), expiresAt = item.optLongOrNull("expiresAt"),
         customTitle = item.optString("customTitle").takeIf { it.isNotBlank() },
         customIntervalSeconds = item.optLongOrNull("customIntervalSeconds"),
+        selectedServerId = item.optString("selectedServerId").takeIf { it.isNotBlank() },
+        announcement = item.optString("announcement").takeIf { it.isNotBlank() },
+        supportUrl = item.optString("supportUrl").takeIf { it.isNotBlank() },
+        webPageUrl = item.optString("webPageUrl").takeIf { it.isNotBlank() },
         servers = buildList {
             val array = item.optJSONArray("servers") ?: JSONArray()
             for (i in 0 until array.length()) {

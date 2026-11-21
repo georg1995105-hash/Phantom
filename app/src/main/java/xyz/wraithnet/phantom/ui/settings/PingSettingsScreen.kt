@@ -19,6 +19,7 @@ import xyz.wraithnet.phantom.data.LatencyProbe
 fun PingSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var timeout by remember { mutableFloatStateOf(LatencyProbe.timeoutMs(context) / 1000f) }
+    var autoTuic by remember { mutableStateOf(LatencyProbe.autoTuicEnabled(context)) }
     BackHandler { onBack() }
 
     Scaffold(
@@ -39,11 +40,18 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Text("Проверка пинга", fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Text(
-                "TCP-профили проверяются обычным TCP-соединением. Для Hysteria2, TUIC и XHTTP/H3 " +
-                    "отображается только задержка, подтверждённая работающим VPN. " +
-                    "Проверка не переключает сервер и не перезапускает VPN.",
+                "Для XHTTP, VLESS, Hysteria2 и остальных прежних протоколов используется TCP-пинг входа. TUIC проверяется через отдельное QUIC-соединение и доступен по кнопке «Пинг».",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Автоматический пинг TUIC", fontWeight = FontWeight.SemiBold)
+                    Text("Дополнительный процесс sing-box с QUIC. По умолчанию отключён для стабильности соединения; вручную доступен в списке серверов.",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = autoTuic, onCheckedChange = { autoTuic = it })
+            }
             HorizontalDivider()
             Text("Тайм-аут: " + timeout.toInt() + " сек",
                 fontWeight = FontWeight.SemiBold)
@@ -52,7 +60,8 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
-                    LatencyProbe.configure(context, LatencyProbe.TCP, timeout.toInt())
+                    LatencyProbe.configure(context, timeout.toInt())
+                    LatencyProbe.setAutoTuicEnabled(context, autoTuic)
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()

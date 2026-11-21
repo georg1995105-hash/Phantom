@@ -11,6 +11,23 @@ class UniversalSubscriptionImportTest {
     private val trojan =
         "trojan://examplePassword@proxy.example.org:443?security=tls#Netherlands"
 
+    @Test fun requestsProviderJsonOnlyForThePhantomSubscriptionEndpoint() {
+        val original = "https://sub2.wraithnet.xyz/testOnlyId016ABC"
+        assertEquals("$original/json", SubscriptionFetcher.requestUrl(original))
+        assertEquals("$original/json?platform=android",
+            SubscriptionFetcher.requestUrl("$original/?platform=android"))
+        assertEquals("$original/json", SubscriptionFetcher.requestUrl("$original/json"))
+        val unchanged = listOf(
+            "https://sub.example.org/testOnlyId016ABC",
+            "https://sub2.wraithnet.xyz.example.org/testOnlyId016ABC",
+            "https://sub2.wraithnet.xyz:8443/testOnlyId016ABC",
+            "http://sub2.wraithnet.xyz/testOnlyId016ABC",
+            "$original/clash",
+            "https://sub2.wraithnet.xyz/",
+        )
+        unchanged.forEach { assertEquals(it, SubscriptionFetcher.requestUrl(it)) }
+    }
+
     @Test fun importSingleVlessLink() {
         val parsed = SubscriptionParser.parse(vless)
         assertEquals(1, parsed.servers.size)
@@ -50,5 +67,47 @@ class UniversalSubscriptionImportTest {
         assertThrows(IllegalArgumentException::class.java) {
             SubscriptionParser.parse(unsupported)
         }
+    }
+
+    @Test fun readableUnescapedServerNamesDoNotBreakLiveEndpoints() {
+        val remark = "#🇸🇪 Stockholm Sweden"
+        val vlessLink = vless.substringBefore('#') + remark
+        val hy2Link = "hysteria2://secret@hy2.example.org:443?sni=hy2.example.org" + remark
+        val tuicLink = "tuic://00000000-0000-4000-8000-000000000002:secret@" +
+            "tuic.example.org:25443?sni=tuic.example.org" + remark
+        val anyTlsLink = "anytls://secret@anytls.example.org:443?sni=anytls.example.org" + remark
+
+        val imported = SubscriptionParser.parse(
+            listOf(vlessLink, hy2Link, tuicLink, anyTlsLink).joinToString("\n")
+        ).servers
+        assertEquals(4, imported.size)
+        assertTrue(imported.all { it.name == "🇸🇪 Stockholm Sweden" })
+        assertEquals(listOf("vpn.example.org", "hy2.example.org", "tuic.example.org",
+            "anytls.example.org"), imported.map { it.address })
+        assertEquals(listOf(443, 443, 25443, 443), imported.map { it.port })
+
+        val vlessOutbound = XrayConfigBuilder.shareOutbound(imported[0])
+        assertEquals("vpn.example.org", vlessOutbound.getJSONObject("settings")
+            .getJSONArray("vnext").getJSONObject(0).getString("address"))
+        val hy2Outbound = XrayConfigBuilder.shareOutbound(imported[1])
+        assertEquals("hy2.example.org", hy2Outbound.getJSONObject("settings").getString("address"))
+        for ((profile, scheme) in listOf(imported[2] to "tuic", imported[3] to "anytls")) {
+            val config = org.json.JSONObject(
+                SingBoxBridgeConfig.fromShareLink(profile.raw, 39051))
+            assertEquals(scheme, config.getJSONArray("outbounds")
+                .getJSONObject(0).getString("type"))
+        }
+        assertEquals(TcpEndpoint("vpn.example.org", 443),
+            TcpEndpoint.forProfile(imported[0]))
+        assertEquals(TcpEndpoint("anytls.example.org", 443),
+            TcpEndpoint.forProfile(imported[3]))
+    }
+
+    @Test fun encodedServerNameAndLiteralPlusRemainUnchanged() {
+        val named = vless.substringBefore('#') + "#US+New%20York%20VIP"
+        val server = SubscriptionParser.parse(named).servers.single()
+        assertEquals("US+New York VIP", server.name)
+        assertEquals("vpn.example.org", server.address)
+        assertEquals("vless", XrayConfigBuilder.shareOutbound(server).getString("protocol"))
     }
 }

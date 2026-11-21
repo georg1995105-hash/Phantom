@@ -23,6 +23,10 @@ data class Subscription(
     val expiresAt: Long? = null,
     val customTitle: String? = null,
     val customIntervalSeconds: Long? = null,
+    val selectedServerId: String? = null,
+    val announcement: String? = null,
+    val supportUrl: String? = null,
+    val webPageUrl: String? = null,
 )
 
 data class SubscriptionInfo(
