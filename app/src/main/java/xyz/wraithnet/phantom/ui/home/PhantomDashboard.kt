@@ -263,7 +263,8 @@ internal fun ServersPage(
     pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>,
     probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
     onRefresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
-    onAutoProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
+    onAutoProbe: (Subscription) -> Unit, onManualPing: (Subscription) -> Unit,
+    favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit, openUrl: (String) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
@@ -304,6 +305,15 @@ internal fun ServersPage(
                                     Caption(if (owner.updatedAt > 0) "Обновлено $time · $interval" else interval)
                                 }
                                 if (owner.id in failed) Text("Ошибка обновления · серверы сохранены", color = c.error, fontSize = 11.sp)
+                            }
+                        }
+                        if (servers.any { it.scheme.equals("tuic", ignoreCase = true) }) {
+                            IconButton(onClick = { onManualPing(owner) },
+                                enabled = owner.id !in probing,
+                                modifier = Modifier.tvFocusRing().semantics {
+                                    contentDescription = "Проверить пинг TUIC и других серверов"
+                                }) {
+                                Icon(Icons.Default.Speed, null, tint = c.primary)
                             }
                         }
                         if (remote) IconButton(onClick = { onRefresh(owner) }, enabled = owner.id !in refreshing,
@@ -349,6 +359,15 @@ internal fun ServersPage(
                             Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
                                 if (id in favorites) "Убрать из избранного" else "В избранное", Modifier.size(19.dp),
                                 tint = if (id in favorites) Color(0xFFCEB36D) else c.onSurfaceVariant)
+                        }
+                        if (single && server.scheme.equals("tuic", ignoreCase = true)) {
+                            IconButton(onClick = { onManualPing(owner) },
+                                enabled = owner.id !in probing,
+                                modifier = Modifier.tvFocusRing().semantics {
+                                    contentDescription = "Проверить пинг TUIC"
+                                }) {
+                                Icon(Icons.Default.Speed, null, tint = c.primary)
+                            }
                         }
                         if (single) OwnerMenu(name) { manage(owner) }
                     }
