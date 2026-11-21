@@ -161,6 +161,17 @@ class SingBoxLatencyService : ProfileLatencyService(1) {
         val nativeSession = Any()
     }
 
+    override fun onDestroy() {
+        // libbox owns a process-wide Go runtime. Reopening a CommandServer in
+        // the same Linux process after stop() may race native callbacks (the
+        // actual VPN worker follows the same one-session-per-process rule).
+        // This service runs ONLY in :singbox_latency. The caller unbinds after
+        // receiving its Messenger reply, so retire this isolated probe process
+        // rather than reusing stale JNI state for the next TUIC ping.
+        super.onDestroy()
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
     override fun measure(config: String, target: String, deadline: Long, networkTimeout: Int): Bundle? = synchronized(nativeSession) {
         if (SystemClock.elapsedRealtime() >= deadline) return@synchronized null
         val manager = getSystemService(ConnectivityManager::class.java)
