@@ -36,7 +36,8 @@ class AppUpdateSheetUiTest {
                         AppUpdateSheet(release, false, 0, 0L, false,
                             "GitHub недоступен по текущей сети",
                             onLater = { }, onUpdate = { },
-                            onDownloadInBrowser = { browserInvoked = true })
+                            onDownloadInBrowser = { browserInvoked = true },
+                            onCancelDownload = { })
                     }
                 }
             }
@@ -50,13 +51,15 @@ class AppUpdateSheetUiTest {
             "- Первый пункт\n- Второй пункт\n- Третий пункт\n- Дополнительный пункт")
         var shown by mutableStateOf(true)
         var downloading by mutableStateOf(false)
+        var stopped by mutableStateOf(false)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     PhantomTheme {
                         if (shown) AppUpdateSheet(release, downloading, 40, 128L * 1024L, false, null,
                             onLater = { shown = false }, onUpdate = { downloading = true },
-                            onDownloadInBrowser = { })
+                            onDownloadInBrowser = { },
+                            onCancelDownload = { stopped = true; downloading = false })
                     }
                 }
             }
@@ -73,8 +76,8 @@ class AppUpdateSheetUiTest {
             compose.onNode(hasText("Дополнительный пункт", substring = true)).assertDoesNotExist()
             compose.awaitVisible(update).performClick()
             compose.awaitVisible(hasText("Загрузка 40% · 128 КБ/с"))
-            compose.awaitVisible(later and isNotEnabled())
-            compose.runOnIdle { downloading = false }
+            compose.awaitVisible(hasText("Остановить") and isEnabled()).performClick()
+            compose.runOnIdle { assertTrue(stopped) }
             compose.awaitVisible(later and isEnabled()).performClick()
             compose.onNode(update).assertDoesNotExist()
         }
