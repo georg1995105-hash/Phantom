@@ -91,7 +91,7 @@ object PhantomUpdates {
     // Accept a partial GitHub CDN response only when it exactly continues
     // the verified asset length. Never append unrelated HTTP 200 content.
     internal fun validContentRange(header: String?, offset: Long, size: Long): Boolean {
-        val match = Regex("""bytes (\\d+)-(\\d+)/(\\d+)""")
+        val match = Regex("""bytes (\d+)-(\d+)/(\d+)""")
             .matchEntire(header.orEmpty()) ?: return false
         val (first, last, total) = match.destructured
         val start = first.toLongOrNull() ?: return false
@@ -184,8 +184,11 @@ object PhantomUpdates {
             val startedAt = SystemClock.elapsedRealtime()
             var attempts = 0
             var lastProgress = -1
+            var transferred = 0L
+            var lastSpeedUpdate = 0L
             val job = currentCoroutineContext()
             try {
+                onProgress((100L * temp.length() / size).toInt().coerceIn(0, 100))
                 for (attempt in 0 until 4) {
                     job.ensureActive()
                     val offset = temp.length()
@@ -225,6 +228,7 @@ object PhantomUpdates {
                                         if (n == -1) break
                                         if (n == 0) continue
                                         count += n
+                                        transferred += n
                                         require(count <= size) {
                                             "Размер полученных данных превышает размер APK"
                                         }
@@ -235,8 +239,9 @@ object PhantomUpdates {
                                             lastProgress = progress
                                         }
                                         val elapsed = SystemClock.elapsedRealtime() - startedAt
-                                        if (elapsed > 1000L) {
-                                            onSpeed?.invoke(1000L * count / elapsed)
+                                        if (elapsed > 1000L && elapsed - lastSpeedUpdate >= 1000L) {
+                                            onSpeed?.invoke(1000L * transferred / elapsed)
+                                            lastSpeedUpdate = elapsed
                                         }
                                     }
                                 }
@@ -282,7 +287,7 @@ object PhantomUpdates {
                 val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(1L)
                 VpnEventLog.record(context, "update",
                     "APK ${size / 1048576} МиБ; средняя скорость " +
-                        "${(size * 1000L / elapsed) / 1024L} КиБ/с; повторы: ${attempts}")
+                        "${(transferred * 1000L / elapsed) / 1024L} КиБ/с; повторы: ${attempts}")
                 return target
             } catch (error: Exception) {
                 // On a transport error keep the hash-qualified partial asset
