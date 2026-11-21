@@ -239,11 +239,11 @@ jobs:
           cat peers.log
           exit 1
 
-      - name: Verify signed 0.3.6 baseline and upgrade signer
+      - name: Verify signed 0.3.8 baseline and upgrade signer
         if: github.event_name != 'push'
         run: |
-          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.7/phantom-x86_64-release.apk
-          echo '530a0e9c442836d609c52bc396a76416cfc2eaefe1f0ba7f339c0057aa66fe50  previous.apk' | sha256sum -c -
+          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.8/phantom-x86_64-release.apk
+          echo '9f6e581794041dfe9dd30b102dfc4131de844c86ef3b7e704d35b169f3b8c518  previous.apk' | sha256sum -c -
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           cert='Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
           "$signer" verify --print-certs previous.apk | grep -Fx "$cert"
