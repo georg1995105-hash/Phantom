@@ -9,6 +9,9 @@ object ProtocolSupport {
         "hysteria", "hysteria2", "hy2")
     val singBox = setOf("tuic", "anytls")
     fun isSupported(scheme: String): Boolean = scheme.lowercase() in xray || scheme.lowercase() in singBox
+    // TCP SYN is not a TUIC latency measurement: TUIC uses QUIC over UDP.
+    // Preserve the existing TCP server-list pings for every other protocol.
+    fun usesNativeLatency(scheme: String): Boolean = scheme.equals("tuic", ignoreCase = true)
 }
 
 /** The selected profile is scoped to its parent subscription, not only the link index. */
