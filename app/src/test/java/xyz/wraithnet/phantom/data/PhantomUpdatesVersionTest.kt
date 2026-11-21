@@ -75,6 +75,17 @@ class PhantomUpdatesVersionTest {
         assertFalse(PhantomUpdates.isNewerForChannel("0.3.7-beta.2", "0.3.7", "stable"))
     }
 
+    @Test fun resumedApkRequiresExactHttpContentRange() {
+        assertTrue(PhantomUpdates.validContentRange("bytes 1024-2047/4096", 1024, 4096))
+        assertTrue(PhantomUpdates.validContentRange("bytes 0-4095/4096", 0, 4096))
+        assertFalse(PhantomUpdates.validContentRange("bytes 1023-2047/4096", 1024, 4096))
+        assertFalse(PhantomUpdates.validContentRange("bytes 1024-4096/4096", 1024, 4096))
+        assertFalse(PhantomUpdates.validContentRange("bytes 1024-2047/8192", 1024, 4096))
+        assertFalse(PhantomUpdates.validContentRange("bytes */4096", 1024, 4096))
+        assertFalse(PhantomUpdates.validContentRange(null, 1024, 4096))
+        assertFalse(PhantomUpdates.validContentRange("bytes 1024-1023/4096", 1024, 4096))
+    }
+
     @Test fun prereleasesCannotReachStableOta() {
         assertTrue(PhantomUpdates.eligibleForStable(draft = false, prerelease = false))
         assertFalse(PhantomUpdates.eligibleForStable(draft = false, prerelease = true))
