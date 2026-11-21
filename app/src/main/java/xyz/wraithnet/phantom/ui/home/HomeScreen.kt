@@ -663,7 +663,7 @@ fun HomeScreen(
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                         }, add = { showImportMenu = true }, openUrl = ::openUrl)
                 }
-                Destination.SUBSCRIPTIONS -> SubscriptionPage {
+                Destination.SUBSCRIPTIONS -> SubscriptionPage(currentSubscription = selectedMatch?.first) {
                     openUrl("https://go.veor.pro/")
                 }
                 Destination.SETTINGS -> PhantomSettings(
