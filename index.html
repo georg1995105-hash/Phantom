@@ -3,168 +3,280 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#071a18">
-  <meta name="description" content="PHANTOM VPN для Android, планшетов и Android TV. Скачать последний стабильный APK напрямую из официального GitHub Releases.">
+  <meta name="theme-color" content="#0c1514">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="PHANTOM VPN — приложение для Android, планшетов и Android TV. Скачайте последнюю стабильную версию APK.">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="PHANTOM VPN — скачать для Android">
-  <meta property="og:description" content="Простая официальная страница загрузки последней стабильной версии Phantom VPN.">
-  <link rel="canonical" href="https://georg1995105-hash.github.io/Phantom/">
-  <title>PHANTOM VPN — скачать APK для Android</title>
+  <meta property="og:title" content="PHANTOM VPN — приложение для Android">
+  <meta property="og:description" content="Подписки, серверы и настройки подключения. Официальная загрузка последнего стабильного APK.">
+  <meta property="og:url" content="https://app.veor.pro/">
+  <link rel="canonical" href="https://app.veor.pro/">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <title>PHANTOM VPN — скачать для Android</title>
   <style>
-    :root{color-scheme:dark;--bg:#061613;--panel:#0f2421;--panel2:#102b25;--text:#eef8f2;--muted:#a9beb7;--line:#28544a;--accent:#9ce7be;--accent2:#61cda4;--ink:#063021}
-    *{box-sizing:border-box}
-    html{scroll-behavior:smooth}
-    body{margin:0;background:radial-gradient(ellipse 780px 470px at 84% 0%,#103a30 0,transparent 72%),var(--bg);color:var(--text);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
-    a{color:inherit;text-decoration:none}
-    a:focus-visible{outline:3px solid var(--accent);outline-offset:4px;border-radius:6px}
-    .wrap{width:min(100% - 40px,1000px);margin-inline:auto}
-    header{border-bottom:1px solid #27463d73}
-    header .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0}
-    .brand{display:flex;align-items:center;gap:11px;font-size:15px;font-weight:850;letter-spacing:.14em}
-    .mark{width:34px;height:38px;display:grid;place-items:center;background:var(--accent);color:var(--ink);border-radius:12px 12px 15px 15px;font-size:18px;font-weight:900}
-    nav{display:flex;align-items:center;gap:21px;color:var(--muted);font-size:14px;font-weight:600}
-    nav a:hover,.minor a:hover{color:var(--accent)}
-    main{padding:75px 0 65px}
-    .hero{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(270px,.85fr);align-items:center;gap:55px;margin-bottom:85px}
-    .eyebrow{display:inline-flex;align-items:center;gap:8px;color:var(--accent);font-size:12px;font-weight:850;letter-spacing:.15em;text-transform:uppercase}
-    .dot{display:inline-block;background:var(--accent2);width:7px;height:7px;border-radius:50%}
-    h1{font-size:clamp(43px,7vw,77px);letter-spacing:-.06em;line-height:1.03;margin:20px 0 22px;font-weight:850}
-    h1 span{color:var(--accent)}
-    .lead{font-size:clamp(16px,2.3vw,19px);color:#c0d0cb;max-width:555px;line-height:1.6;margin:0 0 27px}
-    .device-pills{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:23px}
-    .pill{border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:#c4d6ce;white-space:nowrap}
-    .download{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:19px 23px;background:var(--accent);color:var(--ink);border-radius:17px;font-weight:850;font-size:18px;box-shadow:0 15px 50px #66e9a21b;transition:transform .16s,background .16s}
-    .download:hover{background:#b8f7d3;transform:translateY(-2px)}
-    .download small{display:block;font-size:12px;font-weight:550;margin-top:1px;opacity:.8}
-    .arrow{font-size:26px;font-weight:400}
-    .minor{margin-top:15px;display:flex;flex-wrap:wrap;align-items:center;gap:14px;color:var(--muted);font-size:13px}
-    .minor a{text-decoration:underline;text-underline-offset:3px}
-    .version{margin-top:14px;font-size:12px;color:#9bb8ad;min-height:20px}
-    .preview{background:linear-gradient(155deg,#164035aa,#0b1d1a);border:1px solid #396a58;border-radius:30px;padding:35px 29px;min-height:365px;box-shadow:0 25px 80px #0005}
-    .preview-top{display:flex;justify-content:space-between;color:#d3ede0;font-size:12px;letter-spacing:.06em;font-weight:700;gap:8px}
-    .preview-shield{width:73px;height:80px;display:grid;place-items:center;background:#b7f8d8;color:#0d3827;border-radius:25px 25px 29px 29px;margin:45px auto 29px;font-size:39px;font-weight:900}
-    .preview h2{text-align:center;font-size:24px;margin:0 0 4px}
-    .preview p{text-align:center;color:#bbd4c6;font-size:13px;margin:0}
-    .preview-tags{margin-top:31px;display:flex;justify-content:center;gap:7px;flex-wrap:wrap}
-    .preview-tags span{border:1px solid #467461;border-radius:20px;padding:5px 11px;font-size:11px;color:#b6ddc8}
-    section{margin:0 0 65px}
-    section h2{font-size:29px;line-height:1.2;letter-spacing:-.035em;margin:0 0 12px}
-    .sub{color:var(--muted);margin:0 0 24px;max-width:750px}
-    .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:18px;background:var(--panel)}
-    table{width:100%;border-collapse:collapse;min-width:470px}
-    th,td{padding:15px 20px;text-align:left;border-bottom:1px solid #24504370}
-    tr:last-child td{border-bottom:0}
-    th{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:#a9d1c0}
-    td{font-size:14px}
-    td:first-child{font-weight:700}
-    td:last-child a{font-weight:750;color:var(--accent);text-decoration:underline;text-underline-offset:3px}
-    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-    .item{background:var(--panel);border:1px solid var(--line);border-radius:19px;padding:23px}
-    .step{font-size:12px;font-weight:900;color:var(--accent2);letter-spacing:.06em}
-    .item h3{font-size:17px;margin:10px 0 8px}
-    .item p{font-size:14px;color:var(--muted);margin:0}
-    .notice{padding:19px 22px;background:#13251e;border:1px solid #46624d;border-radius:16px;color:#cadad0;font-size:14px}
-    .notice strong{color:#e6f3e8}
-    footer{border-top:1px solid #28473d;margin-top:20px;padding:25px 0 35px;color:#a6bdb4;font-size:13px}
-    footer .wrap{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
-    footer a{text-decoration:underline;text-underline-offset:3px}
-    @media(max-width:760px){.hero{grid-template-columns:1fr;gap:34px;margin-bottom:60px}.preview{min-height:275px;padding:25px}.preview-shield{margin:18px auto 20px}main{padding-top:44px}.grid{grid-template-columns:1fr}nav{gap:12px;font-size:12px}.wrap{width:min(100% - 28px,1000px)}}
-    @media(max-width:370px){header .wrap{flex-wrap:wrap}h1{font-size:42px}.download{padding:16px}.download strong{font-size:16px}}
-    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.download{transition:none}}
+    :root {
+      color-scheme: dark;
+      --bg: #0c1514; --sheet: #111e1b; --sheet2: #172823;
+      --line: #30443e; --ink: #f2f4ec; --dim: #a9b8af;
+      --mint: #a9e8c7; --mint-ink: #10271c;
+      --max: 1120px;
+    }
+    *, *::before, *::after { box-sizing: border-box }
+    html { scroll-behavior: smooth }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+      font: 16px/1.52 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased }
+    a { color: inherit; text-decoration: none }
+    button { font: inherit }
+    :focus-visible { outline: 2px solid var(--mint); outline-offset: 5px; border-radius: 3px }
+    .wrap { width: min(calc(100% - 60px), var(--max)); margin-inline: auto }
+    .topbar { border-bottom: 1px solid var(--line) }
+    .topbar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 83px }
+    .brand { display: inline-flex; align-items: center; gap: 12px; font-weight: 750; letter-spacing: .115em; font-size: 15px; white-space: nowrap }
+    .brand em { color: var(--mint); font-style: normal; font-weight: 500 }
+    .logo { width: 37px; height: 43px; flex: none }
+    .nav { display: flex; align-items: center; gap: 30px; font-size: 13px; font-weight: 600; color: #bac8bf }
+    .nav a:hover, .text-link:hover, .footer a:hover { color: var(--mint) }
+    .nav .nav-dl { border-bottom: 1px solid var(--mint); padding-bottom: 4px; color: var(--mint) }
+    .hero { position: relative; display: grid; grid-template-columns: 1.15fr .85fr; gap: clamp(40px, 6vw, 90px);
+      align-items: stretch; min-height: 610px; border-bottom: 1px solid var(--line) }
+    .intro { padding: clamp(66px, 7.2vw, 106px) 0 72px }
+    .kicker { display: flex; align-items: center; gap: 12px; color: var(--mint); font-size: 11px; font-weight: 750; letter-spacing: .19em; text-transform: uppercase }
+    .kicker::before { content: ""; width: 22px; height: 1px; background: var(--mint) }
+    h1 { margin: 32px 0 25px; font-size: clamp(58px, 7.6vw, 106px); line-height: .96; font-weight: 680;
+      letter-spacing: -.079em }
+    h1 span { display: block }
+    h1 span:nth-child(2) { color: var(--mint); letter-spacing: -.085em }
+    .lead { color: #c5d1c7; font-size: clamp(17px, 1.85vw, 20px); line-height: 1.6; max-width: 495px; margin: 0 0 33px }
+    .primary { width: fit-content; min-width: 292px; display: inline-flex; align-items: center;
+      justify-content: space-between; gap: 32px; padding: 18px 21px 18px 24px; background: var(--mint);
+      color: var(--mint-ink); border-radius: 7px; font-weight: 750; font-size: 16px; transition: background .17s, transform .17s }
+    .primary:hover { background: #cff5db; transform: translateY(-2px) }
+    .primary svg { width: 22px; height: 22px; flex: none }
+    .below-dl { display: flex; align-items: baseline; gap: 15px; flex-wrap: wrap; margin: 15px 0 0;
+      font-size: 13px; color: var(--dim) }
+    .text-link { text-decoration: underline; text-decoration-color: #607e6e; text-underline-offset: 5px; font-weight: 600 }
+    .release-label { font-size: 12px; color: #83998e; margin: 24px 0 0; letter-spacing: .02em }
+    .signature { position: relative; display: grid; place-items: center; align-self: stretch; border-left: 1px solid var(--line);
+      overflow: hidden; min-height: 465px; background: linear-gradient(145deg, #13231f, #101c1a) }
+    .signature::before { content: ""; position: absolute; inset: 20px; border: 1px solid #34544755; pointer-events: none }
+    .sig-id { position: absolute; top: 42px; left: 44px; color: #a4cbb8; font: 600 11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing: .15em }
+    .sig-rule { position: absolute; left: 44px; right: 44px; bottom: 53px; height: 1px; background: #4c77654a }
+    .sig-foot { position: absolute; bottom: 26px; left: 44px; right: 44px; display: flex; align-items: center;
+      justify-content: space-between; gap: 12px; color: #91b5a2; font: 500 10px ui-monospace,SFMono-Regular,Consolas,monospace;
+      letter-spacing: .08em }
+    .sig-mark { width: min(78%, 305px); height: auto; opacity: .96 }
+    .quick { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line) }
+    .quick div { min-width: 0; padding: 28px 26px 31px; border-right: 1px solid var(--line) }
+    .quick div:first-child { padding-left: 0 } .quick div:last-child { border-right: 0 }
+    .quick small { display: block; color: #7ea892; letter-spacing: .13em; font: 700 10px ui-monospace,SFMono-Regular,Consolas,monospace }
+    .quick p { font-size: 15px; font-weight: 600; margin: 10px 0 0 }
+    .section { padding: 105px 0; border-bottom: 1px solid var(--line) }
+    .section-head { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 40px;
+      margin-bottom: 48px; align-items: end }
+    .overline { color: var(--mint); font: 700 11px ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing: .17em; text-transform: uppercase }
+    h2 { font-size: clamp(34px, 4.6vw, 58px); font-weight: 640; letter-spacing: -.057em; line-height: 1.09; margin: 17px 0 0 }
+    .section-head p { max-width: 440px; color: var(--dim); margin: 0; font-size: 16px; line-height: 1.68 }
+    .feature-list { border-top: 1px solid var(--line) }
+    .feature { display: grid; grid-template-columns: 70px minmax(0,.8fr) minmax(0,1fr); gap: 18px;
+      align-items: start; padding: 26px 0; border-bottom: 1px solid var(--line) }
+    .feature .number { color: #70a58b; font: 600 13px ui-monospace,SFMono-Regular,Consolas,monospace; padding-top: 7px }
+    .feature h3 { font-size: clamp(19px, 2.4vw, 28px); font-weight: 620; letter-spacing: -.03em; margin: 0 }
+    .feature p { color: var(--dim); margin: 3px 0 0; max-width: 500px; font-size: 15px; line-height: 1.7 }
+    .get { background: #e7ede3; color: #15271e; padding: 100px 0 97px }
+    .get .overline { color: #356951 }
+    .get .section-head p { color: #55675b }
+    .get h2 { color: #15271e }
+    .choice { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 18px; align-items: center;
+      padding: 26px 27px; border: 1px solid #9aaca0; border-radius: 6px; background: #f1f4ed; margin-bottom: 12px }
+    .choice.featured { border-color: #245f42; background: #d9eadc }
+    .choice h3 { font-size: 21px; letter-spacing: -.03em; margin: 0 0 5px }
+    .choice p { margin: 0; font-size: 14px; color: #596b5f; line-height: 1.55 }
+    .choice a { display: inline-flex; align-items: center; justify-content: center; gap: 12px; color: #eef9ef;
+      background: #173d2b; padding: 13px 17px; min-width: 140px; text-align: center; border-radius: 4px; font-weight: 650; font-size: 14px }
+    .choice a:hover { background: #296c46 }
+    .choice a svg { width: 16px; height: 16px }
+    .other { margin-top: 17px; border-top: 1px solid #b5c1b8; border-bottom: 1px solid #b5c1b8 }
+    .other summary { cursor: pointer; padding: 18px 0; font-size: 14px; font-weight: 670; display: list-item; }
+    .other a { color: #28583d; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; display: inline-block; margin: 0 20px 19px 0; font-size: 14px }
+    .fine { color: #67766a; margin: 18px 0 0; font-size: 12px; line-height: 1.6 }
+    .install { padding-top: 105px; padding-bottom: 112px }
+    .steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; margin-top: 55px }
+    .step { border-top: 1px solid #557a66; padding-top: 17px }
+    .step small { font: 650 12px ui-monospace,SFMono-Regular,Consolas,monospace; color: #98d4af }
+    .step h3 { font-size: 21px; letter-spacing: -.03em; font-weight: 620; margin: 29px 0 12px }
+    .step p { color: var(--dim); font-size: 14px; line-height: 1.7; margin: 0 }
+    .bottom { border-top: 1px solid var(--line) }
+    .footer { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 32px 0 37px;
+      font-size: 12px; color: #91a69a }
+    .footer-links { display: flex; flex-wrap: wrap; gap: 21px }
+    @media (max-width: 850px) {
+      .wrap { width: min(calc(100% - 42px),var(--max)) }
+      .hero { grid-template-columns: 1fr .76fr; gap: 25px; min-height: 510px }
+      .signature { min-height: 410px }
+      h1 { font-size: clamp(55px, 8vw, 80px) }
+      .intro { padding-top: 75px }
+      .sig-id { left: 30px; top: 33px } .sig-foot { left: 30px; right: 30px }
+      .sig-rule { left: 30px; right: 30px }
+    }
+    @media (max-width: 650px) {
+      .topbar .wrap { min-height: 73px }
+      .wrap { width: min(calc(100% - 36px),var(--max)) }
+      .nav { gap: 17px; font-size: 12px }
+      .nav a:not(.nav-dl) { display: none }
+      .hero { grid-template-columns: 1fr; gap: 0; min-height: 0 }
+      .intro { padding: 68px 0 51px }
+      h1 { margin: 27px 0 24px; font-size: clamp(59px, 14vw, 89px) }
+      .lead { font-size: 17px; line-height: 1.58; margin-bottom: 31px }
+      .primary { width: 100%; min-width: 0 }
+      .signature { display: none }
+      .quick div { padding: 20px 10px 23px }
+      .quick div:first-child { padding-left: 0 }
+      .quick div:last-child { padding-right: 0 }
+      .quick p { font-size: 12px; line-height: 1.4 }
+      .quick small { font-size: 9px }
+      .section { padding: 71px 0 }
+      .section-head { grid-template-columns: 1fr; gap: 20px; margin-bottom: 33px }
+      h2 { font-size: 39px }
+      .feature { grid-template-columns: 36px 1fr; gap: 12px; padding: 23px 0 }
+      .feature p { grid-column: 2; margin-top: -5px }
+      .feature h3 { font-size: 21px }
+      .get { padding: 75px 0 }
+      .choice { padding: 22px 19px; grid-template-columns: 1fr; gap: 17px }
+      .choice a { width: 100% }
+      .steps { grid-template-columns: 1fr; gap: 30px; margin-top: 37px }
+      .step h3 { margin-top: 16px }
+      .install { padding-bottom: 75px }
+      .footer { flex-direction: column; align-items: flex-start; gap: 20px }
+    }
+    @media (max-width: 370px) { h1 { font-size: 55px } .brand { font-size: 13px } .topbar .logo { width: 31px } }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto } .primary { transition: none } }
   </style>
 </head>
 <body>
-<header>
-  <div class="wrap">
-    <a class="brand" href="./" aria-label="PHANTOM VPN — главная"><span class="mark" aria-hidden="true">◆</span> PHANTOM VPN</a>
-    <nav aria-label="Главное меню">
-      <a href="#download">Загрузить</a>
-      <a href="#install">Установка</a>
-      <a href="https://github.com/georg1995105-hash/Phantom" rel="noopener noreferrer">GitHub</a>
-    </nav>
-  </div>
-</header>
-<main class="wrap">
-  <div class="hero">
-    <div>
-      <span class="eyebrow"><span class="dot" aria-hidden="true"></span> Официальная загрузка</span>
-      <h1>PHANTOM<br><span>VPN</span></h1>
-      <p class="lead">Удобный VPN-клиент для Android. Подписки и отдельные ключи, выбор серверов, маршрутизация приложений и обновления.</p>
-      <div class="device-pills" aria-label="Поддерживаемые устройства">
-        <span class="pill">Android</span><span class="pill">Планшеты</span><span class="pill">Android TV</span>
-      </div>
-      <a class="download" id="download" href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk">
-        <span>Скачать APK<small>Универсальная · последняя стабильная версия</small></span>
-        <span class="arrow" aria-hidden="true">↓</span>
+  <header class="topbar">
+    <div class="wrap">
+      <a href="./" class="brand" aria-label="Phantom VPN — главная">
+        <svg class="logo" viewBox="0 0 108 108" aria-hidden="true">
+          <path d="M54 30C48 33 42 35 35 36V55C35 68 43 77 54 82C65 77 73 68 73 55V36C66 35 60 33 54 30Z" stroke="#a9e8c7" stroke-width="2.7" fill="none" stroke-linejoin="round"/>
+          <path d="M46.5 65V45H55C66 45 66 57 55 57H46.5" stroke="#f2f4ec" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M59.5 63H63.5" stroke="#a9e8c7" stroke-width="2.7" fill="none" stroke-linecap="round"/>
+        </svg>
+        PHANTOM <em>VPN</em>
       </a>
-      <div class="minor">
-        <a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk">Лёгкий ARM64 APK</a>
-        <a href="https://github.com/georg1995105-hash/Phantom/releases/latest">Что нового</a>
-        <a href="https://github.com/georg1995105-hash/Phantom/releases">Все релизы</a>
+      <nav class="nav" aria-label="Навигация">
+        <a href="#features">Возможности</a>
+        <a href="#install">Установка</a>
+        <a href="#get" class="nav-dl">Скачать</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="wrap">
+      <section class="hero" aria-label="PHANTOM VPN для Android">
+        <div class="intro">
+          <div class="kicker">Android / Android TV</div>
+          <h1><span>PHANTOM</span><span>VPN.</span></h1>
+          <p class="lead">Подписки, серверы и настройки подключения. Всё, что нужно для работы с вашим VPN, в одном приложении.</p>
+          <a id="download" class="primary" href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk">
+            <span>Скачать для Android</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13m-5-5 5 5 5-5M4 20h16"/></svg>
+          </a>
+          <p class="below-dl"><span>Универсальный APK</span><span aria-hidden="true">·</span><a class="text-link" href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk">Лёгкий ARM64 — ~59 МБ</a></p>
+          <p class="release-label" id="release">Последняя стабильная версия · GitHub Releases</p>
+        </div>
+        <div class="signature" aria-hidden="true">
+          <span class="sig-id">PHANTOM / 01</span>
+          <svg class="sig-mark" viewBox="0 0 300 340" fill="none">
+            <path d="M150 38C118 57 84 64 54 70V165C54 229 94 270 150 300C206 270 246 229 246 165V70C216 64 182 57 150 38Z" stroke="#75cda2" stroke-width="2.3" stroke-linejoin="round"/>
+            <path d="M109 224V114H157C217 114 217 187 157 187H109" stroke="#e6f5e9" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
+            <path d="M183 219H208" stroke="#75cda2" stroke-width="5" stroke-linecap="round"/>
+            <path d="M28 98H3M297 98H272M28 270H3M297 270H272" stroke="#416655"/>
+          </svg>
+          <span class="sig-rule"></span>
+          <div class="sig-foot"><span>ANDROID APPLICATION</span><span>DESIGNED FOR CONTROL</span></div>
+        </div>
+      </section>
+      <div class="quick" aria-label="Ключевые возможности">
+        <div><small>01 / ИМПОРТ</small><p>Подписки и ключи</p></div>
+        <div><small>02 / УПРАВЛЕНИЕ</small><p>Выбор серверов</p></div>
+        <div><small>03 / НАСТРОЙКИ</small><p>Маршрутизация и DNS</p></div>
       </div>
-      <p class="version" id="version" aria-live="polite">Официальный стабильный выпуск · без бета-версий</p>
     </div>
-    <div class="preview" aria-label="Информация о Phantom VPN">
-      <div class="preview-top"><span>PHANTOM VPN</span><span>ANDROID</span></div>
-      <div class="preview-shield" aria-hidden="true">✓</div>
-      <h2>Контроль подключения</h2>
-      <p>Подписки · Серверы · Настройки</p>
-      <div class="preview-tags"><span>VLESS / XHTTP</span><span>Hysteria2</span><span>TUIC</span></div>
+    <section class="section" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <div><span class="overline">Возможности / 01</span><h2>Всё на своём месте.</h2></div>
+          <p>От подключения до тонкой настройки — без лишних экранов. Приложение подходит и для подписок, и для отдельных конфигураций.</p>
+        </div>
+        <div class="feature-list">
+          <div class="feature"><span class="number">01</span><h3>Подписки и ключи</h3><p>Добавляйте подписки или отдельные ключи. Обновляйте список серверов прямо в приложении.</p></div>
+          <div class="feature"><span class="number">02</span><h3>Серверы и задержка</h3><p>Выбирайте сервер вручную, просматривайте параметры и проверяйте задержку соединения.</p></div>
+          <div class="feature"><span class="number">03</span><h3>Гибкие настройки</h3><p>Раздельная маршрутизация приложений, DNS и параметры подключения доступны отдельно.</p></div>
+        </div>
+      </div>
+    </section>
+    <section class="get" id="get">
+      <div class="wrap">
+        <div class="section-head">
+          <div><span class="overline">Загрузка / 02</span><h2>Выберите свой APK.</h2></div>
+          <p>Не уверены, какой процессор в устройстве? Выбирайте универсальную сборку. Она подходит для поддерживаемых Android-устройств, включая TV.</p>
+        </div>
+        <div class="choice featured">
+          <div><h3>Универсальный APK</h3><p>Телефон, планшет или Android TV · все поддерживаемые архитектуры</p></div>
+          <a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk">Скачать <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v14m-5-5 5 5 5-5M4 21h16"/></svg></a>
+        </div>
+        <div class="choice">
+          <div><h3>ARM64</h3><p>Для большинства современных Android-смартфонов · компактный APK, около 59 МБ</p></div>
+          <a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk">Скачать <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v14m-5-5 5 5 5-5M4 21h16"/></svg></a>
+        </div>
+        <details class="other">
+          <summary>Другие архитектуры и все выпуски</summary>
+          <div>
+            <a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-armeabi-v7a-release.apk">ARM32</a>
+            <a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86-release.apk">x86</a>
+            <a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86_64-release.apk">x86_64</a>
+            <a href="https://github.com/georg1995105-hash/Phantom/releases">Все версии</a>
+          </div>
+        </details>
+        <p class="fine">Ссылки всегда ведут на последнюю официальную стабильную сборку GitHub Releases. Бета-версии и тестовые APK не подменяют её.</p>
+      </div>
+    </section>
+    <section class="install section" id="install">
+      <div class="wrap">
+        <span class="overline">Начало работы / 03</span>
+        <h2>Три действия — и готово.</h2>
+        <div class="steps">
+          <div class="step"><small>01 / СКАЧАЙТЕ</small><h3>Выберите APK</h3><p>Загрузите универсальную версию либо сборку для архитектуры вашего устройства.</p></div>
+          <div class="step"><small>02 / УСТАНОВИТЕ</small><h3>Откройте файл</h3><p>Android может запросить разрешение на установку из браузера. Обновление официального приложения не требует удаления.</p></div>
+          <div class="step"><small>03 / ПОДКЛЮЧИТЕСЬ</small><h3>Добавьте доступ</h3><p>Импортируйте подписку или отдельный ключ, выберите сервер и включите подключение.</p></div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="bottom">
+    <div class="wrap footer">
+      <span>© 2026 PHANTOM VPN · Для Android</span>
+      <div class="footer-links">
+        <a href="https://github.com/georg1995105-hash/Phantom">Исходный код</a>
+        <a href="https://github.com/georg1995105-hash/Phantom/releases/latest">Что нового</a>
+        <a href="https://go.veor.pro/">Магазин</a>
+      </div>
     </div>
-  </div>
-
-  <section aria-labelledby="formats">
-    <h2 id="formats">Выберите APK</h2>
-    <p class="sub">Не знаете архитектуру устройства? Выбирайте универсальную версию. Файлы с названиями ARM64, ARM32 и x86 предназначены для соответствующих устройств.</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Устройство</th><th>Загрузка</th></tr></thead>
-        <tbody>
-          <tr><td>Любой поддерживаемый Android / TV</td><td><a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk">Универсальный APK</a></td></tr>
-          <tr><td>Большинство современных телефонов · ARM64</td><td><a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk">ARM64 APK</a></td></tr>
-          <tr><td>32-битные устройства · ARM32</td><td><a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-armeabi-v7a-release.apk">ARM32 APK</a></td></tr>
-          <tr><td>Android x86</td><td><a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86-release.apk">x86 APK</a></td></tr>
-          <tr><td>Android x86_64</td><td><a href="https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86_64-release.apk">x86_64 APK</a></td></tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section id="install" aria-labelledby="install-title">
-    <h2 id="install-title">Как начать</h2>
-    <p class="sub">Установка занимает несколько действий. Удалять старую официальную версию перед обновлением не требуется.</p>
-    <div class="grid">
-      <div class="item"><span class="step">01</span><h3>Скачайте</h3><p>Нажмите «Скачать APK» — ссылка автоматически ведёт на последнюю стабильную версию GitHub Releases.</p></div>
-      <div class="item"><span class="step">02</span><h3>Установите</h3><p>Откройте APK на телефоне, планшете или Android TV. При необходимости разрешите установку через браузер.</p></div>
-      <div class="item"><span class="step">03</span><h3>Подключитесь</h3><p>Добавьте ссылку подписки или отдельный ключ, выберите сервер и включите VPN.</p></div>
-    </div>
-  </section>
-
-  <section aria-labelledby="updates-title">
-    <h2 id="updates-title">Стабильные обновления</h2>
-    <p class="sub">Основная кнопка ведёт на «latest», а не на номер версии: после официального выпуска нового стабильного релиза адрес скачивания остаётся прежним. Предварительные сборки не подменяют стабильные.</p>
-    <div class="notice">
-      <strong>Важно:</strong> для обновления установленного приложения используйте только официально подписанные APK из GitHub Releases. Тестовые сборки Pull Request подписываются отдельно. Доступность GitHub зависит от сети: если загрузка не начинается, откройте ссылку в браузере с работающим подключением.
-    </div>
-  </section>
-</main>
-<footer>
-  <div class="wrap">
-    <span>© 2026 PHANTOM VPN · Официальные APK размещены на GitHub</span>
-    <span><a href="https://github.com/georg1995105-hash/Phantom">Репозиторий</a> · <a href="https://github.com/georg1995105-hash/Phantom/releases">Releases</a> · <a href="https://go.veor.pro/">Магазин</a></span>
-  </div>
-</footer>
-<script>
-  // Release metadata is optional. Download links work even if GitHub API is blocked.
-  fetch("https://api.github.com/repos/georg1995105-hash/Phantom/releases/latest", {
-    headers: {"Accept":"application/vnd.github+json"}
-  }).then(function(r){ if(!r.ok) throw Error("Unavailable"); return r.json(); })
-    .then(function(release) {
-      if (release && typeof release.tag_name === "string" && /^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
-        document.getElementById("version").textContent =
-          "Последняя стабильная версия: " + release.tag_name.slice(1);
-      }
-    }).catch(function(){ /* Keep the static label. No telemetry. */ });
-</script>
+  </footer>
+  <script>
+    // Optional metadata: downloads work even when the GitHub API is blocked.
+    const controller = new AbortController();
+    const cutoff = setTimeout(() => controller.abort(), 3500);
+    fetch("https://api.github.com/repos/georg1995105-hash/Phantom/releases/latest", {
+      signal: controller.signal, headers: {Accept: "application/vnd.github+json"}
+    }).then(r => { if (!r.ok) throw Error("API unavailable"); return r.json(); })
+      .then(release => {
+        if (release && typeof release.tag_name === "string" && /^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
+          document.getElementById("release").textContent =
+            "Стабильная версия " + release.tag_name.slice(1) + " · GitHub Releases";
+        }
+      }).catch(() => {}).finally(() => clearTimeout(cutoff));
+  </script>
 </body>
 </html>
