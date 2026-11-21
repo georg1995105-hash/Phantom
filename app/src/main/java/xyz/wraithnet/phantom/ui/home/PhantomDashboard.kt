@@ -539,7 +539,7 @@ internal fun daysLeft(expiry: Long, now: Long): Long =
 
 /**
  * Provider-reported metadata only. Unknown expiry or traffic must never be
- * mistaken for an active paid plan; checkout belongs to Remnashop.
+ * mistaken for an active paid plan; checkout belongs to the official store.
  */
 internal data class SubscriptionAccessSnapshot(
     val daysRemaining: Long?,
