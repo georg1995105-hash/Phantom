@@ -384,8 +384,8 @@ fun HomeScreen(
                 val autoTuic = LatencyProbe.autoTuicEnabled(context)
                 val probeOrder = item.servers.filter {
                     ProtocolSupport.isSupported(it.scheme) &&
-                        if (tuicOnly) ProtocolSupport.usesNativeLatency(it.scheme)
-                        else (notify || ProtocolSupport.shouldAutoProbe(it.scheme, autoTuic))
+                        (if (tuicOnly) ProtocolSupport.usesNativeLatency(it.scheme)
+                         else (notify || ProtocolSupport.shouldAutoProbe(it.scheme, autoTuic)))
                 }.sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 val remaining = probeOrder.iterator()
                 // Keep individual failures local: a broken TUIC JNI/session
