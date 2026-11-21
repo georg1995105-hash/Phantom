@@ -30,11 +30,19 @@ data class PhantomRelease(
 /** Verified self-updates from the project's published GitHub Releases. */
 object PhantomUpdates {
     private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=50"
+    private val supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+
+    // An ABI-specific APK is a complete, separately signed installable package,
+    // NOT an Android split APK. The first ABI is Android's preferred native ABI.
+    // Avoid transferring all four independent Go native libraries on a phone.
+    internal fun assetCandidates(abis: List<String>, channel: String = "stable"): List<String> {
+        val preferred = abis.firstOrNull { it in supportedAbis } ?: return emptyList()
+        return if (channel == "beta") listOf("phantom-beta-universal-release.apk")
+        else listOf("phantom-$preferred-release.apk", "phantom-universal-release.apk")
+    }
+
     internal fun assetFor(abis: List<String>, channel: String = "stable"): String? =
-        if (abis.any { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") })
-            if (channel == "beta") "phantom-beta-universal-release.apk"
-            else "phantom-universal-release.apk"
-        else null
+        assetCandidates(abis, channel).firstOrNull()
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
 
     // Stable never accepts beta/pre-release assets even when tagged as X.Y.Z.
@@ -87,7 +95,8 @@ object PhantomUpdates {
             PhantomHttp.readUtf8Limited(it, 2 * 1024 * 1024)
         })
         val channel = BuildConfig.UPDATE_CHANNEL
-        val assetName = assetFor(Build.SUPPORTED_ABIS.toList(), channel) ?: return@get null
+        val candidateAssets = assetCandidates(Build.SUPPORTED_ABIS.toList(), channel)
+        if (candidateAssets.isEmpty()) return@get null
         var best: PhantomRelease? = null
         for (i in 0 until releases.length()) {
             val item = releases.getJSONObject(i)
@@ -99,17 +108,28 @@ object PhantomUpdates {
             if (!eligible || !isNewerForChannel(version, installed, channel)) continue
             if (best != null && !isNewerForChannel(version, best.version, channel)) continue
             val assets = item.optJSONArray("assets") ?: continue
-            for (j in 0 until assets.length()) {
-                val asset = assets.optJSONObject(j) ?: continue
-                if (asset.optString("name") != assetName || asset.optString("state") != "uploaded") continue
-                val url = asset.optString("browser_download_url")
-                val hash = asset.optString("digest").removePrefix("sha256:")
-                if (!url.startsWith(PREFIX) || !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue
-                best = PhantomRelease(
-                    version, url, hash.lowercase(Locale.ROOT),
-                    asset.optLong("size", 0L), item.optString("body").take(1500)
-                )
-                break
+            // Check asset preference, not GitHub's arbitrary array order.
+            // Older releases containing only universal APK still update safely.
+            for (assetName in candidateAssets) {
+                var selected = false
+                for (j in 0 until assets.length()) {
+                    val asset = assets.optJSONObject(j) ?: continue
+                    if (asset.optString("name") != assetName ||
+                        asset.optString("state") != "uploaded") continue
+                    val url = asset.optString("browser_download_url")
+                    val hash = asset.optString("digest").removePrefix("sha256:")
+                    if (!url.startsWith(PREFIX) ||
+                        !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue
+                    val size = asset.optLong("size", 0L)
+                    if (size <= 0L || size > 250L * 1024 * 1024) continue
+                    best = PhantomRelease(
+                        version, url, hash.lowercase(Locale.ROOT),
+                        size, item.optString("body").take(1500)
+                    )
+                    selected = true
+                    break
+                }
+                if (selected) break
             }
         }
         best
