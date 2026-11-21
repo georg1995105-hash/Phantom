@@ -136,7 +136,7 @@ if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
 install_apk(old, "-g")
 previous_code, previous_name = installed_version()
-assert previous_name == "0.3.6"
+assert (previous_code, previous_name) == (34, "0.3.7")
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 adb("shell", "am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.VIEW",
@@ -153,7 +153,7 @@ tap("Главная")
 install_apk(new, "-r")
 verify_native(new, PACKAGE)
 current_code, current_name = installed_version()
-assert (current_code, current_name) == (34, "0.3.7") and current_code > previous_code
+assert (current_code, current_name) == (35, "0.3.8") and current_code > previous_code
 print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} ({current_code})",
       flush=True)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)

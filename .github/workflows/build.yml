@@ -242,8 +242,8 @@ jobs:
       - name: Verify signed 0.3.6 baseline and upgrade signer
         if: github.event_name != 'push'
         run: |
-          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.6/phantom-x86_64-release.apk
-          echo '0ddfb16b7ff788934251154a925843717d38a7c7e9669ef1629d8acded8bc8ff  previous.apk' | sha256sum -c -
+          curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.7/phantom-x86_64-release.apk
+          echo '530a0e9c442836d609c52bc396a76416cfc2eaefe1f0ba7f339c0057aa66fe50  previous.apk' | sha256sum -c -
           signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           cert='Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
           "$signer" verify --print-certs previous.apk | grep -Fx "$cert"
@@ -383,8 +383,8 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
-          # A one-time v0.3.7 migration also needs ABI-named APK assets:
-          # old 0.3.6 clients cannot discover universal-only updates.
+          # Keep ABI-named APK assets while older installed clients still select
+          # architecture-specific assets from the latest GitHub Release.
           path: app/build/outputs/apk/release/phantom-*-release.apk
           compression-level: 0
           retention-days: 2
@@ -430,27 +430,21 @@ jobs:
           test "$RELEASE_TAG" = "v$version"
           test -s "release-assets/phantom-universal-release.apk"
           if [[ "$RELEASE_TAG" == "v0.3.7" ]]; then
-            # Old Phantom 0.3.6 OTA clients require ABI-named assets.
-            # This compatibility bridge ships only in the first universal release.
-            for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-              test -s "release-assets/phantom-$abi-release.apk"
-            done
-          fi
+            # All prior ABI-specific OTA clients must retain a matching asset even
+          # when a later release becomes the latest stable version.
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            test -s "release-assets/phantom-$abi-release.apk"
+          done
           sha256sum release-assets/phantom-*-release.apk
 
-      - name: Stage official universal APK and one-time migration files
+      - name: Stage official universal and legacy architecture APKs
         if: inputs.release_channel == 'stable'
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           mkdir -p publish-assets
-          cp release-assets/phantom-universal-release.apk publish-assets/
-          if [[ "$RELEASE_TAG" == "v0.3.7" ]]; then
-            for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-              cp "release-assets/phantom-$abi-release.apk" publish-assets/
-            done
-          fi
+          cp release-assets/phantom-*-release.apk publish-assets/
           sha256sum publish-assets/phantom-*-release.apk
 
       - name: Publish official release
