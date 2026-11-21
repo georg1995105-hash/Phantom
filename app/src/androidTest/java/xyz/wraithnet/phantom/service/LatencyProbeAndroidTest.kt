@@ -49,6 +49,22 @@ class LatencyProbeAndroidTest {
         assertTrue("No delayed response for ${failures.joinToString()}", failures.isEmpty())
     }
 
+    @Test fun tuicLatencyCanRunThreeConsecutiveIsolatedNativeSessions() = runBlocking {
+        val cases = JSONObject(fixture("peers.json"))
+        val profile = SubscriptionParser.parse(cases.getString("tuic"), "tuic-repeat")
+            .servers.single()
+        // Every check unbinds the :singbox_latency service, whose process is
+        // retired after the reply. Repeating the *real* TUIC HTTPS roundtrip
+        // catches stale gomobile JNI state and bind/kill races.
+        repeat(3) { round ->
+            val delay = LatencyProbe.checkTraffic(instrumentation.targetContext,
+                profile, target, 8_000)
+            Log.i("PhantomLatencyTest", "TUIC isolated round ${round + 1}: ${delay}ms")
+            assertTrue("TUIC ping run ${round + 1} failed after native process recycling",
+                (delay ?: 0L) >= 45L)
+        }
+    }
+
     @Test fun openPortWithInvalidAuthenticationFailsTrafficCheck() = runBlocking {
         val cases = JSONObject(fixture("peers.json"))
         val profile = SubscriptionParser.parse(cases.getString("VLESS-XHTTP")).servers.single()
