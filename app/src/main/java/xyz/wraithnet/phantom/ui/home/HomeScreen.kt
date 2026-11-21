@@ -425,15 +425,25 @@ fun HomeScreen(
                         .joinToString(", ") { (name, samples) ->
                             "$name ${samples.count { it.second }}/${samples.size}"
                         }
-                    val physical = runCatching {
-                        context.getSystemService(ConnectivityManager::class.java)
-                            .physicalNetwork() != null
-                    }.getOrDefault(false)
+                    val networkStatus = runCatching {
+                        val manager = context.getSystemService(ConnectivityManager::class.java)
+                        val network = manager.physicalNetwork()
+                        val caps = network?.let(manager::getNetworkCapabilities)
+                        val type = when {
+                            network == null -> "нет физической сети"
+                            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
+                            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "мобильная"
+                            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "Ethernet"
+                            else -> "другая"
+                        }
+                        val verified = caps?.hasCapability(
+                            android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                        "$type; Android проверил интернет: ${if (verified) "да" else "нет"}"
+                    }.getOrDefault("информация о сети недоступна")
                     withContext(Dispatchers.IO) {
                         VpnEventLog.record(context.applicationContext, "ping",
                             "Результаты: ${outcomes.count { it.second }}/${outcomes.size}; " +
-                                (if (physical) "физическая сеть найдена" else "физическая сеть не найдена") +
-                                "; $summary")
+                                "сеть: $networkStatus; $summary")
                     }
                 }
                 when {
