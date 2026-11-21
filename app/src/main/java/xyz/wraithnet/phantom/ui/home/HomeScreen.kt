@@ -128,6 +128,7 @@ fun HomeScreen(
     var probing by remember { mutableStateOf(emptySet<String>()) }
     val measuring = remember { mutableStateMapOf<String, String>() }
     val scanned = remember { mutableMapOf<String, List<ServerProfile>>() }
+    val scannedWithAutoTuic = remember { mutableMapOf<String, Boolean>() }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     val serverPageState = rememberSaveableStateHolder()
@@ -169,6 +170,7 @@ fun HomeScreen(
             latencies.remove(it)
         }
         scanned.keys.retainAll(list.map { it.id }.toSet())
+        scannedWithAutoTuic.keys.retainAll(list.map { it.id }.toSet())
         subscriptions = list
     }
 
@@ -374,14 +376,18 @@ fun HomeScreen(
     }
 
     fun probeSubscription(item: Subscription, notify: Boolean = true, tuicOnly: Boolean = false) {
-        if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
+        val autoTuic = LatencyProbe.autoTuicEnabled(context)
+        if (item.id in probing || (!notify && scanned[item.id] == item.servers &&
+                    scannedWithAutoTuic[item.id] == autoTuic)) return
         probing = probing + item.id
         // A manually requested TUIC probe must not suppress later automatic
         // TCP pings for another protocol in the same subscription.
-        if (!tuicOnly) scanned[item.id] = item.servers
+        if (!tuicOnly) {
+            scanned[item.id] = item.servers
+            scannedWithAutoTuic[item.id] = autoTuic
+        }
         scope.launch {
             val message = try {
-                val autoTuic = LatencyProbe.autoTuicEnabled(context)
                 val probeOrder = item.servers.filter {
                     ProtocolSupport.isSupported(it.scheme) &&
                         (if (tuicOnly) ProtocolSupport.usesNativeLatency(it.scheme)
@@ -643,7 +649,7 @@ fun HomeScreen(
                     subscriptionAvailable = selectedMatch != null,
                     hasSubscriptions = subscriptions.isNotEmpty())
                 Destination.SERVERS -> serverPageState.SaveableStateProvider("servers") {
-                    DisposableEffect(Unit) { onDispose { scanned.clear() } }
+                    DisposableEffect(Unit) { onDispose { scanned.clear(); scannedWithAutoTuic.clear() } }
                     ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                         probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
