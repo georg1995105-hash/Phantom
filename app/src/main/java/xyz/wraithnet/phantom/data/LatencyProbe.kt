@@ -14,7 +14,7 @@ import xyz.wraithnet.phantom.service.ProfileLatencyClient
 import xyz.wraithnet.phantom.service.ProfileTiming
 import xyz.wraithnet.phantom.service.TcpPing
 
-/** Server list RTTs use physical TCP sockets. Tunnel diagnostics exercise the configured core. */
+/** Server list RTTs use physical TCP sockets except TUIC, which requires an actual QUIC tunnel. */
 object LatencyProbe {
     private val tcpSlots = Semaphore(12)
 
@@ -29,6 +29,13 @@ object LatencyProbe {
     }
 
     internal suspend fun measureTcp(context: Context, server: ServerProfile): Long? {
+        // TUIC has no TCP handshake to measure. Test a real HTTPS roundtrip
+        // through the isolated libbox engine; do not change the old TCP ping
+        // path for VLESS, Hysteria2, AnyTLS or provider balancers.
+        if (ProtocolSupport.usesNativeLatency(server.scheme)) {
+            return checkTraffic(context, server, "https://www.gstatic.com/generate_204",
+                timeoutMs(context).coerceAtLeast(6_000))
+        }
         val peers = withContext(Dispatchers.Default) {
             runCatching { TcpEndpoint.listEntries(server) }.getOrDefault(emptyList())
         }
