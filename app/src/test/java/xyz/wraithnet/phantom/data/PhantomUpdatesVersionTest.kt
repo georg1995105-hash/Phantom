@@ -4,23 +4,39 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhantomUpdatesVersionTest {
-    @org.junit.Test fun everySupportedArchitectureSelectsTheSameUniversalOta() {
-        for (abis in listOf(
-            listOf("arm64-v8a", "armeabi-v7a"),
-            listOf("armeabi-v7a"),
-            listOf("x86"),
-            listOf("x86_64", "x86"),
-            listOf("x86_64", "arm64-v8a"),
-        )) {
-            assertEquals("phantom-universal-release.apk", PhantomUpdates.assetFor(abis))
+    @Test fun stableOtaUsesFirstSupportedDeviceAbiInsteadOfFourTimesLargerUniversalApk() {
+        val cases = mapOf(
+            listOf("arm64-v8a", "armeabi-v7a") to "phantom-arm64-v8a-release.apk",
+            listOf("armeabi-v7a") to "phantom-armeabi-v7a-release.apk",
+            listOf("x86") to "phantom-x86-release.apk",
+            listOf("x86_64", "x86") to "phantom-x86_64-release.apk",
+            listOf("x86_64", "arm64-v8a") to "phantom-x86_64-release.apk",
+            listOf("unknown", "arm64-v8a") to "phantom-arm64-v8a-release.apk",
+        )
+        for ((abis, expected) in cases) {
+            assertEquals(expected, PhantomUpdates.assetFor(abis))
+            assertEquals(
+                listOf(expected, "phantom-universal-release.apk"),
+                PhantomUpdates.assetCandidates(abis)
+            )
         }
         assertNull(PhantomUpdates.assetFor(listOf("unknown")))
         assertNull(PhantomUpdates.assetFor(emptyList()))
+        assertTrue(PhantomUpdates.assetCandidates(emptyList()).isEmpty())
+    }
+
+    @Test fun stableFallbackIsUniversalWhenMatchingArchitectureIsUnavailableInRelease() {
+        assertEquals(
+            listOf("phantom-arm64-v8a-release.apk", "phantom-universal-release.apk"),
+            PhantomUpdates.assetCandidates(listOf("arm64-v8a", "armeabi-v7a"))
+        )
     }
 
     @Test fun betaHasIndependentUniversalAssetAndChannel() {
         assertEquals("phantom-beta-universal-release.apk",
             PhantomUpdates.assetFor(listOf("arm64-v8a"), "beta"))
+        assertEquals(listOf("phantom-beta-universal-release.apk"),
+            PhantomUpdates.assetCandidates(listOf("x86_64"), "beta"))
         assertFalse(PhantomUpdates.eligibleForBeta(false, false, "0.3.7-beta.1"))
         assertFalse(PhantomUpdates.eligibleForBeta(true, true, "0.3.7-beta.1"))
         assertFalse(PhantomUpdates.eligibleForBeta(false, true, "0.3.7"))
