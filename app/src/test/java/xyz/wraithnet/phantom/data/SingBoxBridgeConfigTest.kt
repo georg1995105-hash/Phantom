@@ -75,6 +75,53 @@ class SingBoxBridgeConfigTest {
         }
     }
 
+    @Test fun tuicUsesRealNativeLatencyWithoutChangingOtherProtocolPings() {
+        assertTrue(ProtocolSupport.usesNativeLatency("tuic"))
+        assertTrue(ProtocolSupport.usesNativeLatency("TUIC"))
+        for (scheme in listOf("vless", "xray", "json", "hysteria2", "hy2",
+            "anytls", "ss", "vmess", "trojan")) {
+            assertFalse("Preserve legacy TCP RTT for $scheme",
+                ProtocolSupport.usesNativeLatency(scheme))
+        }
+    }
+
+    @Test fun tuicPreservesExplicitUdpRelayAndKeepaliveSettings() {
+        val config = JSONObject(SingBoxBridgeConfig.fromShareLink(
+            tuic.substringBefore('?') +
+                "?udp_relay_mode=quic&heartbeat=15s&congestion_control=bbr" +
+                "&zero_rtt_handshake=true", 39121))
+        val outbound = config.getJSONArray("outbounds").getJSONObject(0)
+        assertEquals("quic", outbound.getString("udp_relay_mode"))
+        assertEquals("15s", outbound.getString("heartbeat"))
+        assertEquals("bbr", outbound.getString("congestion_control"))
+        assertTrue(outbound.getBoolean("zero_rtt_handshake"))
+        assertFalse(outbound.has("udp_over_stream"))
+        val defaults = JSONObject(SingBoxBridgeConfig.fromShareLink(tuic, 39121))
+            .getJSONArray("outbounds").getJSONObject(0)
+        assertFalse("Do not silently alter provider UDP defaults",
+            defaults.has("udp_relay_mode"))
+        assertFalse(defaults.has("heartbeat"))
+        assertFalse(defaults.has("udp_over_stream"))
+    }
+
+    @Test fun tuicSupportsUdpOverStreamOnlyWhenExplicitlySelected() {
+        val config = JSONObject(SingBoxBridgeConfig.fromShareLink(
+            tuic.substringBefore('?') + "?udp_over_stream=1", 39121))
+        assertTrue(config.getJSONArray("outbounds").getJSONObject(0)
+            .getBoolean("udp_over_stream"))
+    }
+
+    @Test fun tuicRejectsMutuallyExclusiveUdpModes() {
+        assertThrows(Exception::class.java) {
+            SingBoxBridgeConfig.fromShareLink(
+                tuic.substringBefore('?') + "?udp_relay_mode=quic&udp_over_stream=true", 39121)
+        }
+        assertThrows(Exception::class.java) {
+            SingBoxBridgeConfig.fromShareLink(
+                tuic.substringBefore('?') + "?udp_relay_mode=invalid", 39121)
+        }
+    }
+
     @Test fun mixedSubscriptionDoesNotDiscardTuic() {
         val links = tuic + "\n" + "vless://00000000-0000-0000-0000-000000000001@v.example.org:443?type=xhttp#VLESS"
         val result = SubscriptionParser.parse(links)
