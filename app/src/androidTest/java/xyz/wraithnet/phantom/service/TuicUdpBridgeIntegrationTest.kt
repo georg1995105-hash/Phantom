@@ -66,13 +66,14 @@ class TuicUdpBridgeIntegrationTest {
             output.flush()
             val reply = readExact(input, 4)
             assertEquals("SOCKS UDP ASSOCIATE rejected", 0, reply[1].toInt() and 255)
-            val addressSize = when (reply[3].toInt() and 255) {
-                1 -> 4
-                4 -> 16
-                3 -> readExact(input, 1)[0].toInt() and 255
+            val bindAddress = when (reply[3].toInt() and 255) {
+                1 -> InetAddress.getByAddress(readExact(input, 4))
+                4 -> InetAddress.getByAddress(readExact(input, 16))
+                3 -> InetAddress.getByName(
+                    String(readExact(input, readExact(input, 1)[0].toInt() and 255),
+                        Charsets.US_ASCII))
                 else -> error("Invalid SOCKS5 address type")
             }
-            val bindAddress = InetAddress.getByAddress(readExact(input, addressSize))
             val port = readExact(input, 2)
             val udpPort = (port[0].toInt() and 255) * 256 + (port[1].toInt() and 255)
             assertTrue("No UDP relay port", udpPort > 0)
