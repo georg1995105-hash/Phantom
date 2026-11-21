@@ -25,6 +25,26 @@ import xyz.wraithnet.phantom.ui.theme.PhantomTheme
 class AppUpdateSheetUiTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun failureShowsBrowserFallbackWithoutBlockingWorkingUpdateButtons() {
+        val release = PhantomRelease("9.0.0", "", "", 1234,
+            "- Исправление загрузки через Wi-Fi")
+        var browserInvoked by mutableStateOf(false)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    PhantomTheme {
+                        AppUpdateSheet(release, false, 0, 0L, false,
+                            "GitHub недоступен по текущей сети",
+                            onLater = { }, onUpdate = { },
+                            onDownloadInBrowser = { browserInvoked = true })
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Скачать через браузер")).performClick()
+            compose.runOnIdle { assertTrue(browserInvoked) }
+        }
+    }
+
     @Test fun primaryAndLaterActionsStayTogetherBelowExpandableReleaseNotes() {
         val release = PhantomRelease("9.0.0", "", "", 0L,
             "- Первый пункт\n- Второй пункт\n- Третий пункт\n- Дополнительный пункт")
@@ -35,7 +55,8 @@ class AppUpdateSheetUiTest {
                 activity.setContent {
                     PhantomTheme {
                         if (shown) AppUpdateSheet(release, downloading, 40, 128L * 1024L, false, null,
-                            onLater = { shown = false }, onUpdate = { downloading = true })
+                            onLater = { shown = false }, onUpdate = { downloading = true },
+                            onDownloadInBrowser = { })
                     }
                 }
             }
