@@ -606,8 +606,8 @@ fun HomeScreen(
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                         }, add = { showImportMenu = true }, openUrl = ::openUrl)
                 }
-                Destination.SUBSCRIPTIONS -> SubscriptionPage { renew ->
-                    openUrl(if (renew) "https://go.veor.pro/" else "https://go.veor.pro/#plans")
+                Destination.SUBSCRIPTIONS -> SubscriptionPage {
+                    openUrl("https://go.veor.pro/")
                 }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
