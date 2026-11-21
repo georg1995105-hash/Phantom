@@ -117,6 +117,27 @@ def tap_in_list(label):
     tap(label)
 
 
+def visible_after_scroll(label, max_swipes=6):
+    """Prove a CTA is reachable in compact landscape/TV layouts, not only above the fold."""
+    for attempt in range(max_swipes + 1):
+        try:
+            return node(label, attempts=1)
+        except AssertionError:
+            if attempt == max_swipes:
+                raise
+            adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
+            root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
+            bounds = [list(map(int, re.findall(r"\\d+", n.get("bounds", ""))))
+                      for n in root.iter("node")]
+            bounds = [b for b in bounds if len(b) == 4]
+            assert bounds, "UI hierarchy has no bounds"
+            width = max(b[2] for b in bounds)
+            height = max(b[3] for b in bounds)
+            assert width > 0 and height > 0, "Invalid Android display bounds"
+            adb("shell", "input", "swipe", str(width // 2), str(int(height * .73)),
+                str(width // 2), str(int(height * .27)), "360")
+
+
 def screenshot(name):
     path = Path("upgrade-screens")
     path.mkdir(exist_ok=True)
@@ -415,7 +436,7 @@ node("OfflineSubscriptionCheck")
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
     tap("Подписка")
-    node("В магазин")
+    visible_after_scroll("В магазин")
     for tab in ("Главная", "Серверы", "Подписка", "Настройки"):
         node(tab)
     screenshot("phone-landscape")
@@ -436,7 +457,7 @@ try:
         tap("Серверы")
         node("OfflineSubscriptionCheck")
         tap("Подписка")
-        node("В магазин")
+        visible_after_scroll("В магазин")
         tap("Настройки")
         node("Настройки")
         screenshot(shot)
