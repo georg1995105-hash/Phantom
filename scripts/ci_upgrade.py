@@ -174,7 +174,7 @@ tap("Главная")
 install_apk(new, "-r")
 verify_native(new, PACKAGE)
 current_code, current_name = installed_version()
-assert (current_code, current_name) == (37, "0.3.10") and current_code > previous_code
+assert (current_code, current_name) == (38, "0.3.11") and current_code > previous_code
 print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} ({current_code})",
       flush=True)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
