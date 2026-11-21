@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
@@ -489,6 +490,7 @@ fun HomeScreen(
     var availableUpdate by remember { mutableStateOf<PhantomRelease?>(null) }
     var otaChecking by remember { mutableStateOf(false) }
     var otaDownload by remember { mutableStateOf(false) }
+    var otaDownloadJob by remember { mutableStateOf<Job?>(null) }
     var otaProgress by remember { mutableIntStateOf(0) }
     var otaSpeed by remember { mutableLongStateOf(0L) }
     var otaFile by remember { mutableStateOf<File?>(null) }
@@ -553,10 +555,10 @@ fun HomeScreen(
     }
 
     fun startOtaInstall() {
-        if (otaDownload) return
+        if (otaDownload || otaDownloadJob?.isActive == true) return
         val release = availableUpdate ?: return
         otaError = null
-        scope.launch {
+        otaDownloadJob = scope.launch {
             try {
                 val file = otaFile?.takeIf { it.exists() } ?: run {
                     otaDownload = true
@@ -571,10 +573,13 @@ fun HomeScreen(
                 if (!launched) {
                     otaError = "Разрешите установку из Phantom и нажмите «Установить» ещё раз"
                 }
+            } catch (_: CancellationException) {
+                otaError = "Загрузка остановлена. Можно скачать через браузер."
             } catch (e: Exception) {
                 otaError = e.message ?: "Не удалось установить обновление"
             } finally {
                 otaDownload = false
+                otaDownloadJob = null
             }
         }
     }
@@ -720,6 +725,11 @@ fun HomeScreen(
             onLater = { showOtaSheet = false; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
             onDownloadInBrowser = { availableUpdate?.downloadUrl?.let(::openUrl) },
+            onCancelDownload = {
+                otaDownloadJob?.cancel()
+                otaDownload = false
+                otaError = "Загрузка остановлена. Можно скачать через браузер."
+            },
         )
     }
 
