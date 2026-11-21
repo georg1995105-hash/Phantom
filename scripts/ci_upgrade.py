@@ -157,7 +157,7 @@ if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
 install_apk(old, "-g")
 previous_code, previous_name = installed_version()
-assert (previous_code, previous_name) == (36, "0.3.9")
+assert (previous_code, previous_name) == (37, "0.3.10")
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 adb("shell", "am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.VIEW",
