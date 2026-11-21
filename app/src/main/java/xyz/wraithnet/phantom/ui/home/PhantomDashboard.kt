@@ -460,6 +460,7 @@ internal fun AppUpdateSheet(
     release: PhantomRelease,
     downloading: Boolean,
     progress: Int,
+    speedBytesPerSecond: Long,
     readyToInstall: Boolean,
     error: String?,
     onLater: () -> Unit,
@@ -507,7 +508,8 @@ internal fun AppUpdateSheet(
             }
             if (downloading) {
                 LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
-                Caption("Загрузка $progress%")
+                Caption("Загрузка $progress%" + if (speedBytesPerSecond > 0L)
+                    " · ${speedBytesPerSecond / 1024L} КБ/с" else "")
             }
             error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
             val shape = RoundedCornerShape(14.dp)
