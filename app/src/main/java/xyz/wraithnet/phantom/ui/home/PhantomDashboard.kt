@@ -535,40 +535,54 @@ internal fun daysLeft(expiry: Long, now: Long): Long =
     if (expiry <= now) 0L else (expiry - now - 1L) / 86400L + 1L
 
 @Composable
-internal fun SubscriptionPage(shop: (Boolean) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Surface(shape = RoundedCornerShape(20.dp), color = c.surface,
-            border = BorderStroke(1.dp, c.primary.copy(alpha = .34f))) {
-            Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                Text("PHANTOM VPN", color = c.primary, style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(24.dp))
-                Text("Ваш доступ.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                Text("Подключение, управление и продление Phantom VPN.", color = c.onSurfaceVariant)
-                Spacer(Modifier.height(20.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = { shop(true) }, modifier = Modifier.weight(1f).tvFocusRing().heightIn(min = 48.dp),
-                        contentPadding = PaddingValues(6.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = c.onSurface, contentColor = c.surface)) {
-                        Text("Продлить")
+internal fun SubscriptionPage(openShop: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+        .padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Surface(shape = RoundedCornerShape(20.dp), color = colors.surface,
+            border = BorderStroke(1.dp, colors.primary.copy(alpha = .38f))) {
+            Column {
+                Box(Modifier.fillMaxWidth().background(Brush.linearGradient(
+                    listOf(Color(0xFFB5F5D0), Color(0xFFE6F8EA))))) {
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = 54.dp, y = (-56).dp)
+                        .size(192.dp).border(1.dp, Color(0x5523754C), CircleShape))
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = 35.dp, y = (-38).dp)
+                        .size(152.dp).border(1.dp, Color(0x3323754C), CircleShape))
+                    Column(Modifier.padding(horizontal = 23.dp, vertical = 24.dp)) {
+                        Text("PHANTOM VPN", color = Color(0xFF133A27),
+                            fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                        Spacer(Modifier.height(26.dp))
+                        Text("ВАШ\nДОСТУП.", color = Color(0xFF0C2D1D),
+                            fontSize = 43.sp, lineHeight = 44.sp,
+                            fontWeight = FontWeight.Bold, letterSpacing = (-1.5).sp)
+                        Spacer(Modifier.height(12.dp))
+                        Text("ОФИЦИАЛЬНЫЙ МАГАЗИН", color = Color(0xFF24533B),
+                            fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
                     }
-                    OutlinedButton(onClick = { shop(false) }, modifier = Modifier.weight(1f).tvFocusRing().heightIn(min = 48.dp),
-                        contentPadding = PaddingValues(6.dp)) { Text("Купить") }
                 }
-                Spacer(Modifier.height(22.dp))
-                HorizontalDivider(color = c.outline.copy(alpha = .25f))
-                Row(Modifier.fillMaxWidth().tvFocusRing().clickable { shop(true) }.padding(vertical = 18.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Личный кабинет", fontWeight = FontWeight.SemiBold)
-                        Caption("Управление в магазине")
+                Column(Modifier.padding(20.dp)) {
+                    Text("Без лишних действий",
+                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Покупка и продление в официальном магазине.",
+                        color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(18.dp))
+                    Button(onClick = openShop,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).tvFocusRing(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFA0EABD), contentColor = Color(0xFF0D271B))) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("В магазин", fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.NorthEast, null, Modifier.size(19.dp))
+                        }
                     }
-                    Icon(Icons.Default.NorthEast, null, Modifier.size(18.dp), tint = c.primary)
+                    Spacer(Modifier.height(18.dp))
+                    HorizontalDivider(color = colors.outline.copy(alpha = .25f))
+                    Spacer(Modifier.height(13.dp))
+                    Caption("Продлить: в магазине «Моя подписка» → «Продлить».")
                 }
-                HorizontalDivider(color = c.outline.copy(alpha = .25f))
-                Spacer(Modifier.height(16.dp))
-                Caption("Для продления в магазине выберите „Моя подписка“ → „Продлить“.")
             }
         }
     }
