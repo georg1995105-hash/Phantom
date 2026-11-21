@@ -2,7 +2,6 @@ package xyz.wraithnet.phantom.data
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URI
 import java.util.UUID
 
 /** Real sing-box SOCKS5 → TUIC / AnyTLS bridge behind Android's existing Xray TUN. */
@@ -12,12 +11,15 @@ object SingBoxBridgeConfig {
     fun requiresSingBox(profile: ServerProfile): Boolean =
         profile.scheme.lowercase() in schemes
 
-    fun fromShareLink(raw: String, localPort: Int, resolvedServerIp: String? = null): String {
+    fun fromShareLink(
+        raw: String, localPort: Int, resolvedServerIp: String? = null, probePassword: String? = null,
+        autoDetectInterface: Boolean = true,
+    ): String {
         require(localPort in 1024..65535) { "Неверный локальный порт" }
-        val uri = URI(raw.trim())
+        val uri = ShareLinkCodec.endpointUri(raw)
         val protocol = uri.scheme?.lowercase() ?: ""
         require(protocol in schemes) { "Протокол не поддерживается sing-box" }
-        val host = requireNotNull(uri.host) { "Нет адреса сервера" }
+        val host = requireNotNull(uri.host) { "Нет адреса сервера" }.removeSurrounding("[", "]")
         require(uri.port in 1..65535) { "Неверный порт сервера" }
 
         val decodedUser = ShareLinkCodec.percentDecode(uri.rawUserInfo.orEmpty())
@@ -48,26 +50,54 @@ object SingBoxBridgeConfig {
                 require(runCatching { UUID.fromString(uuid) }.isSuccess) {
                     "Неверный UUID TUIC"
                 }
+                val congestion = query["congestion_control"]?.takeIf(String::isNotBlank) ?: "cubic"
+                require(congestion in setOf("cubic", "new_reno", "bbr")) {
+                    "Неизвестный алгоритм управления TUIC"
+                }
+                val udpMode = query["udp_relay_mode"]?.takeIf(String::isNotBlank)
+                require(udpMode == null || udpMode in setOf("native", "quic")) {
+                    "Неизвестный режим передачи UDP в TUIC"
+                }
+                val udpOverStream = query["udp_over_stream"]?.let { booleanValue(it) }
+                require(udpMode == null || udpOverStream != true) {
+                    "TUIC: udp_relay_mode нельзя использовать одновременно с udp_over_stream"
+                }
                 outbound.put("uuid", uuid)
                     .put("password", decodedUser.substring(separator + 1))
-                    .put("congestion_control", query["congestion_control"] ?: "cubic")
-                    .put("zero_rtt_handshake", query["zero_rtt_handshake"] == "1")
+                    .put("congestion_control", congestion)
+                    .put("zero_rtt_handshake",
+                        query["zero_rtt_handshake"]?.let { booleanValue(it) } ?: false)
+                udpMode?.let { outbound.put("udp_relay_mode", it) }
+                udpOverStream?.let { outbound.put("udp_over_stream", it) }
+                query["heartbeat"]?.takeIf(String::isNotBlank)
+                    ?.let { outbound.put("heartbeat", it) }
             }
             "anytls" -> outbound.put("password", decodedUser)
         }
 
+        val inbound = JSONObject()
+            .put("type", if (probePassword == null) "socks" else "http")
+            .put("tag", if (probePassword == null) "local-socks" else "latency")
+            .put("listen", "127.0.0.1")
+            .put("listen_port", localPort)
+        if (probePassword != null) {
+            inbound.put("users", JSONArray().put(JSONObject()
+                .put("username", "phantom").put("password", probePassword)))
+        }
         return JSONObject()
             .put("log", JSONObject().put("level", "warn"))
-            .put("inbounds", JSONArray().put(JSONObject()
-                .put("type", "socks")
-                .put("tag", "local-socks")
-                .put("listen", "127.0.0.1")
-                .put("listen_port", localPort)))
+            .put("inbounds", JSONArray().put(inbound))
             .put("outbounds", JSONArray().put(outbound))
             .put("route", JSONObject()
-                .put("auto_detect_interface", true)
+                .put("auto_detect_interface", autoDetectInterface)
                 .put("final", "proxy"))
             .toString()
+    }
+
+    private fun booleanValue(value: String): Boolean = when (value.lowercase()) {
+        "1", "true" -> true
+        "0", "false" -> false
+        else -> error("Неверный параметр TUIC: ожидается true/false или 1/0")
     }
 
     private fun query(raw: String): Map<String, String> = raw.split("&")

@@ -1,5 +1,6 @@
 package xyz.wraithnet.phantom.service
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.app.StatusBarManager
 import android.content.ComponentName
@@ -110,8 +111,14 @@ class PhantomQuickTileService : TileService() {
         }
     }
 
+    // Android 13 and earlier only: the PendingIntent overload was introduced
+    // in API 34. The SDK-34+ branch above always uses the supported overload.
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     @Suppress("DEPRECATION")
     private fun startLegacyActivity(intent: Intent) {
+        check(Build.VERSION.SDK_INT < 34) {
+            "Legacy tile activity launch is forbidden on Android 14+"
+        }
         startActivityAndCollapse(intent)
     }
 

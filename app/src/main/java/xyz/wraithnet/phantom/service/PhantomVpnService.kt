@@ -1,5 +1,8 @@
 package xyz.wraithnet.phantom.service
 
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.util.UUID
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.PendingIntent
@@ -11,7 +14,6 @@ import android.net.VpnService
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
@@ -73,27 +75,17 @@ class PhantomVpnService : VpnService() {
     }
 
     /**
-     * Observe Wi-Fi and cellular availability, ignoring the Phantom VPN virtual
-     * interface. Re-establish stale outbound sockets only on a genuine change
-     * of the validated physical route.
+     * The app's UID is excluded from TUN. Its Android default network is the
+     * same route that the core's outbound sockets use.
      */
     private fun physicalRoute(): String? {
         val cm = getSystemService(ConnectivityManager::class.java)
-        return cm.allNetworks.mapNotNull { network ->
-            val caps = cm.getNetworkCapabilities(network) ?: return@mapNotNull null
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
-                !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
-                return@mapNotNull null
-            }
-            val priority = when {
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> 0
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> 1
-                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> 2
-                else -> 3
-            }
-            priority to network.toString()
-        }.sortedBy { it.first }.firstOrNull()?.second
+        val network = cm.activeNetwork ?: return null
+        val capabilities = cm.getNetworkCapabilities(network) ?: return null
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
+            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return null
+        return network.toString()
     }
 
     private fun scheduleNetworkCheck() {
@@ -109,9 +101,8 @@ class PhantomVpnService : VpnService() {
                 if (profile.isBlank()) return@withLock
                 // First boot or a real Wi-Fi/mobile handover; do not restart on
                 // unrelated network callbacks or repeated capability updates.
-                if (previous != null || !running) {
-                    startLocked(profile)
-                }
+                if (previous == null && running) lastPhysicalRoute = route
+                else startLocked(profile, commandEpoch.get())
             }
         }
     }
@@ -125,12 +116,8 @@ class PhantomVpnService : VpnService() {
                 network: Network, capabilities: NetworkCapabilities
             ) = scheduleNetworkCheck()
         }
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .build()
         runCatching {
-            cm.registerNetworkCallback(request, callback)
+            cm.registerDefaultNetworkCallback(callback)
             networkCallback = callback
         }
     }
@@ -152,33 +139,6 @@ class PhantomVpnService : VpnService() {
                 }
             }
             ACTION_QUERY -> sendStatus(state)
-            ACTION_MEASURE_LATENCY -> {
-                val requested = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
-                if (requested.isNotBlank()) ioScope.launch {
-                    mutex.withLock {
-                        // Use the connected core only. Never start a second VPN or core.
-                        if (!running || state != STATUS_CONNECTED ||
-                            prefs.getString("vpn_last_profile", null) != requested) return@withLock
-                        val active = controller ?: return@withLock
-                        var delayMs = -1L
-                        for (url in listOf(
-                            "https://www.gstatic.com/generate_204",
-                            "https://cp.cloudflare.com/generate_204",
-                            "https://example.com/",
-                        )) {
-                            val ms = runCatching { active.measureDelay(url) }.getOrDefault(-1L)
-                            if (ms > 0L) { delayMs = ms; break }
-                        }
-                        if (!running || prefs.getString("vpn_last_profile", null) != requested)
-                            return@withLock
-                        prefs.edit().putLong("vpn_last_latency_ms", delayMs)
-                            .putInt("vpn_last_latency_profile_hash", requested.hashCode()).apply()
-                        sendBroadcast(Intent(ACTION_LATENCY).setPackage(packageName)
-                            .putExtra(EXTRA_LATENCY_MS, delayMs)
-                            .putExtra(EXTRA_LATENCY_PROFILE_HASH, requested.hashCode()))
-                    }
-                }
-            }
             ACTION_TRAFFIC_ON -> ioScope.launch {
                 mutex.withLock { if (running) startTrafficReports() }
             }
@@ -275,6 +235,9 @@ class PhantomVpnService : VpnService() {
                 XrayConfigBuilder.build(profile)
             }
             val config = dns.applyToXray(FragmentationOptions.load(this).apply(baseConfig))
+            val providerDns = if (scheme == "xray" && dns.mode == VpnDnsSettings.Mode.DEFAULT)
+                XrayConfigBuilder.withProviderTunDns(config) else null
+            val systemDns = if (providerDns == null) dns.addresses() else listOf(XrayConfigBuilder.TUN_RESOLVER)
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
             val tun = Builder()
@@ -285,7 +248,7 @@ class PhantomVpnService : VpnService() {
                 .addAddress("fd00:1111::2", 64)
                 .addRoute("::", 0)
                 .also { builder ->
-                    dns.addresses().forEach { builder.addDnsServer(it) }
+                    systemDns.forEach { builder.addDnsServer(it) }
                     AppRouting.apply(this, builder)
                 }
                 .establish() ?: error("Android не создал VPN-интерфейс")
@@ -294,11 +257,16 @@ class PhantomVpnService : VpnService() {
             XrayEnvironment.initialize(applicationContext)
             val active = Libv2ray.newCoreController(callback)
             controller = active
-            active.startLoop(config, tun.fd)
+            val checkPort = if (scheme == "xray")
+                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort } else null
+            val password = UUID.randomUUID().toString()
+            val runningConfig = if (checkPort == null) config else
+                XrayConfigBuilder.withConnectivityCheck(providerDns ?: config, checkPort, password)
+            active.startLoop(runningConfig, tun.fd)
 
             // Core startup alone is not proof of Internet access.
             // Measure via the configured Xray outbound, not device networking.
-            var verifiedDelay = -1L
+            var verified = false
             for (endpoint in listOf(
                 "https://www.gstatic.com/generate_204",
                 "https://cp.cloudflare.com/generate_204",
@@ -307,13 +275,17 @@ class PhantomVpnService : VpnService() {
                 check(command == null || command == commandEpoch.get()) {
                     "Запрос подключения заменён новым действием"
                 }
-                val value = runCatching { active.measureDelay(endpoint) }.getOrDefault(-1L)
-                if (value > 0L) {
-                    verifiedDelay = value
+                val value = runCatching {
+                    if (checkPort == null) active.measureDelay(endpoint)
+                    else measureHttp(checkPort, password, endpoint, 4_000,
+                        expectedStatus = if (endpoint.endsWith("/generate_204")) 204 else 200)
+                }.getOrDefault(-1L)
+                if (value >= 0L) {
+                    verified = true
                     break
                 }
             }
-            require(verifiedDelay > 0L) {
+            require(verified) {
                 if (SingBoxBridgeConfig.requiresSingBox(profile)) {
                     val port = singBoxPort
                     val local = port?.let { LocalSocks5Probe.check(it) }
@@ -342,8 +314,6 @@ class PhantomVpnService : VpnService() {
             running = true
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
-                .putLong("vpn_last_latency_ms", verifiedDelay)
-                .putInt("vpn_last_latency_profile_hash", raw.hashCode())
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
@@ -376,7 +346,6 @@ class PhantomVpnService : VpnService() {
         runCatching { vpnInterface?.close() }
         vpnInterface = null
         prefs.edit().putBoolean("vpn_running", false)
-            .remove("vpn_last_latency_ms").remove("vpn_last_latency_profile_hash")
             .putLong("vpn_connected_since_elapsed", 0L).apply()
         if (report) {
             setState(STATUS_DISCONNECTED)
@@ -552,10 +521,6 @@ class PhantomVpnService : VpnService() {
         const val ACTION_KEEP_ALIVE = "xyz.wraithnet.phantom.KEEP_ALIVE"
         const val ACTION_RELOAD = "xyz.wraithnet.phantom.RELOAD_VPN"
         const val ACTION_STATUS = "xyz.wraithnet.phantom.VPN_STATUS"
-        const val ACTION_MEASURE_LATENCY = "xyz.wraithnet.phantom.MEASURE_LATENCY"
-        const val ACTION_LATENCY = "xyz.wraithnet.phantom.VPN_LATENCY"
-        const val EXTRA_LATENCY_MS = "latency_ms"
-        const val EXTRA_LATENCY_PROFILE_HASH = "latency_profile_hash"
         const val ACTION_TRAFFIC = "xyz.wraithnet.phantom.VPN_TRAFFIC"
         const val ACTION_TRAFFIC_ON = "xyz.wraithnet.phantom.TRAFFIC_ON"
         const val ACTION_TRAFFIC_OFF = "xyz.wraithnet.phantom.TRAFFIC_OFF"

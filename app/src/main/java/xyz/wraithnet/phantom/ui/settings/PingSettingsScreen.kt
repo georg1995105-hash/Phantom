@@ -39,9 +39,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Text("Проверка пинга", fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Text(
-                "TCP-профили проверяются обычным TCP-соединением. Для Hysteria2, TUIC и XHTTP/H3 " +
-                    "отображается только задержка, подтверждённая работающим VPN. " +
-                    "Проверка не переключает сервер и не перезапускает VPN.",
+                "Для всех подписок измеряется TCP-соединение с адресом и портом сервера. Для балансировщика показан пинг первого ответившего входа. Если TCP недоступен, в списке отображается прочерк.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             HorizontalDivider()
@@ -52,7 +50,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
-                    LatencyProbe.configure(context, LatencyProbe.TCP, timeout.toInt())
+                    LatencyProbe.configure(context, timeout.toInt())
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()

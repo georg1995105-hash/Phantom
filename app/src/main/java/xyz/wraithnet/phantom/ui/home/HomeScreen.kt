@@ -11,6 +11,11 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import org.json.JSONObject
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -40,21 +45,25 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.VpnEventLog
+import xyz.wraithnet.phantom.service.physicalNetwork
+import android.net.ConnectivityManager
+import xyz.wraithnet.phantom.service.PhantomAutoUpdateWorker
 import xyz.wraithnet.phantom.data.ProtocolSupport
 import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
-import xyz.wraithnet.phantom.data.ReleaseNotes
 import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
@@ -67,6 +76,8 @@ import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.service.PhantomQuickTileService
 import xyz.wraithnet.phantom.data.SubscriptionParser
+import xyz.wraithnet.phantom.data.SubscriptionMutations
+import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
@@ -86,15 +97,13 @@ fun HomeScreen(
     downloadBytes: Long = -1L,
     uploadBytes: Long = -1L,
     connectedSinceElapsed: Long = 0L,
-    latencyMs: Long = -1L,
-    latencyProfileHash: Int = Int.MIN_VALUE,
-    latencyVersion: Int = 0,
     onStartVpn: (String) -> Unit = {},
     onStopVpn: () -> Unit = {},
     onThemeChange: (PhantomThemeMode) -> Unit = {},
 ) {
     val context = LocalContext.current
     val store = remember { SubscriptionStore(context) }
+    LaunchedEffect(Unit) { PhantomAutoUpdateWorker.schedule(context.applicationContext) }
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
@@ -106,6 +115,7 @@ fun HomeScreen(
         }
     }
     val scope = rememberCoroutineScope()
+    val subscriptionChanges = remember { Mutex() }
     var subscriptions by remember { mutableStateOf(store.read()) }
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
     var selectedSubId by remember { mutableStateOf(prefs.getString("selected_subscription_id", null)) }
@@ -113,10 +123,13 @@ fun HomeScreen(
     val selectedMatch = ProfileSelection.resolve(subscriptions, selectedSubId, selectedId, pinnedSubId)
     val selected = selectedMatch?.second
     var refreshing by remember { mutableStateOf(setOf<String>()) }
-    val inFlightProfiles = remember { mutableStateMapOf<String, List<ServerProfile>>() }
-    val probing = inFlightProfiles.keys.toSet()
-    val latencies = remember { mutableStateMapOf<String, LatencyProbe.PingResult>() }
+    var probing by remember { mutableStateOf(emptySet<String>()) }
+    val measuring = remember { mutableStateMapOf<String, String>() }
+    val scanned = remember { mutableMapOf<String, List<ServerProfile>>() }
+    val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
+    val serverPageState = rememberSaveableStateHolder()
+    var qrSource by remember { mutableStateOf<String?>(null) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
     var importBusy by remember { mutableStateOf(false) }
@@ -139,57 +152,44 @@ fun HomeScreen(
         }
     }
     fun pingKey(owner: Subscription, server: ServerProfile): String = "${owner.id}:${server.id}"
+    fun profileRaws(list: List<Subscription>) = list.flatMap { owner ->
+        owner.servers.map { server -> pingKey(owner, server) to server.raw }
+    }.toMap()
+    val currentProfileRaws by remember { derivedStateOf { profileRaws(subscriptions) } }
 
     /** Do not carry an old RTT over to a new endpoint with the same JSON remark/id. */
     fun applySubscriptions(list: List<Subscription>) {
-        val previous = subscriptions.flatMap { owner ->
-            owner.servers.map { server -> pingKey(owner, server) to server.raw }
-        }.toMap()
-        val incoming = list.flatMap { owner ->
-            owner.servers.map { server -> pingKey(owner, server) to server.raw }
-        }.toMap()
+        val previous = currentProfileRaws
+        val incoming = profileRaws(list)
         latencies.keys.toList().filter { key ->
             incoming[key] == null || previous[key] != incoming[key]
-        }.forEach { latencies.remove(it) }
+        }.forEach {
+            latencies.remove(it)
+        }
+        scanned.keys.retainAll(list.map { it.id }.toSet())
         subscriptions = list
     }
 
-    fun persist(list: List<Subscription>) {
-        applySubscriptions(list)
-        store.write(list)
-    }
-
-    // Cached VPN RTT belongs only to the actually running profile.
-    LaunchedEffect(vpnStatus, connectedSinceElapsed, selectedSubId, selectedId, subscriptions) {
-        val current = selectedMatch?.takeIf {
-            vpnStatus == "connected" &&
-                prefs.getString("vpn_last_profile", null) == it.second.raw
-        }
-        val currentKey = current?.let { (owner, server) -> pingKey(owner, server) }
-        latencies.keys.toList().filter {
-            latencies[it]?.source == "VPN" && it != currentKey
-        }.forEach { latencies.remove(it) }
-        current?.let { (owner, server) ->
-            val rtt = LatencyProbe.lastVerifiedTunnelLatency(context, server)
-            if (rtt > 0L) latencies[pingKey(owner, server)] =
-                LatencyProbe.PingResult(rtt, "VPN")
+    suspend fun persist(change: (List<Subscription>) -> List<Subscription>) {
+        // Large lists (5,000 nodes) must never be serialized/committed on
+        // Android's UI thread. Only the Compose state is applied on Main.
+        subscriptionChanges.withLock {
+            val updated = withContext(Dispatchers.IO) { store.update(change) }
+            applySubscriptions(updated)
         }
     }
 
-    // Live on-demand HTTPS result from the existing Xray core.
-    LaunchedEffect(latencyVersion) {
-        if (latencyVersion == 0) return@LaunchedEffect
-        selectedMatch?.takeIf {
-            vpnStatus == "connected" &&
-                it.second.raw.hashCode() == latencyProfileHash &&
-                prefs.getString("vpn_last_profile", null) == it.second.raw
-        }?.let { (owner, server) ->
-            val key = pingKey(owner, server)
-            if (latencyMs > 0L) latencies[key] = LatencyProbe.PingResult(latencyMs, "VPN")
-            else latencies.remove(key)
+    suspend fun reloadSubscriptions() {
+        subscriptionChanges.withLock {
+            val stored = withContext(Dispatchers.IO) { store.read() }
+            if (stored != subscriptions) applySubscriptions(stored)
         }
     }
 
+    DisposableEffect(store) {
+        val unsubscribe = store.observeChanges { scope.launch { reloadSubscriptions() } }
+        onDispose { unsubscribe() }
+    }
     fun copyLink(value: String, message: String) {
         if (value.isBlank()) {
             scope.launch { snackbar.showSnackbar("Нет ссылки для копирования") }
@@ -221,15 +221,18 @@ fun HomeScreen(
         }
         val source = raw.trim()
         if (subscriptions.any { it.source.trim() == source }) {
-            val warning = "Такая подписка или ссылка уже добавлена"
+            val warning = "Эта подписка уже добавлена"
             if (importMode != null) importError = warning
-            else scope.launch { snackbar.showSnackbar(warning) }
+            else scope.launch {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(warning)
+            }
             return
         }
         importBusy = true
         importError = null
         scope.launch {
-            try {
+            val message = try {
                 val remote = source.startsWith("https://") || source.startsWith("http://")
                 val downloaded = if (remote) SubscriptionFetcher.download(context, source, store.deviceId()) else null
                 val parsed = SubscriptionParser.parse(downloaded?.body ?: source, customTitle ?: downloaded?.title)
@@ -240,10 +243,19 @@ fun HomeScreen(
                     uploadBytes = downloaded?.uploadBytes,
                     downloadBytes = downloaded?.downloadBytes,
                     totalBytes = downloaded?.totalBytes,
-                    expiresAt = downloaded?.expiresAt
+                    expiresAt = downloaded?.expiresAt,
+                    announcement = downloaded?.announcement,
+                    supportUrl = downloaded?.supportUrl,
+                    webPageUrl = downloaded?.webPageUrl
                 )
-                persist(subscriptions + subscription)
-                if (selected == null) {
+                persist { current ->
+                    require(current.none { it.source.trim() == source }) {
+                        "Эта подписка уже добавлена"
+                    }
+                    current + subscription
+                }
+                if (ProfileSelection.resolve(subscriptions.filterNot { it.id == subscription.id },
+                        selectedSubId, selectedId, pinnedSubId) == null) {
                     selectedId = subscription.servers.firstOrNull()?.id
                     selectedSubId = subscription.id
                     prefs.edit().putString("selected_server_id", selectedId)
@@ -252,19 +264,52 @@ fun HomeScreen(
                 importMode = null
                 showImportMenu = false
                 softTap()
-                snackbar.showSnackbar("Конфигурация добавлена")
+                // Import has finished before the success snackbar is shown.
+                // A second tap must be able to report a duplicate immediately.
+                "Подписка добавлена"
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                val message = e.message ?: "Не удалось добавить подписку"
-                if (importMode != null) importError = message
-                else snackbar.showSnackbar(message)
+                val failure = e.message ?: "Не удалось добавить подписку"
+                if (importMode != null) {
+                    importError = failure
+                    null
+                } else failure
             } finally {
                 importBusy = false
             }
+            message?.let {
+                snackbar.currentSnackbarData?.dismiss()
+                snackbar.showSnackbar(it)
+            }
+        }
+    }
+
+    // Quick import is intentionally a single action; no second paste or confirmation.
+    // Only URLs/share links are auto-opened from the clipboard. Arbitrary clipboard
+    // text must never trigger a remote request or masquerade as a subscription.
+    fun quickImportFromClipboard() {
+        if (importBusy) return
+        val copied = runCatching { pasteText() }.getOrDefault("")
+        if (SubscriptionQuickImport.isSubscriptionLink(copied)) {
+            add(copied)
+        } else {
+            importError = null
+            importMode = "url"
         }
     }
 
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
+    }
+    fun scanQr() {
+        scanLauncher.launch(
+            ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                .setPrompt("Наведите камеру на QR-код подписки")
+                .setOrientationLocked(true)
+                .setBeepEnabled(false)
+        )
     }
 
     LaunchedEffect(externalImport) {
@@ -282,8 +327,8 @@ fun HomeScreen(
         if (item.id in refreshing) return
         lastAttempt[item.id] = System.currentTimeMillis()
         refreshing = refreshing + item.id
-        try {
-            val remote = SubscriptionFetcher.download(context, item.source, store.deviceId())
+        val message = try {
+            val remote = SubscriptionFetcher.download(context, item.source, store.deviceId(), item)
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
             val updated = parsed.copy(
@@ -297,97 +342,129 @@ fun HomeScreen(
                 uploadBytes = remote.uploadBytes ?: item.uploadBytes,
                 downloadBytes = remote.downloadBytes ?: item.downloadBytes,
                 totalBytes = remote.totalBytes ?: item.totalBytes,
-                expiresAt = remote.expiresAt ?: item.expiresAt
+                expiresAt = remote.expiresAt,
+                announcement = remote.announcement,
+                supportUrl = remote.supportUrl,
+                webPageUrl = remote.webPageUrl
             )
-            persist(subscriptions.map { if (it.id == item.id) updated else it })
-            refreshFailed = refreshFailed - item.id
-            if (!quiet) {
-                softTap()
-                snackbar.showSnackbar("Подписка обновлена")
+            persist { current ->
+                // Fail the manual action if its owner was deleted or its URL
+                // changed while downloading. Never report a false success.
+                SubscriptionMutations.replaceDownloaded(
+                    current, item, updated, strict = true
+                )
             }
-        } catch (e: Exception) {
+            refreshFailed = refreshFailed - item.id
+            if (!quiet) softTap()
+            "Подписка обновлена"
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
             refreshFailed = refreshFailed + item.id
-            if (!quiet) snackbar.showSnackbar("Не удалось обновить подписку. Сохранённые серверы доступны.")
+            "Не удалось обновить подписку. Сохранённые серверы доступны."
         } finally {
             refreshing = refreshing - item.id
         }
+        if (!quiet) {
+            snackbar.currentSnackbarData?.dismiss()
+            snackbar.showSnackbar(message)
+        }
     }
 
-    val pingLimit = remember { Semaphore(3) }
     fun probeSubscription(item: Subscription, notify: Boolean = true) {
-        if (inFlightProfiles.containsKey(item.id)) return
-        val connected = selectedMatch?.takeIf {
-            it.first.id == item.id && vpnStatus == "connected" &&
-                prefs.getString("vpn_last_profile", null) == it.second.raw
-        }
-        inFlightProfiles[item.id] = item.servers
+        if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
+        probing = probing + item.id
+        scanned[item.id] = item.servers
         scope.launch {
-            try {
-                if (connected != null) {
-                    runCatching {
-                        context.startService(Intent(context, PhantomVpnService::class.java)
-                            .setAction(PhantomVpnService.ACTION_MEASURE_LATENCY)
-                            .putExtra(PhantomVpnService.EXTRA_PROFILE, connected.second.raw))
-                    }
-                }
-                val servers = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
+            val message = try {
+                val probeOrder = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
+                    .sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
+                val remaining = probeOrder.iterator()
+                // Keep individual failures local: a broken TUIC JNI/session
+                // must not cancel healthy VLESS, HY2 or XHTTP pings.
+                val outcomes = mutableListOf<Pair<String, Boolean>>()
+                for (server in probeOrder) measuring[pingKey(item, server)] = server.raw
                 coroutineScope {
-                    servers.map { server ->
-                        async {
-                            // Do not replace actual VPN RTT with a bare TCP port check.
-                            if (connected?.second?.id != server.id) {
-                                val result = pingLimit.withPermit {
-                                    runCatching { LatencyProbe.measureResult(context.applicationContext, server) }
-                                        .getOrNull()
-                                }
+                    repeat(minOf(8, probeOrder.size)) {
+                        launch {
+                            while (remaining.hasNext()) {
+                                val server = remaining.next()
                                 val key = pingKey(item, server)
-                                val sameProfile = subscriptions.find { it.id == item.id }?.servers
-                                    ?.any { it.id == server.id && it.raw == server.raw } == true
-                                if (sameProfile && latencies[key]?.source != "VPN") {
-                                    if (result != null) latencies[key] = result else latencies.remove(key)
+                                val result = try {
+                                    LatencyProbe.measureTcp(context.applicationContext, server)
+                                } catch (cancel: CancellationException) {
+                                    throw cancel
+                                } catch (_: Exception) {
+                                    null
                                 }
+                                if (currentProfileRaws[key] == server.raw) {
+                                    if (result == null) latencies.remove(key) else latencies[key] = result
+                                    val label = when (server.scheme.lowercase(Locale.ROOT)) {
+                                        "tuic" -> "TUIC"
+                                        "hysteria2", "hy2", "hysteria" -> "Hysteria2"
+                                        "anytls" -> "AnyTLS"
+                                        "vless" -> "VLESS"
+                                        "vmess" -> "VMess"
+                                        "trojan" -> "Trojan"
+                                        "ss", "shadowsocks" -> "Shadowsocks"
+                                        else -> "Другой"
+                                    }
+                                    outcomes.add(label to (result != null))
+                                }
+                                measuring.remove(key)
                             }
                         }
-                    }.awaitAll()
+                    }
                 }
-                val checked = servers.count { latencies[pingKey(item, it)] != null }
-                val needsTunnel = servers.any { LatencyProbe.needsTunnel(it) }
-                if (notify) snackbar.showSnackbar(when {
-                    connected != null -> "Задержка VPN обновится после HTTPS-проверки"
-                    checked > 0 -> "Проверка задержки завершена"
-                    needsTunnel -> "Для проверки UDP/H3 подключите нужный сервер"
-                    else -> "Не получено ни одного результата проверки"
-                })
-            } catch (e: Exception) {
-                if (notify) snackbar.showSnackbar(e.message ?: "Не удалось проверить задержку")
+                // No server domains, profile names, URLs, keys, or payloads are
+                // logged. This can be copied from Settings > VPN journal when
+                // one phone returns dashes while another displays numbers.
+                if (notify || outcomes.any { !it.second }) {
+                    val summary = outcomes.groupBy { it.first }.entries
+                        .sortedBy { it.key }
+                        .joinToString(", ") { (name, samples) ->
+                            "$name ${samples.count { it.second }}/${samples.size}"
+                        }
+                    val networkStatus = runCatching {
+                        val manager = context.getSystemService(ConnectivityManager::class.java)
+                        val network = manager.physicalNetwork()
+                        val caps = network?.let(manager::getNetworkCapabilities)
+                        val type = when {
+                            network == null -> "нет физической сети"
+                            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
+                            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "мобильная"
+                            caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "Ethernet"
+                            else -> "другая"
+                        }
+                        val verified = caps?.hasCapability(
+                            android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                        "$type; Android проверил интернет: ${if (verified) "да" else "нет"}"
+                    }.getOrDefault("информация о сети недоступна")
+                    withContext(Dispatchers.IO) {
+                        VpnEventLog.record(context.applicationContext, "ping",
+                            "Результаты: ${outcomes.count { it.second }}/${outcomes.size}; " +
+                                "сеть: $networkStatus; $summary")
+                    }
+                }
+                when {
+                    !notify -> ""
+                    outcomes.any { it.second } -> "Проверка задержки завершена"
+                    else -> "Не получено ни одного результата проверки. Подробности: Настройки → Журнал VPN"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                "Не удалось проверить задержку"
             } finally {
-                inFlightProfiles.remove(item.id)
+                item.servers.forEach { measuring.remove(pingKey(item, it)) }
+                probing = probing - item.id
             }
-        }
-    }
-
-    // Both the PING shortcut and normal tab entry run this same scan.
-    // If a refresh replaces profiles during a scan, wait for that owner's old
-    // job before measuring the new snapshot. Recomposition alone does no I/O.
-    var scanned by remember { mutableStateOf(emptyMap<String, List<ServerProfile>>()) }
-    LaunchedEffect(tab, subscriptions, probing) {
-        if (tab != Destination.SERVERS) {
-            scanned = emptyMap()
-        } else {
-            subscriptions.forEach { item ->
-                if (inFlightProfiles[item.id] == item.servers) {
-                    scanned = scanned + (item.id to item.servers)
-                } else if (item.id !in probing && scanned[item.id] != item.servers) {
-                    scanned = scanned + (item.id to item.servers)
-                    probeSubscription(item, notify = false)
-                }
-            }
+            if (notify) snackbar.showSnackbar(message)
         }
     }
 
     LaunchedEffect(refreshVersion) {
-        val stored = store.read()
-        if (stored != subscriptions) applySubscriptions(stored)
+        reloadSubscriptions()
     }
 
     // Refresh stale subscriptions while the UI exists; manual refresh is always available.
@@ -409,6 +486,7 @@ fun HomeScreen(
     var otaChecking by remember { mutableStateOf(false) }
     var otaDownload by remember { mutableStateOf(false) }
     var otaProgress by remember { mutableIntStateOf(0) }
+    var otaSpeed by remember { mutableLongStateOf(0L) }
     var otaFile by remember { mutableStateOf<File?>(null) }
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
@@ -479,7 +557,10 @@ fun HomeScreen(
                 val file = otaFile?.takeIf { it.exists() } ?: run {
                     otaDownload = true
                     otaProgress = 0
-                    PhantomUpdates.download(context, release) { otaProgress = it }
+                    otaSpeed = 0L
+                    PhantomUpdates.download(context, release,
+                        onProgress = { otaProgress = it },
+                        onSpeed = { otaSpeed = it })
                         .also { otaFile = it }
                 }
                 val launched = PhantomUpdates.openInstaller(context, file)
@@ -494,6 +575,15 @@ fun HomeScreen(
         }
     }
 
+    fun openUrl(url: String) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                .addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: android.content.ActivityNotFoundException) {
+            scope.launch { snackbar.showSnackbar("Установите браузер для открытия ссылки") }
+        }
+    }
+
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
     val tv = isTelevision()
@@ -502,7 +592,20 @@ fun HomeScreen(
         topBar = {
             Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
         },
-        bottomBar = { TabBar(tab) { tab = it } }
+        bottomBar = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (tab == Destination.HOME) {
+                    ConnectionImportActions(
+                        onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
+                        onScanQr = if (tv || !context.packageManager.hasSystemFeature(
+                                android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) null else ::scanQr,
+                        hasSubscriptions = subscriptions.isNotEmpty(),
+                        importing = importBusy,
+                    )
+                }
+                TabBar(tab) { tab = it }
+            }
+        }
     ) { inner ->
         val colors = MaterialTheme.colorScheme
         Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
@@ -514,7 +617,7 @@ fun HomeScreen(
                         softTap()
                         when {
                             vpnStatus == "connected" -> onStopVpn()
-                            selected == null -> { tab = Destination.SUBSCRIPTIONS; showImportMenu = true }
+                            selected == null -> { tab = Destination.SERVERS; showImportMenu = true }
                             else -> onStartVpn(selected.raw)
                         }
                     }, choose = { tab = Destination.SERVERS },
@@ -526,38 +629,43 @@ fun HomeScreen(
                     },
                     subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
                     subscriptionAvailable = selectedMatch != null,
-                    onPing = { tab = Destination.SERVERS },
-                    pingAvailable = subscriptions.any { it.servers.isNotEmpty() })
-                Destination.SERVERS -> ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
-                    probing = probing,
-                    favorite = { id ->
-                        favorites = if (id in favorites) favorites - id else favorites + id
-                        prefs.edit().putStringSet("favorite_servers", favorites).apply()
-                    }, choose = { owner, server ->
-                        if (ProtocolSupport.isSupported(server.scheme)) {
-                            val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id
-                            softTap()
-                            selectedId = server.id
-                            selectedSubId = owner.id
-                            prefs.edit().putString("selected_server_id", server.id)
-                                .putString("selected_subscription_id", owner.id).apply()
-                            if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
-                        } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                    }, add = { tab = Destination.SUBSCRIPTIONS; showImportMenu = true })
-                Destination.SUBSCRIPTIONS -> SubscriptionPage(subscriptions.sortedByDescending { it.id == pinnedSubId },
-                    selectedMatch?.first?.id, refreshFailed,
-                    { activeSubMenu = it.id }, { item -> probeSubscription(item) },
-                    probing, { showImportMenu = true },
-                    shop = { renew ->
-                        val url = if (renew) "https://go.veor.pro/" else "https://go.veor.pro/#plans"
-                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                            .addCategory(Intent.CATEGORY_BROWSABLE)
-                        try {
-                            context.startActivity(intent)
-                        } catch (_: android.content.ActivityNotFoundException) {
-                            scope.launch { snackbar.showSnackbar("Установите браузер для открытия магазина") }
-                        }
-                    })
+                    hasSubscriptions = subscriptions.isNotEmpty())
+                Destination.SERVERS -> serverPageState.SaveableStateProvider("servers") {
+                    DisposableEffect(Unit) { onDispose { scanned.clear() } }
+                    ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
+                        probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
+                        onRefresh = { sub -> scope.launch { refresh(sub) } },
+                        manage = { activeSubMenu = it.id },
+                        onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
+                        favorite = { id ->
+                            favorites = if (id in favorites) favorites - id else favorites + id
+                            prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                        }, choose = { owner, server ->
+                            if (ProtocolSupport.isSupported(server.scheme)) {
+                                val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
+                                    vpnStatus == "connected" && prefs.getString("vpn_last_profile", null) != server.raw
+                                softTap()
+                                selectedId = server.id
+                                selectedSubId = owner.id
+                                prefs.edit().putString("selected_server_id", server.id)
+                                    .putString("selected_subscription_id", owner.id).apply()
+                                scope.launch {
+                                    persist { current ->
+                                        current.map { item ->
+                                            if (item.id == owner.id && item.source == owner.source &&
+                                                item.servers.any { it.id == server.id })
+                                                item.copy(selectedServerId = server.id)
+                                            else item
+                                        }
+                                    }
+                                }
+                                if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
+                            } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
+                        }, add = { showImportMenu = true }, openUrl = ::openUrl)
+                }
+                Destination.SUBSCRIPTIONS -> SubscriptionPage {
+                    openUrl("https://go.veor.pro/")
+                }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
                     onCheckAppUpdate = ::checkAppUpdateNow,
@@ -597,55 +705,16 @@ fun HomeScreen(
     if (showOtaSheet && availableUpdate != null &&
         (tab != Destination.SETTINGS || otaManuallyRequested) &&
         !showImportMenu && activeSubMenu == null && importMode == null) {
-        val release = availableUpdate!!
-        ModalBottomSheet(
-            onDismissRequest = { showOtaSheet = false; otaDismissed = true },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(Modifier.fillMaxWidth().navigationBarsPadding()
-                .padding(horizontal = 22.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SystemUpdateAlt, null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(23.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Обновление " + release.version,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { showOtaSheet = false; otaDismissed = true }) {
-                        Text("Позже")
-                    }
-                }
-                val notes = ReleaseNotes.summary(release.notes, 5)
-                if (notes.isNotBlank()) {
-                    Text("Что изменилось", fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold)
-                    Text(notes, fontSize = 12.sp, lineHeight = 19.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (otaDownload) {
-                    LinearProgressIndicator(
-                        progress = { otaProgress.toFloat() / 100f },
-                        modifier = Modifier.fillMaxWidth())
-                    Text("Загрузка " + otaProgress + "%", fontSize = 12.sp)
-                }
-                otaError?.let {
-                    Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-                }
-                Button(
-                    onClick = { softTap(); startOtaInstall() },
-                    enabled = !otaDownload,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    Text(if (otaDownload) "Скачивание…" else if (otaFile?.exists() == true)
-                        "Установить" else "Скачать и установить")
-                }
-                Spacer(Modifier.height(4.dp))
-            }
-        }
+        AppUpdateSheet(
+            release = availableUpdate!!,
+            downloading = otaDownload,
+            progress = otaProgress,
+            speedBytesPerSecond = otaSpeed,
+            readyToInstall = otaFile?.exists() == true,
+            error = otaError,
+            onLater = { showOtaSheet = false; otaDismissed = true },
+            onUpdate = { softTap(); startOtaInstall() },
+        )
     }
 
     if (showImportMenu) {
@@ -667,18 +736,11 @@ fun HomeScreen(
                     showImportMenu = false; importMode = "url"
                 }
                 funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
-                    showImportMenu = false; add(pasteText())
+                    showImportMenu = false; quickImportFromClipboard()
                 }
                 if (!tv || context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
                     showImportMenu = false
-                    scanLauncher.launch(
-                        ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                            .setCaptureActivity(
-                                xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
-                            .setPrompt("Поместите QR-код в рамку")
-                            .setOrientationLocked(true)
-                            .setBeepEnabled(false)
-                    )
+                    scanQr()
                 }
                 funActionRow("Ручной ввод", Icons.Default.Edit) {
                     showImportMenu = false; importMode = "manual"
@@ -700,6 +762,17 @@ fun HomeScreen(
         )
     }
 
+    qrSource?.let { source ->
+        val bitmap = remember(source) {
+            val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(source,
+                com.google.zxing.BarcodeFormat.QR_CODE, 512, 512,
+                mapOf(com.google.zxing.EncodeHintType.CHARACTER_SET to "UTF-8"))
+            com.journeyapps.barcodescanner.BarcodeEncoder().createBitmap(matrix).asImageBitmap()
+        }
+        AlertDialog(onDismissRequest = { qrSource = null }, title = { Text("QR-код") },
+            text = { Image(bitmap, "QR-код", Modifier.fillMaxWidth().aspectRatio(1f)) },
+            confirmButton = { TextButton(onClick = { qrSource = null }) { Text("Закрыть") } })
+    }
     activeSubMenu?.let { id ->
         val sub = subscriptions.firstOrNull { it.id == id }
         if (sub != null) {
@@ -709,11 +782,42 @@ fun HomeScreen(
                 sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
                 shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp)
             ) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()
                     .padding(start = 14.dp, end = 14.dp, bottom = 18.dp)) {
                     Text(sub.title, fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                    val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
+                        sub.source.startsWith("http://", ignoreCase = true)
+                    if (sub.servers.any { ProtocolSupport.isSupported(it.scheme) }) {
+                        funActionRow(if (isRemote || sub.servers.size > 1) "Проверить пинг всех серверов" else "Проверить пинг",
+                            Icons.Default.Speed, enabled = sub.id !in probing) {
+                            activeSubMenu = null
+                            probeSubscription(sub)
+                        }
+                    }
+                    if (isRemote) funActionRow("Обновить подписку", Icons.Default.Refresh, enabled = sub.id !in refreshing) {
+                        activeSubMenu = null
+                        scope.launch { refresh(sub) }
+                    }
+                    funActionRow(when {
+                        isRemote -> "Копировать ссылку"
+                        sub.servers.size == 1 -> "Копировать ключ"
+                        else -> "Копировать конфигурацию"
+                    }, Icons.Default.ContentCopy) {
+                        activeSubMenu = null
+                        copyLink(sub.source, when {
+                            isRemote -> "Ссылка подписки скопирована"
+                            sub.servers.size == 1 -> "Ключ скопирован"
+                            else -> "Конфигурация скопирована"
+                        })
+                    }
+                    val payloadBytes = sub.source.toByteArray().size
+                    if (payloadBytes in 1..2950) funActionRow("Показать QR-код", Icons.Default.QrCode) {
+                        activeSubMenu = null
+                        qrSource = sub.source
+                    }
                     funActionRow(
                         if (pinnedSubId == sub.id) "Открепить" else "Закрепить",
                         Icons.Default.PushPin
@@ -726,20 +830,11 @@ fun HomeScreen(
                                 "Закреплено сверху" else "Откреплено")
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
-                        sub.source.startsWith("http://", ignoreCase = true)
-                    funActionRow(when {
-                        isRemote -> "Копировать подписку"
-                        sub.servers.size == 1 -> "Копировать ключ"
-                        else -> "Копировать конфигурацию"
-                    }, Icons.Default.ContentCopy) {
+                    if (payloadBytes <= 100_000) funActionRow("Поделиться", Icons.Default.Share) {
                         activeSubMenu = null
-                        copyLink(sub.source, when {
-                            isRemote -> "Ссылка подписки скопирована"
-                            sub.servers.size == 1 -> "Ключ скопирован"
-                            else -> "Конфигурация скопирована"
-                        })
+                        val share = Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_TEXT, sub.source)
+                        context.startActivity(Intent.createChooser(share, null))
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     funActionRow(when {
@@ -846,10 +941,21 @@ fun HomeScreen(
             text = { Text("Конфигурация будет удалена с устройства.") },
             confirmButton = { TextButton(onClick = {
                 if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
-                persist(subscriptions.filterNot { it.id == id })
-                favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
-                prefs.edit().putStringSet("favorite_servers", favorites).apply()
-                deleteId = null
+                scope.launch {
+                    try {
+                        persist { current -> current.filterNot { sub -> sub.id == id } }
+                        if (pinnedSubId == id) {
+                            pinnedSubId = null
+                            prefs.edit().remove("pinned_sub_id").apply()
+                        }
+                        favorites = favorites.filterNot { it.startsWith("$id:") }.toSet()
+                        prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                    } catch (_: Exception) {
+                        snackbar.showSnackbar("Не удалось сохранить изменения. Подписка не удалена.")
+                    } finally {
+                        deleteId = null
+                    }
+                }
             }) { Text("Удалить") } },
             dismissButton = { TextButton(onClick = { deleteId = null }) { Text("Отмена") } }
         )
@@ -865,10 +971,11 @@ internal fun displayServerName(server: ServerProfile): String =
 private fun funActionRow(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth().heightIn(min = 55.dp)
-        .tvFocusRing().clickable(onClick = onClick).padding(horizontal = 16.dp),
+        .tvFocusRing().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -908,9 +1015,6 @@ internal fun sizeLabel(bytes: Long): String {
     return String.format(Locale.getDefault(), "%.1f %s", value, units[i])
 }
 
-internal fun timeLabel(millis: Long): String =
-    SimpleDateFormat("dd.MM, HH:mm", Locale.getDefault()).format(Date(millis))
-
 internal fun dateLabel(seconds: Long): String =
     SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(seconds * 1000L))
 
@@ -929,6 +1033,7 @@ private fun PhantomSettings(
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var bootConnect by remember { mutableStateOf(prefs.getBoolean(VpnBootPolicy.PREF_KEY, false)) }
+    var autoApkUpdates by remember { mutableStateOf(prefs.getBoolean("auto_apk_updates", true)) }
 
     var showThemeGallery by remember { mutableStateOf(false) }
     var tileMessage by remember { mutableStateOf<String?>(null) }
@@ -1120,6 +1225,24 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
                 if (group == "about") {
+                    Text(
+                        "Канал обновлений · " + if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta") "Бета" else "Стабильный",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Автообновление по Wi-Fi", fontSize = 15.sp)
+                            Text("Без разрыва активного VPN. Android может запросить подтверждение.",
+                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = autoApkUpdates, onCheckedChange = { enabled ->
+                            autoApkUpdates = enabled
+                            prefs.edit().putBoolean("auto_apk_updates", enabled).apply()
+                            PhantomAutoUpdateWorker.schedule(context.applicationContext)
+                        })
+                    }
                     funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt) {
                         onCheckAppUpdate()
                     }

@@ -1,5 +1,6 @@
 package xyz.wraithnet.phantom.data
 
+import org.json.JSONObject
 import java.net.URI
 import java.net.URLDecoder
 import java.util.Base64
@@ -12,12 +13,27 @@ object ShareLinkCodec {
     fun percentDecode(raw: String): String =
         URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8")
 
+    /**
+     * The fragment is only a display name, not part of the transport endpoint.
+     * Some providers include literal spaces and emoji in it; java.net.URI(raw)
+     * rejects those otherwise usable share links.
+     */
+    fun endpointUri(raw: String): URI = URI(raw.trim().substringBefore('#'))
+
+    fun fragment(raw: String): String? =
+        raw.substringAfter('#', "").takeIf(String::isNotBlank)?.let {
+            runCatching { percentDecode(it) }.getOrDefault(it)
+        }
+
     fun base64Text(raw: String): String {
         val text = raw.trim().replace(Regex("\\s"), "")
         val bytes = runCatching { Base64.getDecoder().decode(text) }
             .getOrElse { Base64.getUrlDecoder().decode(text) }
         return bytes.toString(Charsets.UTF_8)
     }
+
+    fun vmess(raw: String): JSONObject =
+        JSONObject(base64Text(raw.substringAfter("://").substringBefore('#')))
 
     data class Shadowsocks(
         val method: String,

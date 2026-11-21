@@ -1,16 +1,58 @@
 package xyz.wraithnet.phantom.service
 
 import androidx.test.platform.app.InstrumentationRegistry
+import libv2ray.CoreCallbackHandler
 import libv2ray.Libv2ray
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.ServerSocket
+import java.net.URL
 
 class ProtocolPeerIntegrationTest {
+    @Test fun providerAutoSelectReachesXhttpFallbackWithoutHittingAServiceRule() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val assets = instrumentation.context.assets
+        org.junit.Assume.assumeTrue("Requires CI protocol peers", "peers.json" in assets.list("").orEmpty())
+        val body = assets.open("provider-balance.json").bufferedReader().use { it.readText() }
+        val profile = SubscriptionParser.parse(body).servers.single()
+        val config = JSONObject(XrayConfigBuilder.build(profile))
+        val port = ServerSocket(0).use { it.localPort }
+        // Exercise the effective routing in the real core without changing Android VPN consent.
+        val inbound = config.getJSONArray("inbounds").getJSONObject(0)
+        inbound.put("protocol", "http").put("listen", "127.0.0.1").put("port", port)
+        inbound.remove("settings")
+        XrayEnvironment.initialize(instrumentation.targetContext)
+        val core = Libv2ray.newCoreController(object : CoreCallbackHandler {
+            override fun startup(): Long = 0
+            override fun shutdown(): Long = 0
+            override fun onEmitStatus(code: Long, message: String): Long = 0
+        })
+        try {
+            core.startLoop(config.toString(), 0)
+            val proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", port))
+            val request = URL("http://127.0.0.1:34301/ProviderRouting").openConnection(proxy)
+                as HttpURLConnection
+            try {
+                request.connectTimeout = 4_000
+                request.readTimeout = 4_000
+                assertEquals(204, request.responseCode)
+            } finally {
+                request.disconnect()
+            }
+        } finally {
+            core.stopLoop()
+        }
+    }
+
     @Test fun importedLinksReachTheRunnerThroughTheirOwnProtocolPeer() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val assets = instrumentation.context.assets

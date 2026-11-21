@@ -22,9 +22,11 @@ object VpnEventLog {
             "starting" -> "Подключение"
             "disconnected" -> "Отключено"
             "error" -> "Ошибка"
+            "ping" -> "Проверка пинга"
+            "update" -> "Загрузка обновления"
             else -> "Событие"
         }
-        val safeReason = if (state == "error") scrub(message) else ""
+        val safeReason = if (state in setOf("error", "ping", "update")) scrub(message) else ""
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val existing = runCatching {
             JSONArray(prefs.getString(KEY, "[]") ?: "[]")
