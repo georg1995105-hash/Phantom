@@ -19,6 +19,7 @@ import xyz.wraithnet.phantom.data.LatencyProbe
 fun PingSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     var timeout by remember { mutableFloatStateOf(LatencyProbe.timeoutMs(context) / 1000f) }
+    var autoTuic by remember { mutableStateOf(LatencyProbe.autoTuicEnabled(context)) }
     BackHandler { onBack() }
 
     Scaffold(
@@ -39,9 +40,18 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Text("Проверка пинга", fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Text(
-                "Для всех подписок измеряется TCP-соединение с адресом и портом сервера. Для балансировщика показан пинг первого ответившего входа. Если TCP недоступен, в списке отображается прочерк.",
+                "Для XHTTP, VLESS, Hysteria2 и остальных прежних протоколов используется TCP-пинг входа. TUIC проверяется через отдельное QUIC-соединение и доступен по кнопке «Пинг».",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            HorizontalDivider()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Автоматический пинг TUIC", fontWeight = FontWeight.SemiBold)
+                    Text("Дополнительный процесс sing-box с QUIC. По умолчанию отключён для стабильности соединения; вручную доступен в списке серверов.",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = autoTuic, onCheckedChange = { autoTuic = it })
+            }
             HorizontalDivider()
             Text("Тайм-аут: " + timeout.toInt() + " сек",
                 fontWeight = FontWeight.SemiBold)
@@ -51,6 +61,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Button(
                 onClick = {
                     LatencyProbe.configure(context, timeout.toInt())
+                    LatencyProbe.setAutoTuicEnabled(context, autoTuic)
                     onBack()
                 },
                 modifier = Modifier.fillMaxWidth()
