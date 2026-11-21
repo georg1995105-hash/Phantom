@@ -570,8 +570,96 @@ internal fun AppUpdateSheet(
 internal fun daysLeft(expiry: Long, now: Long): Long =
     if (expiry <= now) 0L else (expiry - now - 1L) / 86400L + 1L
 
+
+/**
+ * Provider-reported metadata only. Unknown expiry or traffic must never be
+ * mistaken for an active paid plan; checkout belongs to the official store.
+ */
+internal data class SubscriptionAccessSnapshot(
+    val daysRemaining: Long?,
+    val usedBytes: Long?,
+    val limitBytes: Long?,
+    val progress: Float?,
+)
+
+internal fun subscriptionAccessSnapshot(sub: Subscription, nowSeconds: Long): SubscriptionAccessSnapshot {
+    val days = sub.expiresAt?.takeIf { it > 0L }?.let { daysLeft(it, nowSeconds) }
+    val uploaded = sub.uploadBytes?.coerceAtLeast(0L)
+    val downloaded = sub.downloadBytes?.coerceAtLeast(0L)
+    val used = when {
+        uploaded != null && downloaded != null ->
+            if (Long.MAX_VALUE - uploaded < downloaded) Long.MAX_VALUE else uploaded + downloaded
+        else -> uploaded ?: downloaded
+    }
+    val limit = sub.totalBytes?.takeIf { it > 0L }
+    val progress = if (limit != null && used != null)
+        (used.toDouble() / limit.toDouble()).coerceIn(0.0, 1.0).toFloat()
+    else null
+    return SubscriptionAccessSnapshot(days, used, limit, progress)
+}
+
 @Composable
-internal fun SubscriptionPage(openShop: () -> Unit) {
+private fun SubscriptionAccessSummary(sub: Subscription) {
+    val colors = MaterialTheme.colorScheme
+    val access = subscriptionAccessSnapshot(sub, System.currentTimeMillis() / 1000L)
+    val status = when (access.daysRemaining) {
+        null -> "Срок не указан"
+        0L -> "Срок истёк"
+        else -> "Осталось ${access.daysRemaining} дн."
+    }
+    val date = sub.expiresAt?.takeIf { it in 1L..253402300799L }?.let {
+        java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM, Locale("ru", "RU"))
+            .format(java.util.Date(it * 1000L))
+    }
+    val limit = when (sub.totalBytes) {
+        null -> "Не указан"
+        0L -> "Без лимита"
+        else -> access.limitBytes?.let(::sizeLabel) ?: "Не указан"
+    }
+    Surface(color = colors.surfaceVariant.copy(alpha = .37f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))) {
+        Column(Modifier.fillMaxWidth().padding(17.dp)) {
+            Text("ВЫБРАННАЯ ПОДПИСКА", fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
+                color = colors.onSurfaceVariant)
+            Spacer(Modifier.height(6.dp))
+            Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
+                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = colors.outline.copy(alpha = .2f))
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
+                Column(Modifier.weight(1f)) {
+                    Caption("СРОК")
+                    Spacer(Modifier.height(4.dp))
+                    Text(status, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                        color = if (access.daysRemaining == 0L) colors.error else colors.onSurface)
+                    date?.let { Caption("До $it") }
+                }
+                Column(Modifier.weight(1f)) {
+                    Caption("ТРАФИК")
+                    Spacer(Modifier.height(4.dp))
+                    Text(access.usedBytes?.let(::sizeLabel) ?: "—",
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Caption("Лимит: $limit")
+                }
+            }
+            access.progress?.let { fraction ->
+                Spacer(Modifier.height(13.dp))
+                LinearProgressIndicator(progress = { fraction },
+                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(6.dp)),
+                    color = colors.primary, trackColor = colors.outline.copy(alpha = .16f))
+            }
+            Spacer(Modifier.height(9.dp))
+            Caption("Данные получены от сервера подписки")
+        }
+    }
+}
+
+@Composable
+internal fun SubscriptionPage(currentSubscription: Subscription? = null, openShop: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -597,7 +685,22 @@ internal fun SubscriptionPage(openShop: () -> Unit) {
                     }
                 }
                 Column(Modifier.padding(20.dp)) {
-                    Text("Без лишних действий",
+                    if (currentSubscription != null) {
+                        SubscriptionAccessSummary(currentSubscription)
+                    } else {
+                        Surface(color = colors.surfaceVariant.copy(alpha = .37f),
+                            shape = RoundedCornerShape(16.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                                Text("Подписка не выбрана", fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.height(5.dp))
+                                Text("Оформите доступ в магазине или добавьте свою ссылку на подписку.",
+                                    color = colors.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Text("Управление доступом",
                         style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
                     Text("Покупка и продление в официальном магазине.",
