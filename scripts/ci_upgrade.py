@@ -127,7 +127,7 @@ def visible_after_scroll(label, max_swipes=6):
                 raise
             adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
             root = ET.fromstring(adb("shell", "cat", "/sdcard/phantom-ui.xml"))
-            bounds = [list(map(int, re.findall(r"\\d+", n.get("bounds", ""))))
+            bounds = [list(map(int, re.findall(r"\d+", n.get("bounds", ""))))
                       for n in root.iter("node")]
             bounds = [b for b in bounds if len(b) == 4]
             assert bounds, "UI hierarchy has no bounds"
