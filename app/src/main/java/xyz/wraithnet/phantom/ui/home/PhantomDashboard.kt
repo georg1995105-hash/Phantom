@@ -485,6 +485,7 @@ internal fun AppUpdateSheet(
     onLater: () -> Unit,
     onUpdate: () -> Unit,
     onDownloadInBrowser: () -> Unit,
+    onCancelDownload: () -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
     val brief = remember(release.notes) { ReleaseNotes.summary(release.notes, 3) }
@@ -531,25 +532,27 @@ internal fun AppUpdateSheet(
                 Caption("Загрузка $progress%" + if (speedBytesPerSecond > 0L)
                     " · ${speedBytesPerSecond / 1024L} КБ/с" else "")
             }
-            error?.let {
-                Text(it, color = c.error, style = MaterialTheme.typography.bodySmall)
-                TextButton(
-                    onClick = onDownloadInBrowser,
-                    enabled = !downloading,
-                    modifier = Modifier.align(Alignment.Start).tvFocusRing()
-                ) {
-                    Icon(Icons.Default.OpenInBrowser, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Скачать через браузер")
-                }
+            error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
+            // The in-app updater uses Phantom's direct network, which may not
+            // reach GitHub on Wi-Fi. Browser downloads can use Android VPN routing.
+            // Let users choose it before starting, not only after a long timeout.
+            if (!downloading) TextButton(
+                onClick = onDownloadInBrowser,
+                modifier = Modifier.align(Alignment.Start).tvFocusRing()
+            ) {
+                Icon(Icons.Default.OpenInBrowser, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Скачать через браузер")
             }
             val shape = RoundedCornerShape(14.dp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilledTonalButton(onClick = onLater, enabled = !downloading, shape = shape,
+                FilledTonalButton(
+                    onClick = { if (downloading) onCancelDownload() else onLater() },
+                    shape = shape,
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = c.surfaceVariant, contentColor = c.onSurface),
                     modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
-                    Text("Позже")
+                    Text(if (downloading) "Остановить" else "Позже")
                 }
                 Button(onClick = onUpdate, enabled = !downloading, shape = shape,
                     modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
