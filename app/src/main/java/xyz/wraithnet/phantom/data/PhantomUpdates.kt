@@ -15,6 +15,12 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import org.json.JSONArray
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import android.os.SystemClock
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.sync.Mutex
@@ -82,6 +88,18 @@ object PhantomUpdates {
         return match.groupValues.drop(1).map { it.toIntOrNull() ?: return null }
     }
 
+    // Accept a partial GitHub CDN response only when it exactly continues
+    // the verified asset length. Never append unrelated HTTP 200 content.
+    internal fun validContentRange(header: String?, offset: Long, size: Long): Boolean {
+        val match = Regex("""bytes (\\d+)-(\\d+)/(\\d+)""")
+            .matchEntire(header.orEmpty()) ?: return false
+        val (first, last, total) = match.destructured
+        val start = first.toLongOrNull() ?: return false
+        val end = last.toLongOrNull() ?: return false
+        return start == offset && end >= start && total.toLongOrNull() == size &&
+            end < size
+    }
+
     private val downloadMutex = Mutex()
 
     fun isNewer(remote: String, installed: String): Boolean {
@@ -144,6 +162,7 @@ object PhantomUpdates {
         context: Context,
         release: PhantomRelease,
         onProgress: (Int) -> Unit,
+        onSpeed: ((Long) -> Unit)? = null,
     ): File {
         downloadMutex.lock()
         try {
@@ -151,57 +170,130 @@ object PhantomUpdates {
                 release.sha256.matches(Regex("[a-f0-9]{64}"))) {
                 "Источник обновления не прошёл проверку"
             }
-            return PhantomHttp.get(
-                context = context,
-                url = release.downloadUrl,
-                headers = mapOf("User-Agent" to "PhantomVPN-Android"),
-                callTimeoutMs = 0L, // Large APKs: per-read timeout, no fixed total-time cutoff.
-            ) { response ->
-                val directory = File(context.cacheDir, "updates").apply { mkdirs() }
-                val target = File(directory, "phantom-" + release.version + ".apk")
-                val temp = File(directory, "phantom-" + release.version + ".part")
-                try {
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    var count = 0L
-                    val stream = response.body?.byteStream()
-                        ?: error("GitHub вернул пустой файл обновления")
-                    temp.outputStream().use { output ->
-                        stream.use { input ->
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                val n = input.read(buffer)
-                                if (n < 0) break
-                                output.write(buffer, 0, n)
-                                digest.update(buffer, 0, n)
-                                count += n
-                                require(count <= 250L * 1024 * 1024) {
-                                    "Размер обновления превышает предел"
-                                }
-                                if (release.sizeBytes > 0L) {
-                                    onProgress((100L * count / release.sizeBytes)
-                                        .toInt().coerceIn(0, 100))
+            val size = release.sizeBytes
+            require(size in 1025L..(250L * 1024 * 1024)) {
+                "Размер APK в данных релиза недостоверен"
+            }
+            val directory = File(context.cacheDir, "updates").apply { mkdirs() }
+            val target = File(directory, "phantom-" + release.version + ".apk")
+            // Hash-qualified cache prevents mixing files from different release
+            // assets (e.g. universal APK and the compact ARM64 APK).
+            val temp = File(directory, "phantom-" + release.version + "-" +
+                release.sha256.take(12) + ".part")
+            if (temp.length() > size) temp.delete()
+            val startedAt = SystemClock.elapsedRealtime()
+            var attempts = 0
+            var lastProgress = -1
+            val job = currentCoroutineContext()
+            try {
+                for (attempt in 0 until 4) {
+                    job.ensureActive()
+                    val offset = temp.length()
+                    if (offset == size) break
+                    try {
+                        val headers = mutableMapOf(
+                            "User-Agent" to "PhantomVPN-Android",
+                            "Accept-Encoding" to "identity"
+                        )
+                        if (offset > 0L) headers["Range"] = "bytes=${offset}-"
+                        PhantomHttp.get(
+                            context = context,
+                            url = release.downloadUrl,
+                            headers = headers,
+                            callTimeoutMs = 0L,
+                        ) { response ->
+                            val partial = response.code == 206
+                            require(!partial || (offset > 0L && validContentRange(
+                                response.header("Content-Range"), offset, size))) {
+                                "CDN вернул неверный диапазон APK"
+                            }
+                            // If CDN ignored Range, restart from byte zero;
+                            // never append a complete response to old data.
+                            val append = partial && offset > 0L
+                            require(append || response.code == 200) {
+                                "CDN не поддержал возобновление загрузки"
+                            }
+                            var count = if (append) offset else 0L
+                            FileOutputStream(temp, append).use { output ->
+                                val input = response.body?.byteStream()
+                                    ?: error("GitHub вернул пустой файл обновления")
+                                input.use {
+                                    val buffer = ByteArray(64 * 1024)
+                                    while (true) {
+                                        job.ensureActive()
+                                        val n = it.read(buffer)
+                                        if (n == -1) break
+                                        if (n == 0) continue
+                                        count += n
+                                        require(count <= size) {
+                                            "Размер полученных данных превышает размер APK"
+                                        }
+                                        output.write(buffer, 0, n)
+                                        val progress = (100L * count / size).toInt()
+                                        if (progress != lastProgress) {
+                                            onProgress(progress)
+                                            lastProgress = progress
+                                        }
+                                        val elapsed = SystemClock.elapsedRealtime() - startedAt
+                                        if (elapsed > 1000L) {
+                                            onSpeed?.invoke(1000L * count / elapsed)
+                                        }
+                                    }
                                 }
                             }
                         }
+                        // A clean EOF before the declared length can happen
+                        // through a temporarily truncated network response.
+                        if (temp.length() == size) break
+                        attempts++
+                    } catch (cancel: kotlinx.coroutines.CancellationException) {
+                        throw cancel
+                    } catch (error: IOException) {
+                        attempts++
+                        if (attempt == 3) throw error
                     }
-                    require(count > 1024L &&
-                        (release.sizeBytes <= 0L || count == release.sizeBytes)) {
-                        "Файл обновления загружен не полностью"
-                    }
-                    val actual = digest.digest().joinToString("") {
-                        (it.toInt() and 0xff).toString(16).padStart(2, '0')
-                    }
-                    require(actual.equals(release.sha256, ignoreCase = true)) {
-                        "Контрольная сумма APK не совпадает"
-                    }
-                    verifyApk(context, temp, release.version)
-                    if (target.exists()) target.delete()
-                    require(temp.renameTo(target)) { "Не удалось сохранить проверенный APK" }
-                    onProgress(100)
-                    target
-                } finally {
-                    if (temp.exists()) temp.delete()
+                    if (attempt < 3) delay(600L * (attempt + 1))
                 }
+                require(temp.length() == size) {
+                    "Загрузка прервана: сохранено " + temp.length() + " из " + size + " байт"
+                }
+                // Hash the complete file, including the recovered prefix;
+                // a partial/CDN corruption can never reach PackageInstaller.
+                val actual = MessageDigest.getInstance("SHA-256")
+                temp.inputStream().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        job.ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        actual.update(buffer, 0, read)
+                    }
+                }
+                val hash = actual.digest().joinToString("") {
+                    (it.toInt() and 0xff).toString(16).padStart(2, '0')
+                }
+                require(hash == release.sha256) {
+                    "Контрольная сумма APK не совпадает"
+                }
+                verifyApk(context, temp, release.version)
+                if (target.exists()) target.delete()
+                require(temp.renameTo(target)) { "Не удалось сохранить проверенный APK" }
+                onProgress(100)
+                val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(1L)
+                VpnEventLog.record(context, "update",
+                    "APK ${size / 1048576} МиБ; средняя скорость " +
+                        "${(size * 1000L / elapsed) / 1024L} КиБ/с; повторы: ${attempts}")
+                return target
+            } catch (error: Exception) {
+                // On a transport error keep the hash-qualified partial asset
+                // so the next attempt may resume safely using HTTP Range.
+                if (error !is IOException && error !is kotlinx.coroutines.CancellationException) {
+                    temp.delete()
+                }
+                VpnEventLog.record(context, "update",
+                    "Ошибка; скачано ${temp.length() / 1048576} из ${size / 1048576} МиБ; " +
+                        "тип: ${error.javaClass.simpleName}")
+                throw error
             }
         } finally {
             downloadMutex.unlock()
