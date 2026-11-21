@@ -373,16 +373,19 @@ fun HomeScreen(
         }
     }
 
-    fun probeSubscription(item: Subscription, notify: Boolean = true) {
+    fun probeSubscription(item: Subscription, notify: Boolean = true, tuicOnly: Boolean = false) {
         if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
         probing = probing + item.id
-        scanned[item.id] = item.servers
+        // A manually requested TUIC probe must not suppress later automatic
+        // TCP pings for another protocol in the same subscription.
+        if (!tuicOnly) scanned[item.id] = item.servers
         scope.launch {
             val message = try {
                 val autoTuic = LatencyProbe.autoTuicEnabled(context)
                 val probeOrder = item.servers.filter {
                     ProtocolSupport.isSupported(it.scheme) &&
-                        (notify || ProtocolSupport.shouldAutoProbe(it.scheme, autoTuic))
+                        if (tuicOnly) ProtocolSupport.usesNativeLatency(it.scheme)
+                        else (notify || ProtocolSupport.shouldAutoProbe(it.scheme, autoTuic))
                 }.sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 val remaining = probeOrder.iterator()
                 // Keep individual failures local: a broken TUIC JNI/session
@@ -646,7 +649,7 @@ fun HomeScreen(
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
                         manage = { activeSubMenu = it.id },
                         onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
-                        onManualPing = { sub -> probeSubscription(sub, notify = true) },
+                        onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
                         favorite = { id ->
                             favorites = if (id in favorites) favorites - id else favorites + id
                             prefs.edit().putStringSet("favorite_servers", favorites).apply()
