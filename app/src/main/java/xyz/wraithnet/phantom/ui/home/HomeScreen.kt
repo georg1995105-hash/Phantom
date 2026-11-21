@@ -718,6 +718,7 @@ fun HomeScreen(
             error = otaError,
             onLater = { showOtaSheet = false; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
+            onDownloadInBrowser = { availableUpdate?.downloadUrl?.let(::openUrl) },
         )
     }
 
