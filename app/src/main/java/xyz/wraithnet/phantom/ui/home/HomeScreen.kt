@@ -56,6 +56,9 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.VpnEventLog
+import xyz.wraithnet.phantom.service.physicalNetwork
+import android.net.ConnectivityManager
 import xyz.wraithnet.phantom.service.PhantomAutoUpdateWorker
 import xyz.wraithnet.phantom.data.ProtocolSupport
 import xyz.wraithnet.phantom.data.ProfileSelection
@@ -377,6 +380,9 @@ fun HomeScreen(
                 val probeOrder = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
                     .sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 val remaining = probeOrder.iterator()
+                // Keep individual failures local: a broken TUIC JNI/session
+                // must not cancel healthy VLESS, HY2 or XHTTP pings.
+                val outcomes = mutableListOf<Pair<String, Boolean>>()
                 for (server in probeOrder) measuring[pingKey(item, server)] = server.raw
                 coroutineScope {
                     repeat(minOf(8, probeOrder.size)) {
@@ -384,19 +390,56 @@ fun HomeScreen(
                             while (remaining.hasNext()) {
                                 val server = remaining.next()
                                 val key = pingKey(item, server)
-                                val result = LatencyProbe.measureTcp(context.applicationContext, server)
+                                val result = try {
+                                    LatencyProbe.measureTcp(context.applicationContext, server)
+                                } catch (cancel: CancellationException) {
+                                    throw cancel
+                                } catch (_: Exception) {
+                                    null
+                                }
                                 if (currentProfileRaws[key] == server.raw) {
                                     if (result == null) latencies.remove(key) else latencies[key] = result
+                                    val label = when (server.scheme.lowercase(Locale.ROOT)) {
+                                        "tuic" -> "TUIC"
+                                        "hysteria2", "hy2", "hysteria" -> "Hysteria2"
+                                        "anytls" -> "AnyTLS"
+                                        "vless" -> "VLESS"
+                                        "vmess" -> "VMess"
+                                        "trojan" -> "Trojan"
+                                        "ss", "shadowsocks" -> "Shadowsocks"
+                                        else -> "Другой"
+                                    }
+                                    outcomes.add(label to (result != null))
                                 }
                                 measuring.remove(key)
                             }
                         }
                     }
                 }
+                // No server domains, profile names, URLs, keys, or payloads are
+                // logged. This can be copied from Settings > VPN journal when
+                // one phone returns dashes while another displays numbers.
+                if (notify || outcomes.any { !it.second }) {
+                    val summary = outcomes.groupBy { it.first }.entries
+                        .sortedBy { it.key }
+                        .joinToString(", ") { (name, samples) ->
+                            "$name ${samples.count { it.second }}/${samples.size}"
+                        }
+                    val physical = runCatching {
+                        context.getSystemService(ConnectivityManager::class.java)
+                            .physicalNetwork() != null
+                    }.getOrDefault(false)
+                    withContext(Dispatchers.IO) {
+                        VpnEventLog.record(context.applicationContext, "ping",
+                            "Результаты: ${outcomes.count { it.second }}/${outcomes.size}; " +
+                                (if (physical) "физическая сеть найдена" else "физическая сеть не найдена") +
+                                "; $summary")
+                    }
+                }
                 when {
                     !notify -> ""
-                    probeOrder.any { latencies[pingKey(item, it)] != null } -> "Проверка задержки завершена"
-                    else -> "Не получено ни одного результата проверки"
+                    outcomes.any { it.second } -> "Проверка задержки завершена"
+                    else -> "Не получено ни одного результата проверки. Подробности: Настройки → Журнал VPN"
                 }
             } catch (e: CancellationException) {
                 throw e
