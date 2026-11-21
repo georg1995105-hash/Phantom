@@ -25,11 +25,38 @@ class PhantomUpdatesVersionTest {
         assertTrue(PhantomUpdates.assetCandidates(emptyList()).isEmpty())
     }
 
-    @Test fun stableFallbackIsUniversalWhenMatchingArchitectureIsUnavailableInRelease() {
-        assertEquals(
-            listOf("phantom-arm64-v8a-release.apk", "phantom-universal-release.apk"),
-            PhantomUpdates.assetCandidates(listOf("arm64-v8a", "armeabi-v7a"))
-        )
+    @Test fun selectedAssetPrefersAbiRegardlessOfGithubAssetOrdering() {
+        fun asset(name: String, size: Long, digest: String = "a".repeat(64)) =
+            org.json.JSONObject().put("name", name).put("size", size)
+                .put("state", "uploaded").put("digest", "sha256:$digest")
+                .put("browser_download_url",
+                    "https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.11/$name")
+        val abi = "phantom-arm64-v8a-release.apk"
+        val universal = "phantom-universal-release.apk"
+        val choices = PhantomUpdates.assetCandidates(listOf("arm64-v8a"))
+        val mixed = org.json.JSONArray().put(asset(universal, 184_139_051))
+            .put(asset(abi, 58_796_692))
+        assertEquals(abi, PhantomUpdates.chooseAsset(mixed, choices)?.getString("name"))
+
+        // Legacy releases (or a missing ABI) may still offer the universal APK.
+        assertEquals(universal, PhantomUpdates.chooseAsset(
+            org.json.JSONArray().put(asset(universal, 184_139_051)), choices
+        )?.getString("name"))
+
+        // Corrupt digest, external URL, upload still in progress and zero size
+        // are never allowed to bypass the existing SHA-256 installer check.
+        val corrupt = asset(abi, 58_796_692, "not-a-digest")
+        assertEquals(universal, PhantomUpdates.chooseAsset(
+            org.json.JSONArray().put(corrupt).put(asset(universal, 184_139_051)), choices
+        )?.getString("name"))
+        assertNull(PhantomUpdates.chooseAsset(
+            org.json.JSONArray().put(asset(abi, 0)), choices))
+        assertNull(PhantomUpdates.chooseAsset(
+            org.json.JSONArray().put(asset(abi, 58_796_692)
+                .put("state", "starter")), choices))
+        assertNull(PhantomUpdates.chooseAsset(
+            org.json.JSONArray().put(asset(abi, 58_796_692)
+                .put("browser_download_url", "https://example.org/phantom.apk")), choices))
     }
 
     @Test fun betaHasIndependentUniversalAssetAndChannel() {
