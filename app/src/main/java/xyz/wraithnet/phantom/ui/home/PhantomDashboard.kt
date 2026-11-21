@@ -484,6 +484,7 @@ internal fun AppUpdateSheet(
     error: String?,
     onLater: () -> Unit,
     onUpdate: () -> Unit,
+    onDownloadInBrowser: () -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
     val brief = remember(release.notes) { ReleaseNotes.summary(release.notes, 3) }
@@ -530,7 +531,18 @@ internal fun AppUpdateSheet(
                 Caption("Загрузка $progress%" + if (speedBytesPerSecond > 0L)
                     " · ${speedBytesPerSecond / 1024L} КБ/с" else "")
             }
-            error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
+            error?.let {
+                Text(it, color = c.error, style = MaterialTheme.typography.bodySmall)
+                TextButton(
+                    onClick = onDownloadInBrowser,
+                    enabled = !downloading,
+                    modifier = Modifier.align(Alignment.Start).tvFocusRing()
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Скачать через браузер")
+                }
+            }
             val shape = RoundedCornerShape(14.dp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilledTonalButton(onClick = onLater, enabled = !downloading, shape = shape,
