@@ -136,7 +136,7 @@ if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
 install_apk(old, "-g")
 previous_code, previous_name = installed_version()
-assert (previous_code, previous_name) == (34, "0.3.7")
+assert (previous_code, previous_name) == (35, "0.3.8")
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 adb("shell", "am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.VIEW",
@@ -153,7 +153,7 @@ tap("Главная")
 install_apk(new, "-r")
 verify_native(new, PACKAGE)
 current_code, current_name = installed_version()
-assert (current_code, current_name) == (35, "0.3.8") and current_code > previous_code
+assert (current_code, current_name) == (36, "0.3.9") and current_code > previous_code
 print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} ({current_code})",
       flush=True)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
@@ -169,7 +169,7 @@ node("Убрать из избранного")
 screenshot("servers")
 node("Добавить подписку или ключ")
 tap("Подписка")
-node("Ваш доступ.")
+node("В магазин")
 screenshot("subscriptions")
 tap("Настройки")
 node("Тема оформления")
@@ -371,11 +371,11 @@ node("Подписка обновлена")
 tap("Серверы")
 node("Управление подпиской OfflineSubscriptionCheck")
 tap("Подписка")
-node("Ваш доступ.")
+node("В магазин")
 screenshot("forest-subscriptions")
 # Verify that renewal guidance stays reachable on a narrow device.
 adb("shell", "wm", "size", "720x1600")
-renewal_hint = "Для продления в магазине выберите „Моя подписка“ → „Продлить“."
+renewal_hint = "Продлить: в магазине «Моя подписка» → «Продлить»."
 for attempt in range(10):
     try:
         node(renewal_hint, attempts=1)
@@ -392,7 +392,7 @@ for attempt in range(10):
 node(renewal_hint)
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")
-for action in ("Купить", "Продлить", "Личный кабинет"):
+for action in ("В магазин",):
     adb("logcat", "-c")
     tap_in_list(action)
     time.sleep(1)
@@ -415,7 +415,7 @@ node("OfflineSubscriptionCheck")
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
     tap("Подписка")
-    node("Ваш доступ.")
+    node("В магазин")
     for tab in ("Главная", "Серверы", "Подписка", "Настройки"):
         node(tab)
     screenshot("phone-landscape")
@@ -436,7 +436,7 @@ try:
         tap("Серверы")
         node("OfflineSubscriptionCheck")
         tap("Подписка")
-        node("Ваш доступ.")
+        node("В магазин")
         tap("Настройки")
         node("Настройки")
         screenshot(shot)
