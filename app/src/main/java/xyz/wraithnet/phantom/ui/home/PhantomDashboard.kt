@@ -7,7 +7,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.*
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -255,170 +257,199 @@ internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription
         else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
 }
 
-/** Correct Russian declension also for lone keys and double-digit counts. */
-internal fun serverCountLabel(count: Int): String {
-    val suffix = if (count % 100 in 11..14) "серверов" else when (count % 10) {
-        1 -> "сервер"
-        2, 3, 4 -> "сервера"
-        else -> "серверов"
-    }
-    return "$count $suffix"
-}
-
-@Composable
-private fun SubscriptionHeading(
-    sub: Subscription,
-    displayTitle: String,
-    refreshing: Boolean,
-    probing: Boolean,
-    failed: Boolean,
-    expanded: Boolean,
-    selected: Boolean,
-    onToggle: () -> Unit,
-    onRefresh: (Subscription) -> Unit,
-    onProbe: (Subscription) -> Unit,
-) {
-    val c = MaterialTheme.colorScheme
-    val remote = sub.source.startsWith("https://", true) || sub.source.startsWith("http://", true)
-    val canProbe = remember(sub.servers) { sub.servers.any { ProtocolSupport.isSupported(it.scheme) } }
-    Panel(selected = selected) {
-        Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 5.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).heightIn(min = 58.dp).tvFocusRing()
-                .clickable(onClick = onToggle)
-                .semantics { contentDescription = (if (expanded) "Свернуть" else "Раскрыть") +
-                    " подписку " + displayTitle }
-                .padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                    null, modifier = Modifier.size(22.dp), tint = c.primary)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(displayTitle, fontWeight = FontWeight.SemiBold, maxLines = 2,
-                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                    Text(if (remote) "${serverCountLabel(sub.servers.size)} · ${timeLabel(sub.updatedAt)}"
-                        else "Импортированная конфигурация · ${serverCountLabel(sub.servers.size)}",
-                        color = c.onSurfaceVariant, fontSize = 11.sp, maxLines = 1)
-                    if (failed) Text("Ошибка обновления · серверы сохранены",
-                        color = c.error, fontSize = 11.sp, maxLines = 2)
-                }
-            }
-            if (remote) {
-                IconButton(
-                    onClick = { onRefresh(sub) },
-                    enabled = !refreshing,
-                    modifier = Modifier.size(48.dp).tvFocusRing()
-                        .semantics { contentDescription = "Обновить подписку ${displayTitle}" },
-                ) {
-                    if (refreshing) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Default.Refresh, null, Modifier.size(22.dp), tint = c.primary)
-                }
-            }
-            IconButton(
-                onClick = { onProbe(sub) }, enabled = canProbe && !probing,
-                modifier = Modifier.size(48.dp).tvFocusRing()
-                    .semantics { contentDescription = "Проверить задержку подписки $displayTitle" },
-                colors = IconButtonDefaults.iconButtonColors(contentColor = c.primary),
-            ) {
-                if (probing) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.Speed, null, Modifier.size(22.dp))
-            }
-        }
-    }
-}
-
 @Composable
 internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
     pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>,
-    latencyMethods: Map<String, LatencyMethod>, probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
-    onRefresh: (Subscription) -> Unit, onProbe: (Subscription) -> Unit,
+    probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
+    onRefresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
     onAutoProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
-    choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit,
+    choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit, openUrl: (String) -> Unit,
 ) {
-    // Keep one group open to avoid an overwhelming combined server list.
-    // The selected server's owner is expanded by default, including on TV.
-    var expandedId by rememberSaveable {
-        mutableStateOf(selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)
-    }
-    LaunchedEffect(subscriptions.map { it.id }) {
-        if (expandedId != null && subscriptions.none { it.id == expandedId }) {
-            expandedId = selected?.first?.id ?: subscriptions.firstOrNull()?.id
-        }
-    }
-    val expandedOwner = subscriptions.firstOrNull { it.id == expandedId }
-    val expandedProbing = expandedId in probing
-    LaunchedEffect(expandedOwner?.id, expandedOwner?.servers, expandedProbing) {
-        if (!expandedProbing) expandedOwner?.let(onAutoProbe)
-    }
-    // Sort large groups only when subscriptions/favorites change, not on every
-    // recomposition triggered by a ping or another subscription's progress.
+    var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
+        (selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)?.let { this.add(it) }
+    }) }
+    var details by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val groups = remember(subscriptions, pinnedId, favorites) {
         subscriptions.sortedByDescending { it.id == pinnedId }.map { owner ->
-            owner to owner.servers.sortedWith(
-                compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
-                    .thenByDescending { "${owner.id}:${it.id}" in favorites }
-            )
+            owner to owner.servers.sortedWith(compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
+                .thenByDescending { "${owner.id}:${it.id}" in favorites })
         }
     }
-    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (groups.isEmpty()) item(key = "empty") {
-            Text("Добавьте подписку или ключ, чтобы увидеть серверы",
-                modifier = Modifier.padding(12.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val c = MaterialTheme.colorScheme
+    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+        if (groups.isEmpty()) item {
+            Text("Добавьте подписку или ключ, чтобы увидеть серверы", Modifier.padding(12.dp))
         }
-        groups.forEach { (owner, orderedServers) ->
-            item(key = "subscription:${owner.id}") {
-                SubscriptionHeading(
-                    sub = owner, displayTitle = subscriptionDisplayName(owner, subscriptions),
-                    refreshing = owner.id in refreshing, probing = owner.id in probing, failed = owner.id in failed,
-                    expanded = expandedId == owner.id, selected = selected?.first?.id == owner.id,
-                    onToggle = {
-                        expandedId = if (expandedId == owner.id) null else owner.id
-                    },
-                    onRefresh = onRefresh, onProbe = onProbe,
-                )
+        groups.forEach { (owner, servers) ->
+            val remote = owner.source.startsWith("https://", true) || owner.source.startsWith("http://", true)
+            val single = !remote && servers.size == 1
+            val show = owner.id in expanded
+            val name = subscriptionDisplayName(owner, subscriptions)
+            if (!single) item(key = "header:${owner.id}") {
+                Column(Modifier.groupSurface(first = true, last = !show || servers.isEmpty())) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).heightIn(min = 58.dp).tvFocusRing().clickable {
+                            expanded = ArrayList(if (show) expanded - owner.id else expanded + owner.id)
+                        }.semantics { contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name },
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (show) Icons.Default.ExpandMore else Icons.Default.ChevronRight, null,
+                                Modifier.padding(horizontal = 6.dp).size(18.dp), tint = c.primary)
+                            Column {
+                                Text(name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (remote) {
+                                    val time = android.text.format.DateFormat.getTimeFormat(
+                                        androidx.compose.ui.platform.LocalContext.current).format(java.util.Date(owner.updatedAt))
+                                    val interval = intervalLabel(owner.customIntervalSeconds ?: owner.updateIntervalSeconds)
+                                    Caption(if (owner.updatedAt > 0) "Обновлено $time · $interval" else interval)
+                                }
+                                if (owner.id in failed) Text("Ошибка обновления · серверы сохранены", color = c.error, fontSize = 11.sp)
+                            }
+                        }
+                        if (remote) IconButton(onClick = { onRefresh(owner) }, enabled = owner.id !in refreshing,
+                            modifier = Modifier.tvFocusRing().semantics { contentDescription = "Обновить подписку $name" }) {
+                            if (owner.id in refreshing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Refresh, null, tint = c.primary)
+                        }
+                        OwnerMenu(name) { manage(owner) }
+                    }
+                    if (remote) ProviderInfo(owner, owner.id in details, {
+                        details = ArrayList(if (owner.id in details) details - owner.id else details + owner.id)
+                    }, openUrl)
+                    if (show && owner.id !in probing) LaunchedEffect(owner.id, owner.servers) { onAutoProbe(owner) }
+                }
             }
-            if (expandedId != owner.id) return@forEach
-            items(orderedServers, key = { "server:${owner.id}:${it.id}" }) { server ->
+            if (single || show) items(servers.size, key = { "server:${owner.id}:${servers[it].id}" }) { index ->
+                val server = servers[index]
                 val id = "${owner.id}:${server.id}"
                 val chosen = owner.id == selected?.first?.id && server.id == selected?.second?.id
-                val remembered = owner.id != selected?.first?.id && server.id == owner.selectedServerId
-                Panel(chosen || remembered) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 60.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f).tvFocusRing().clickable { choose(owner, server) }
+                val remembered = owner.id != selected?.first?.id && owner.selectedServerId == server.id
+                Column(Modifier.groupSurface(first = single, last = index == servers.lastIndex)) {
+                    if (!single) HorizontalDivider(color = c.outline.copy(alpha = .22f))
+                    Row(Modifier.fillMaxWidth().background(when {
+                        chosen -> c.primary.copy(alpha = .12f)
+                        remembered -> c.primary.copy(alpha = .06f)
+                        else -> Color.Transparent
+                    })
+                        .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (chosen) Spacer(Modifier.width(3.dp).height(24.dp)
+                            .background(c.primary, RoundedCornerShape(2.dp)))
+                        Row(Modifier.weight(1f).heightIn(min = 54.dp).tvFocusRing().clickable { choose(owner, server) }
                             .semantics { contentDescription = "Выбрать сервер ${displayServerName(server)}" }
-                            .padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (ProfileSelection.isProviderAutomatic(server))
-                                Icon(Icons.Default.Bolt, null, tint = MaterialTheme.colorScheme.primary)
-                            else Text(CountryFlags.flag(server), fontSize = 23.sp)
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(displayServerName(server), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(CountryFlags.flag(server), fontSize = 19.sp)
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                                Text(if (single) owner.customTitle ?: displayServerName(server) else displayServerName(server),
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Caption(protocolLabel(server))
                             }
                             Caption(SubscriptionPingText.display(latency[id], measuring[id] == server.raw))
-                            if (chosen || remembered) Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.primary)
                         }
-                        IconButton(modifier = Modifier.tvFocusRing(), onClick = { favorite(id) }) {
+                        IconButton(onClick = { favorite(id) }, modifier = Modifier.tvFocusRing()) {
                             Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
-                                if (id in favorites) "Убрать из избранного" else "В избранное",
-                                tint = if (id in favorites) Color(0xFFCEB36D)
-                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (id in favorites) "Убрать из избранного" else "В избранное", Modifier.size(19.dp),
+                                tint = if (id in favorites) Color(0xFFCEB36D) else c.onSurfaceVariant)
                         }
+                        if (single) OwnerMenu(name) { manage(owner) }
                     }
+                    if (single && owner.id !in probing) LaunchedEffect(owner.id, server.raw) { onAutoProbe(owner) }
+                }
+            }
+            item(key = "gap:${owner.id}") { Spacer(Modifier.height(10.dp)) }
+        }
+        item {
+            OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth().tvFocusRing().heightIn(min = 48.dp)) {
+                Text("Добавить подписку или ключ")
+            }
+        }
+    }
+}
+
+// Draw one continuous outline while keeping individual server rows lazy.
+@Composable
+private fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
+    val c = MaterialTheme.colorScheme
+    val radius = 18.dp
+    val shape = RoundedCornerShape(if (first) radius else 0.dp, if (first) radius else 0.dp,
+        if (last) radius else 0.dp, if (last) radius else 0.dp)
+    return clip(shape).background(c.surface).drawWithContent {
+        drawContent()
+        val stroke = 1.dp.toPx()
+        val r = radius.toPx()
+        val top = if (first) stroke / 2 else -r
+        val bottom = if (last) size.height - stroke / 2 else size.height + r
+        drawRoundRect(c.primary.copy(alpha = .34f), Offset(stroke / 2, top),
+            Size(size.width - stroke, bottom - top), CornerRadius(r), style = Stroke(stroke))
+    }
+}
+
+@Composable
+private fun OwnerMenu(name: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.tvFocusRing()) {
+        Icon(Icons.Default.MoreVert, "Управление подпиской $name")
+    }
+}
+
+internal fun intervalLabel(seconds: Long): String {
+    return when {
+        seconds == 3600L -> "Каждый час"
+        seconds % 3600L == 0L -> "Каждые ${seconds / 3600} ч."
+        seconds % 60L == 0L -> "Каждые ${seconds / 60} мин."
+        else -> "Интервал $seconds с"
+    }
+}
+
+@Composable
+private fun ProviderInfo(sub: Subscription, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
+    val c = MaterialTheme.colorScheme
+    val upload = sub.uploadBytes
+    val download = sub.downloadBytes
+    val traffic = when {
+        upload != null && download != null -> sizeLabel(runCatching { Math.addExact(upload, download) }.getOrDefault(Long.MAX_VALUE))
+        upload != null -> "↑ " + sizeLabel(upload)
+        download != null -> "↓ " + sizeLabel(download)
+        else -> null
+    }
+    val limit = sub.totalBytes?.let { if (it == 0L) "∞" else sizeLabel(it) }
+    val expiry = sub.expiresAt
+    val account = SubscriptionHeaders.safeHttpUrl(sub.webPageUrl)
+    val support = SubscriptionHeaders.safeHttpUrl(sub.supportUrl)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+        if (listOf(traffic, limit, expiry, account, support).any { it != null }) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (account != null) IconButton(onClick = { openUrl(account) }, modifier = Modifier.tvFocusRing()) {
+                    Icon(Icons.Default.Info, "Кабинет ${sub.title}", Modifier.size(20.dp), tint = c.primary)
+                }
+                if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
+                    Caption(if (traffic == null) "Лимит" else "Трафик")
+                    Text(listOfNotNull(traffic, limit).joinToString(" / "), fontSize = 14.sp)
+                } else Spacer(Modifier.weight(1f))
+                if (expiry != null) Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    Caption("Действует до")
+                    Text(if (expiry == 0L) "Бессрочно" else dateLabel(expiry), fontSize = 14.sp)
+                }
+                if (support != null) IconButton(onClick = { openUrl(support) }, modifier = Modifier.tvFocusRing()) {
+                    val host = android.net.Uri.parse(support).host?.lowercase()
+                    Icon(if (host in setOf("t.me", "telegram.me")) Icons.Default.Send else Icons.Default.SupportAgent,
+                        "Поддержка ${sub.title}", Modifier.size(20.dp), tint = c.primary)
                 }
             }
         }
-        item(key = "manual-add") {
-            OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth().tvFocusRing()
-                .heightIn(min = 48.dp)) {
-                Icon(Icons.Default.Edit, null, Modifier.size(17.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Добавить ключ вручную")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (expiry != null && expiry > 0) Caption("${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = toggle, modifier = Modifier.tvFocusRing().semantics { contentDescription = "Подробнее о ${sub.title}" }) {
+                Text("Подробнее")
+                Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, Modifier.size(16.dp))
             }
+        }
+        if (details) {
+            sub.announcement?.takeIf(String::isNotBlank)?.let { Text(it) }
+            if (sub.updatedAt > 0) Caption("Обновлено " + java.text.DateFormat.getDateTimeInstance().format(java.util.Date(sub.updatedAt)))
+            Caption("Автообновление · " + intervalLabel(sub.customIntervalSeconds ?: sub.updateIntervalSeconds))
+            upload?.let { Caption("Отправлено · " + sizeLabel(it)) }
+            download?.let { Caption("Получено · " + sizeLabel(it)) }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
@@ -504,190 +535,41 @@ internal fun daysLeft(expiry: Long, now: Long): Long =
     if (expiry <= now) 0L else (expiry - now - 1L) / 86400L + 1L
 
 @Composable
-private fun DetailedSubscription(sub: Subscription, remote: Boolean, openUrl: (String) -> Unit) {
+internal fun SubscriptionPage(shop: (Boolean) -> Unit) {
     val c = MaterialTheme.colorScheme
-    val now = System.currentTimeMillis() / 1000L
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        if (!remote) {
-            Caption("Отдельный ключ не передаёт срок и лимит трафика")
-            return@Column
-        }
-        val downloaded = sub.downloadBytes
-        val uploaded = sub.uploadBytes
-        val used = if (downloaded != null && uploaded != null)
-            runCatching { Math.addExact(downloaded, uploaded) }.getOrDefault(Long.MAX_VALUE).coerceAtLeast(0L)
-        else null
-        val limit = sub.totalBytes
-        if (used != null || limit != null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Трафик", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                Text((used?.let(::sizeLabel) ?: "—") + " / " + when(limit) {
-                    null -> "—"
-                    0L -> "∞"
-                    else -> sizeLabel(limit.coerceAtLeast(0L))
-                }, style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
-            }
-            if (used != null && limit != null && limit > 0)
-                LinearProgressIndicator(progress = {
-                    (used.toDouble() / limit.toDouble()).toFloat().coerceIn(0f, 1f)
-                }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(6.dp)),
-                    color = c.primary, trackColor = c.surfaceVariant)
-        } else Caption("Провайдер не передал данные о трафике")
-        val expiry = sub.expiresAt
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(when {
-                expiry == null -> "Срок действия не предоставлен"
-                expiry == 0L -> "Без ограничения срока"
-                expiry <= now -> "Срок истёк " + dateLabel(expiry)
-                else -> "Действует до " + dateLabel(expiry)
-            }, modifier = Modifier.weight(1f), fontSize = 14.sp,
-                color = if (expiry != null && expiry > 0 && expiry <= now) c.error else c.onSurface)
-            if (expiry != null && expiry > now)
-                Text(daysLeft(expiry, now).toString() + " дн.", fontSize = 12.sp, color = c.onSurfaceVariant)
-        }
-        Caption("Последнее обновление · " + timeLabel(sub.updatedAt))
-        Caption("Автообновление · " + if (sub.updateIntervalSeconds < 3600L)
-            (sub.updateIntervalSeconds / 60L).toString() + " мин."
-        else (sub.updateIntervalSeconds / 3600L).toString() + " ч.")
-        sub.announcement?.takeIf { it.isNotBlank() }?.let { announcement ->
-            Surface(shape = RoundedCornerShape(12.dp),
-                color = c.surfaceVariant.copy(alpha = .6f)) {
-                Row(Modifier.fillMaxWidth().padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(9.dp),
-                    verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Info, null, Modifier.size(18.dp), tint = c.primary)
-                    Text(announcement, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
-                }
-            }
-        }
-        if (sub.supportUrl != null || sub.webPageUrl != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                sub.webPageUrl?.let { url ->
-                    TextButton(onClick = { openUrl(url) }, modifier = Modifier.tvFocusRing()) {
-                        Icon(Icons.Default.OpenInBrowser, null, Modifier.size(17.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("Кабинет")
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Surface(shape = RoundedCornerShape(20.dp), color = c.surface,
+            border = BorderStroke(1.dp, c.primary.copy(alpha = .34f))) {
+            Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                Text("PHANTOM VPN", color = c.primary, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(24.dp))
+                Text("Ваш доступ.", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text("Подключение, управление и продление Phantom VPN.", color = c.onSurfaceVariant)
+                Spacer(Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = { shop(true) }, modifier = Modifier.weight(1f).tvFocusRing().heightIn(min = 48.dp),
+                        contentPadding = PaddingValues(6.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.onSurface, contentColor = c.surface)) {
+                        Text("Продлить")
                     }
+                    OutlinedButton(onClick = { shop(false) }, modifier = Modifier.weight(1f).tvFocusRing().heightIn(min = 48.dp),
+                        contentPadding = PaddingValues(6.dp)) { Text("Купить") }
                 }
-                sub.supportUrl?.let { url ->
-                    TextButton(onClick = { openUrl(url) }, modifier = Modifier.tvFocusRing()) {
-                        Icon(Icons.Default.SupportAgent, null, Modifier.size(17.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("Поддержка")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun SubscriptionPage(subscriptions: List<Subscription>, currentId: String?,
-    pinnedId: String?, refreshing: Set<String>, failed: Set<String>,
-    onRefresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
-    add: () -> Unit, shop: (Boolean) -> Unit) {
-    val c = MaterialTheme.colorScheme
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var expanded by rememberSaveable { mutableStateOf(pinnedId ?: currentId ?: subscriptions.firstOrNull()?.id) }
-    LaunchedEffect(pinnedId, subscriptions.map { it.id }) {
-        if (pinnedId != null && subscriptions.any { it.id == pinnedId }) expanded = pinnedId
-        else if (expanded != null && subscriptions.none { it.id == expanded })
-            expanded = currentId ?: subscriptions.firstOrNull()?.id
-    }
-    fun openUrl(url: String) {
-        if (SubscriptionHeaders.safeHttpUrl(url) != url) return
-        runCatching {
-            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                android.net.Uri.parse(url)).addCategory(android.content.Intent.CATEGORY_BROWSABLE))
-        }
-    }
-    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (subscriptions.isEmpty()) item {
-            Panel {
-                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(crown, null, Modifier.size(34.dp), tint = c.primary)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Подписок пока нет", fontWeight = FontWeight.Medium)
-                    Caption("Добавьте подписку или отдельный ключ")
-                }
-            }
-        }
-        items(subscriptions, key = { it.id }) { sub ->
-            val name = subscriptionDisplayName(sub, subscriptions)
-            val remote = sub.source.startsWith("https://", true) || sub.source.startsWith("http://", true)
-            val isExpanded = expanded == sub.id
-            Panel(selected = sub.id == currentId) {
-                Row(Modifier.fillMaxWidth().padding(start = 7.dp, end = 5.dp, top = 5.dp, bottom = 5.dp),
+                Spacer(Modifier.height(22.dp))
+                HorizontalDivider(color = c.outline.copy(alpha = .25f))
+                Row(Modifier.fillMaxWidth().tvFocusRing().clickable { shop(true) }.padding(vertical = 18.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).heightIn(min = 55.dp).tvFocusRing()
-                        .clickable { expanded = if (isExpanded) null else sub.id }
-                        .semantics { contentDescription = (if (isExpanded) "Свернуть" else "Раскрыть") +
-                            " подписку $name" }.padding(start = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                            null, Modifier.size(22.dp), tint = c.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(name, modifier = Modifier.weight(1f, fill = false),
-                                    fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                if (pinnedId == sub.id) Icon(Icons.Default.PushPin, "Закреплена",
-                                    Modifier.padding(start = 6.dp).size(15.dp), tint = c.primary)
-                            }
-                            Caption(if (remote) serverCountLabel(sub.servers.size) + " · " + timeLabel(sub.updatedAt)
-                                else "Ключ или конфигурация · " + serverCountLabel(sub.servers.size))
-                            if (sub.id in failed)
-                                Text("Ошибка обновления · серверы сохранены", fontSize = 11.sp, color = c.error)
-                        }
+                    Column(Modifier.weight(1f)) {
+                        Text("Личный кабинет", fontWeight = FontWeight.SemiBold)
+                        Caption("Управление в магазине")
                     }
-                    if (remote) IconButton(onClick = { onRefresh(sub) }, enabled = sub.id !in refreshing,
-                        modifier = Modifier.size(48.dp).tvFocusRing().semantics {
-                            contentDescription = "Обновить подписку $name"
-                        }) {
-                        if (sub.id in refreshing) CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Default.Refresh, null, Modifier.size(21.dp), tint = c.primary)
-                    }
-                    IconButton(onClick = { manage(sub) }, modifier = Modifier.size(48.dp).tvFocusRing()) {
-                        Icon(Icons.Default.MoreVert, "Управление подпиской $name")
-                    }
+                    Icon(Icons.Default.NorthEast, null, Modifier.size(18.dp), tint = c.primary)
                 }
-                if (isExpanded) {
-                    HorizontalDivider(color = c.outline.copy(alpha = .2f),
-                        modifier = Modifier.padding(bottom = 12.dp))
-                    DetailedSubscription(sub, remote, ::openUrl)
-                }
+                HorizontalDivider(color = c.outline.copy(alpha = .25f))
+                Spacer(Modifier.height(16.dp))
+                Caption("Для продления в магазине выберите „Моя подписка“ → „Продлить“.")
             }
-        }
-        item {
-            OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth().tvFocusRing()
-                .heightIn(min = 48.dp), shape = RoundedCornerShape(22.dp)) {
-                Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Добавить подписку или ключ")
-            }
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { shop(true) }, modifier = Modifier.tvFocusRing()) {
-                    Text("Продлить Phantom")
-                }
-                Text("·", color = c.onSurfaceVariant)
-                TextButton(onClick = { shop(false) }, modifier = Modifier.tvFocusRing()) {
-                    Text("Купить Phantom")
-                }
-            }
-        }
-        item {
-            Text("В магазине выберите „Моя подписка“ → „Продлить“",
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    .semantics { contentDescription = "В магазине выберите „Моя подписка“ → „Продлить“" },
-                textAlign = TextAlign.Center, softWrap = true,
-                style = MaterialTheme.typography.bodySmall,
-                color = c.onSurfaceVariant)
         }
     }
 }

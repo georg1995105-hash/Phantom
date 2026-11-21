@@ -72,6 +72,22 @@ class TcpEndpointTest {
             peer, TcpEndpoint.independentEntryForProfile(config))
     }
 
+    @Test fun forcedTcpUsesThePublishedPortAcrossTransportsAndBalancerMembers() {
+        for (link in listOf("hy2://secret@edge.test:8443",
+                "tuic://00000000-0000-4000-8000-000000000001:secret@edge.test:8443",
+                "vless://00000000-0000-4000-8000-000000000001@edge.test:8443?type=xhttp&security=tls&alpn=h3")) {
+            assertEquals(listOf(TcpEndpoint("edge.test", 8443)), TcpEndpoint.listEntries(profile(link)))
+        }
+        val first = XrayConfigBuilder.shareOutbound(profile(key)).put("tag", "pool-first")
+        val second = XrayConfigBuilder.shareOutbound(profile("hy2://secret@edge.test:8443")).put("tag", "fallback")
+        val unrelated = XrayConfigBuilder.shareOutbound(profile("hy2://secret@other.test:443")).put("tag", "other")
+        val root = JSONObject().put("outbounds", JSONArray().put(unrelated).put(first).put(second))
+            .put("routing", JSONObject("""{"balancers":[{"selector":["pool-"],"fallbackTag":"fallback"}]}"""))
+        assertEquals(listOf(peer, TcpEndpoint("edge.test", 8443)), TcpEndpoint.listEntries(profile(root.toString())))
+        root.remove("routing")
+        assertTrue(TcpEndpoint.listEntries(profile(root.toString())).isEmpty())
+    }
+
     @Test fun independentTcpDoesNotSelectAnArbitraryBalancerOrUdpNode() {
         val first = XrayConfigBuilder.shareOutbound(profile(key)).put("tag", "a")
         val second = XrayConfigBuilder.shareOutbound(profile(

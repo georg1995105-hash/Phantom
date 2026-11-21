@@ -7,6 +7,8 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -67,6 +69,8 @@ class MultipleSubscriptionsUiTest {
                     raw = """{"remarks":"Автовыбор","outbounds":[{"protocol":"vless"}]}"""),
             ),
             updatedAt = now,
+            announcement = "Условия провайдера", downloadBytes = 42,
+            webPageUrl = "https://first.example/account",
         )
         val second = Subscription(
             id = "test-owner-two", title = "Тестовая подписка",
@@ -100,6 +104,14 @@ class MultipleSubscriptionsUiTest {
                 compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                     .performTouchInput { click() }
                 compose.awaitVisible(secondServer).performTouchInput { click() }
+                compose.awaitVisible(hasText("Автовыбор"))
+                compose.awaitVisible(hasContentDescription("Свернуть подписку $firstTitle")).performTouchInput { click() }
+                compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
+                compose.awaitVisible(hasContentDescription("Кабинет ${first.title}"))
+                compose.awaitVisible(hasText("Трафик"))
+                compose.awaitVisible(secondServer)
+                compose.onAllNodes(hasText("Подробнее"))[0].performTouchInput { click() }
+                compose.awaitVisible(hasText("Условия провайдера"))
                 compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
                 compose.runOnIdle {
                     assertEquals(second.id, prefs.getString("selected_subscription_id", null))
@@ -108,8 +120,8 @@ class MultipleSubscriptionsUiTest {
 
                 val refreshFirst = hasContentDescription("Обновить подписку $firstTitle")
                 val refreshSecond = hasContentDescription("Обновить подписку $secondTitle")
-                compose.awaitVisible(hasContentDescription("Проверить задержку подписки $firstTitle"))
-                compose.awaitVisible(hasContentDescription("Проверить задержку подписки $secondTitle"))
+                compose.awaitVisible(hasContentDescription("Управление подпиской $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
                 compose.awaitVisible(refreshFirst and isEnabled()).performTouchInput { click() }
                 assertEquals("/first", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 compose.awaitVisible(refreshFirst and isNotEnabled())
@@ -122,17 +134,27 @@ class MultipleSubscriptionsUiTest {
                 assertEquals(2, subscriptions.size)
                 assertEquals(refreshedLink, subscriptions.first().servers.single().raw)
                 assertEquals(second.copy(selectedServerId = "same-server-id"), subscriptions.last())
+                val secondMenu = hasContentDescription("Управление подпиской $secondTitle")
+                compose.awaitVisible(secondMenu).performClick()
+                for (action in listOf("Проверить пинг всех серверов", "Обновить подписку", "Копировать ссылку",
+                        "Показать QR-код", "Закрепить", "Поделиться", "Удалить подписку")) {
+                    compose.onNode(hasText(action)).assertExists()
+                }
+                compose.onNode(hasText("Показать QR-код")).performScrollTo().performClick()
+                compose.awaitVisible(hasContentDescription("QR-код"))
+                compose.awaitVisible(hasText("Закрыть")).performClick()
+                compose.awaitVisible(secondMenu).performClick()
+                compose.onNode(hasText("Удалить подписку")).performScrollTo().performClick()
+                compose.awaitVisible(hasText("Удалить подписку?"))
+                compose.awaitVisible(hasText("Отмена")).performClick()
+                assertEquals(2, store.read().size)
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                     .performTouchInput { click() }
-                compose.onNode(hasText("Выбрать подписку")).assertDoesNotExist()
-                compose.onNode(hasText("Мои подписки и ключи")).assertDoesNotExist()
-                compose.awaitVisible(hasContentDescription("Обновить подписку $firstTitle"))
-                compose.awaitVisible(hasContentDescription("Обновить подписку $secondTitle"))
-                compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
-                // On the details tab the selected owner's card starts expanded.
-                compose.awaitVisible(hasContentDescription("Свернуть подписку $secondTitle"))
-                    .performTouchInput { click() }
-                compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
+                compose.awaitVisible(hasText("Ваш доступ."))
+                compose.onNode(hasText("Поддержка")).assertDoesNotExist()
+                compose.onNode(hasText(secondTitle)).assertDoesNotExist()
+                assertEquals(first.webPageUrl, subscriptions.first().webPageUrl)
+                assertEquals(first.announcement, subscriptions.first().announcement)
                 compose.awaitVisible(hasContentDescription("Вкладка Серверы"))
                     .performTouchInput { click() }
                 // App recreation must not reset ownership to the first

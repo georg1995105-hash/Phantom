@@ -58,6 +58,16 @@ class LatencyProbeAndroidTest {
         assertNull(LatencyProbe.checkTraffic(instrumentation.targetContext, wrong, target, 2_000))
     }
 
+    @Test fun udpProfileMeasuresOnlyTcpAtItsPublishedPort() = runBlocking {
+        val ctx = instrumentation.targetContext
+        val listener = java.net.ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
+        val profile = SubscriptionParser.parse("hy2://secret@127.0.0.1:${listener.localPort}").servers.single()
+        listener.use {
+            assertTrue((LatencyProbe.measureTcp(ctx, profile) ?: 0) > 0)
+        }
+        assertNull(LatencyProbe.measureTcp(ctx, profile))
+    }
+
     @Test fun listTcpReturnsForASilentPortWhileTrafficVerificationFails() = runBlocking {
         fixture("peers.json")
         val ctx = instrumentation.targetContext
@@ -65,7 +75,7 @@ class LatencyProbeAndroidTest {
             "vless://00000000-0000-4000-8000-000000000001@10.0.2.2:34304?type=xhttp#Автовыбор"
         ).servers.single()
         val start = android.os.SystemClock.elapsedRealtime()
-        val result = LatencyProbe.measureResult(ctx, profile, LatencyProbe.tcpEndpoint(profile))
+        val result = LatencyProbe.measureTcp(ctx, profile)
         Log.i("PhantomLatencyTest", "TCP connect: $result ms, first result after " +
             "${android.os.SystemClock.elapsedRealtime() - start} ms")
         assertTrue("Bare TCP listener did not yield a handshake", (result ?: 0) > 0)
@@ -79,7 +89,7 @@ class LatencyProbeAndroidTest {
         addr.put("address", "10.0.2.2")
         peer.getJSONObject("streamSettings").remove("sockopt")
         val profile = SubscriptionParser.parse(raw.toString()).servers.single()
-        assertNull(LatencyProbe.tcpEndpoint(profile))
+        assertTrue((LatencyProbe.measureTcp(instrumentation.targetContext, profile) ?: 0) > 0)
         val timing = ProfileLatencyClient.measure(instrumentation.targetContext,
             XrayConfigBuilder.build(profile), false, target, 6_000)
         assertTrue((timing?.milliseconds ?: 0) >= 45)

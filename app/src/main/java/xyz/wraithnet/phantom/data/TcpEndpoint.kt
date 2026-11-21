@@ -5,6 +5,50 @@ import org.json.JSONObject
 /** A single physical TCP entry that the config identifies without running its router. */
 internal data class TcpEndpoint(val host: String, val port: Int) {
     companion object {
+        /** Physical addresses published for this row. A balancer can name several entries. */
+        fun listEntries(profile: ServerProfile): List<TcpEndpoint> {
+            if (!profile.raw.trimStart().startsWith("{")) {
+                // Old backups may lack the parsed address or port. Recover them from the share link.
+                val entry = if (profile.address.isNotBlank() && profile.port != null) profile
+                    else SubscriptionParser.parse(profile.raw).servers.single()
+                return listOfNotNull(of(entry.address, entry.port ?: 443))
+            }
+            val config = JSONObject(profile.raw)
+            val outbounds = config.optJSONArray("outbounds") ?: return listOfNotNull(publishedEntry(config))
+            val entries = (0 until outbounds.length()).mapNotNull(outbounds::optJSONObject)
+                .filterNot { it.optString("protocol") in setOf("freedom", "blackhole", "dns", "loopback") }
+                .filterNot { it.has("proxySettings") ||
+                    !it.optJSONObject("streamSettings")?.optJSONObject("sockopt")?.optString("dialerProxy").isNullOrEmpty() }
+            if (entries.size <= 1) return entries.mapNotNull(::publishedEntry)
+            val balancers = config.optJSONObject("routing")?.optJSONArray("balancers") ?: return emptyList()
+            val prefixes = mutableSetOf<String>()
+            val fallbacks = mutableSetOf<String>()
+            for (index in 0 until balancers.length()) {
+                val balancer = balancers.optJSONObject(index) ?: continue
+                balancer.optString("fallbackTag").takeIf(String::isNotBlank)?.let(fallbacks::add)
+                val selectors = balancer.optJSONArray("selector") ?: continue
+                for (i in 0 until selectors.length()) selectors.optString(i).takeIf(String::isNotBlank)?.let(prefixes::add)
+            }
+            return entries.filter {
+                val tag = it.optString("tag")
+                tag in fallbacks || prefixes.any(tag::startsWith)
+            }.mapNotNull(::publishedEntry).distinct()
+        }
+
+        private fun publishedEntry(outbound: JSONObject): TcpEndpoint? {
+            val protocol = outbound.optString("protocol", outbound.optString("type")).lowercase()
+            if (protocol !in setOf("vless", "vmess", "trojan", "shadowsocks", "socks", "http",
+                    "hysteria", "hysteria2", "tuic", "anytls")) return null
+            val stream = outbound.optJSONObject("streamSettings")
+            val settings = outbound.optJSONObject("settings") ?: outbound
+            val peers = settings.optJSONArray(if (protocol in setOf("vmess", "vless")) "vnext" else "servers")
+            val peer = if (peers == null) settings else peers.optJSONObject(0)?.takeIf { peers.length() == 1 } ?: return null
+            val host = stream?.optString("address")?.takeIf(String::isNotBlank)
+                ?: peer.optString("address", peer.optString("server"))
+            val port = stream?.optInt("port")?.takeIf { it > 0 } ?: peer.optInt("port", peer.optInt("server_port"))
+            return of(host, port)
+        }
+
         /**
          * TCP to a uniquely identifiable physical proxy entry, independent of Xray
          * provider routing. The probe does not establish the success of an

@@ -1,21 +1,22 @@
 package xyz.wraithnet.phantom.data
 
 import android.content.Context
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import xyz.wraithnet.phantom.service.ProfileTiming
 import xyz.wraithnet.phantom.service.ProfileLatencyClient
+import xyz.wraithnet.phantom.service.ProfileTiming
 import xyz.wraithnet.phantom.service.TcpPing
 
-enum class LatencyMethod { DIRECT_TCP, PROFILE_ROUTE }
-
-data class LatencySample(val milliseconds: Long, val method: LatencyMethod)
-
-/** Fixed TCP endpoints and routed/UDP profiles have distinct measurements. */
+/** Server list RTTs use physical TCP sockets. Tunnel diagnostics exercise the configured core. */
 object LatencyProbe {
-    const val MAX_PARALLEL_PROBES = 3
-    private const val TARGET = "https://cp.cloudflare.com/generate_204"
+    private val tcpSlots = Semaphore(12)
 
     fun timeoutMs(context: Context): Int =
         context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
@@ -27,21 +28,34 @@ object LatencyProbe {
             .putInt("ping_timeout_seconds", seconds).apply()
     }
 
-    internal fun tcpEndpoint(server: ServerProfile): TcpEndpoint? =
-        runCatching { TcpEndpoint.independentEntryForProfile(server) }.getOrNull()
-
-    internal suspend fun measureResult(context: Context, server: ServerProfile, endpoint: TcpEndpoint?): Long? =
-        measureSample(context, server, endpoint)?.milliseconds
-
-    /** Physical TCP handshake versus end-to-end response through the profile. */
-    internal suspend fun measureSample(context: Context, server: ServerProfile, endpoint: TcpEndpoint?): LatencySample? {
+    internal suspend fun measureTcp(context: Context, server: ServerProfile): Long? {
+        val peers = withContext(Dispatchers.Default) {
+            runCatching { TcpEndpoint.listEntries(server) }.getOrDefault(emptyList())
+        }
         val timeout = timeoutMs(context)
-        if (endpoint != null) return TcpPing.measure(context, endpoint, timeout)
-            ?.let { LatencySample(it, LatencyMethod.DIRECT_TCP) }
-        val routed = probe(context, server, TARGET, timeout) ?: return null
-        val chosen = routed.tcpPeer ?: return LatencySample(routed.milliseconds, LatencyMethod.PROFILE_ROUTE)
-        return TcpPing.measure(context, chosen, timeout)
-            ?.let { LatencySample(it, LatencyMethod.DIRECT_TCP) }
+        suspend fun connect(peer: TcpEndpoint) = tcpSlots.withPermit { TcpPing.measure(context, peer, timeout) }
+        if (peers.size <= 1) return peers.firstOrNull()?.let { connect(it) }
+        // Race the provider's actual balancer members. Report the responding socket's RTT.
+        return coroutineScope {
+            val results = Channel<Long?>(Channel.UNLIMITED)
+            val next = AtomicInteger()
+            val workers = List(minOf(3, peers.size)) {
+                launch {
+                    while (true) {
+                        val peer = peers.getOrNull(next.getAndIncrement()) ?: break
+                        val elapsed = connect(peer)
+                        results.send(elapsed)
+                        if (elapsed != null) break
+                    }
+                }
+            }
+            try {
+                repeat(peers.size) { results.receive()?.let { return@coroutineScope it } }
+                null
+            } finally {
+                workers.forEach { it.cancel() }
+            }
+        }
     }
 
     /** A real response through the configured core, including its UDP transport or routing graph. */

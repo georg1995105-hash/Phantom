@@ -4,16 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SubscriptionPresentationTest {
-    @Test fun serverCountUsesNaturalRussianForms() {
-        val expectations = listOf(
-            0 to "0 серверов", 1 to "1 сервер", 2 to "2 сервера",
-            4 to "4 сервера", 5 to "5 серверов", 11 to "11 серверов",
-            14 to "14 серверов", 15 to "15 серверов", 21 to "21 сервер",
-            22 to "22 сервера", 25 to "25 серверов", 101 to "101 сервер"
-        )
-        for ((count, label) in expectations) {
-            assertEquals(label, serverCountLabel(count))
-        }
+    @Test fun updateIntervalsKeepTheirPrecision() {
+        assertEquals("Каждый час", intervalLabel(3600))
+        assertEquals("Каждые 2 ч.", intervalLabel(7200))
+        assertEquals("Каждые 90 мин.", intervalLabel(5400))
+        assertEquals("Интервал 95 с", intervalLabel(95))
     }
 
     @Test fun expiryRemainingDaysAreRoundedCorrectly() {

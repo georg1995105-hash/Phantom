@@ -48,6 +48,7 @@ object SubscriptionFetcher {
         context: Context,
         url: String,
         hwid: String,
+        previous: Subscription? = null,
     ): DownloadedSubscription = PhantomHttp.get(
         context = context,
         url = requestUrl(url),
@@ -80,10 +81,13 @@ object SubscriptionFetcher {
             uploadBytes = parseUserInfo(response.header("subscription-userinfo"), "upload"),
             downloadBytes = parseUserInfo(response.header("subscription-userinfo"), "download"),
             totalBytes = parseUserInfo(response.header("subscription-userinfo"), "total"),
-            expiresAt = parseUserInfo(response.header("subscription-userinfo"), "expire"),
-            announcement = SubscriptionHeaders.decodeAnnouncement(response.header("announce")),
-            supportUrl = SubscriptionHeaders.safeHttpUrl(response.header("support-url")),
-            webPageUrl = SubscriptionHeaders.safeHttpUrl(response.header("profile-web-page-url")),
+            expiresAt = parseUserInfo(response.header("subscription-userinfo"), "expire") ?: previous?.expiresAt,
+            announcement = if (response.header("announce") == null) previous?.announcement
+                else SubscriptionHeaders.decodeAnnouncement(response.header("announce")),
+            supportUrl = if (response.header("support-url") == null) previous?.supportUrl
+                else SubscriptionHeaders.safeHttpUrl(response.header("support-url")),
+            webPageUrl = if (response.header("profile-web-page-url") == null) previous?.webPageUrl
+                else SubscriptionHeaders.safeHttpUrl(response.header("profile-web-page-url")),
         )
     }
 

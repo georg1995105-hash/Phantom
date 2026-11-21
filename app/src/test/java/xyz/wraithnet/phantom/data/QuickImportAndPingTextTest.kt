@@ -20,15 +20,9 @@ class QuickImportAndPingTextTest {
         }
     }
 
-    @Test fun tcpAndRouteCannotHaveTheSameLabel() {
-        assertEquals("TCP", SubscriptionPingText.methodLabel(LatencyMethod.DIRECT_TCP))
-        assertEquals("Маршрут", SubscriptionPingText.methodLabel(LatencyMethod.PROFILE_ROUTE))
-        assertEquals("", SubscriptionPingText.methodLabel(null))
-    }
-
     @Test fun pingDisplaysOnlyMillisecondsAndHasDistinctMeasuringAndMissingStates() {
         assertEquals("97 мс", SubscriptionPingText.display(97L, false))
-        assertEquals("97 мс", SubscriptionPingText.display(97L, true))
+        assertEquals("…", SubscriptionPingText.display(97L, true))
         assertEquals("…", SubscriptionPingText.display(null, true))
         assertEquals("—", SubscriptionPingText.display(null, false))
         assertEquals("—", SubscriptionPingText.display(0L, false))

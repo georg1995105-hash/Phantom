@@ -39,7 +39,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
             Text("Проверка пинга", fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Text(
-                "Пинг TCP показывает время соединения с сервером или входом CDN. Для QUIC и составных маршрутов без однозначного TCP-входа показано время ответа через профиль.",
+                "Для всех подписок измеряется TCP-соединение с адресом и портом сервера. Для балансировщика показан пинг первого ответившего входа. Если TCP недоступен, в списке отображается прочерк.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             HorizontalDivider()

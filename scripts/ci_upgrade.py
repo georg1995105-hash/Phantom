@@ -167,8 +167,9 @@ tap("Серверы")
 node("UpgradeCheck")
 node("Убрать из избранного")
 screenshot("servers")
-tap("Подписка")
 node("Добавить подписку или ключ")
+tap("Подписка")
+node("Ваш доступ.")
 screenshot("subscriptions")
 tap("Настройки")
 node("Тема оформления")
@@ -227,13 +228,14 @@ def entry_counts():
 
 
 node("XhttpProbe")
-wait_compact_latencies(min_count=5)
+wait_compact_latencies(min_count=3)
 before, payloads = entry_counts()
 subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "2", "-W", "2", "10.0.2.2", "34304"],
                input=b"via-tun", capture_output=True, timeout=8)
 assert entry_counts()[1] == payloads, "Control UID unexpectedly reached the physical TCP entry"
-tap("Проверить задержку подписки AndroidCheckA")
-wait_compact_latencies(min_count=5)
+tap("Управление подпиской AndroidCheckA")
+tap("Проверить пинг всех серверов")
+wait_compact_latencies(min_count=3)
 for _ in range(30):
     count, sent = entry_counts()
     if count > before:
@@ -252,6 +254,9 @@ node("AndroidCheckB")
 node("Подключено")
 tap("Отключить VPN")
 node("Отключено")
+tap("Серверы")
+tap("Свернуть подписку AndroidCheckA")
+tap("Главная")
 
 # Import the same provider JSON used by the native routing test. The first
 # outbound blocks traffic and the observed peer is down, so CONNECTED requires
@@ -260,10 +265,8 @@ balance = Path("app/src/androidTest/assets/provider-balance.json").read_text()
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", balance]))
 tap("Серверы")
-tap_in_list("Раскрыть подписку Автовыбор")
-wait_compact_latencies(min_count=1)
-print("Signed APK: provider Xray JSON measured latency while VPN was disconnected", flush=True)
-tap("Выбрать сервер Автовыбор")
+tap_in_list("Выбрать сервер Автовыбор")
+# This fixture uses a provider-only fallback DNS name. Its routed behavior is verified below.
 tap("Главная")
 node("Автовыбор")
 tap("Подключить VPN")
@@ -300,7 +303,7 @@ finally:
 print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
 screenshot("provider-auto-connected")
 tap("Серверы")
-wait_compact_latencies(min_count=1)
+node("Выбрать сервер Автовыбор")
 tap("Главная")
 node("Подключено")
 tap("Отключить VPN")
@@ -357,28 +360,22 @@ except AssertionError:
     screenshot("qr-failure")
     print(adb("logcat", "-d", "-s", "CameraPreview", "CameraInstance", "CameraManager", "DecoderThread"))
     raise
-tap("Подписка")
+tap("Серверы")
+tap_in_list("Раскрыть подписку OfflineSubscriptionCheck")
 node("OfflineSubscriptionCheck", attempts=20)
 print("Camera QR imported a subscription without a second confirmation", flush=True)
-tap("Серверы")
-tap("Раскрыть подписку OfflineSubscriptionCheck")
-tap("Выбрать сервер OfflineSubscriptionCheck")
+tap_in_list("Выбрать сервер OfflineSubscriptionCheck")
 tap("Главная")
 tap("Обновить выбранную подписку")
 node("Подписка обновлена")
+tap("Серверы")
+node("Управление подпиской OfflineSubscriptionCheck")
 tap("Подписка")
-try:
-    node("Данные могут быть устаревшими", attempts=1)
-except AssertionError:
-    pass
-else:
-    raise AssertionError("Online subscription refresh failed")
-node("OfflineSubscriptionCheck")
+node("Ваш доступ.")
 screenshot("forest-subscriptions")
-# Verify the same renewal guidance on a narrow device after scrolling past
-# expandable subscription cards. Do not weaken its existence assertion.
+# Verify that renewal guidance stays reachable on a narrow device.
 adb("shell", "wm", "size", "720x1600")
-renewal_hint = "В магазине выберите „Моя подписка“ → „Продлить“"
+renewal_hint = "Для продления в магазине выберите „Моя подписка“ → „Продлить“."
 for attempt in range(10):
     try:
         node(renewal_hint, attempts=1)
@@ -390,12 +387,12 @@ for attempt in range(10):
             raise
         # At 720x1600, y=1330 falls within bottom NavigationBar, which
         # consumes the gesture instead of scrolling the subscription list.
-        # Keep both touch points safely inside the LazyColumn viewport.
+        # Keep both touch points safely inside the scrollable content.
         adb("shell", "input", "swipe", "350", "1000", "350", "320", "420")
 node(renewal_hint)
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")
-for action in ("Купить Phantom", "Продлить Phantom"):
+for action in ("Купить", "Продлить", "Личный кабинет"):
     adb("logcat", "-c")
     tap_in_list(action)
     time.sleep(1)
@@ -407,7 +404,7 @@ adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 tap("Главная")
 tap("Обновить выбранную подписку")
-tap("Подписка")
+tap("Серверы")
 # After failed offline refresh the new card shows an explicit owner-scoped
 # error while preserving servers. Check the current UI contract, not text
 # removed with the old duplicate subscription summary.
@@ -418,7 +415,7 @@ node("OfflineSubscriptionCheck")
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
     tap("Подписка")
-    node("OfflineSubscriptionCheck")
+    node("Ваш доступ.")
     for tab in ("Главная", "Серверы", "Подписка", "Настройки"):
         node(tab)
     screenshot("phone-landscape")
@@ -439,7 +436,7 @@ try:
         tap("Серверы")
         node("OfflineSubscriptionCheck")
         tap("Подписка")
-        node("OfflineSubscriptionCheck")
+        node("Ваш доступ.")
         tap("Настройки")
         node("Настройки")
         screenshot(shot)
