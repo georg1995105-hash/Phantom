@@ -1,38 +1,52 @@
-# Phantom
+# PHANTOM VPN
 
-Личный Android VPN-клиент на sing-box + Xray-core, интерфейс в стиле Happ/Incy.
+**VPN-клиент для Android, планшетов и Android TV.** Подписки и отдельные ключи, удобный выбор серверов и управление подключением.
 
-## Стек
+### Скачать
 
-- Kotlin + Jetpack Compose (Material 3)
-- Ядра: **Xray-core** (через `libv2ray.aar` из [AndroidLibXrayLite](https://github.com/2dust/AndroidLibXrayLite)) и **sing-box** (через `libbox`, добавляется на шаге 8)
-- Один `VpnService`, одновременно работает одно ядро
-- Мин. SDK 26 (Android 8.0), target SDK 35, **arm64-v8a, armeabi-v7a, x86_64 и x86**. Для телефона и Android TV скачайте [единый APK](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk). Android выбирает нужные библиотеки при установке.
+**[⬇ Скачать Phantom VPN — последняя стабильная версия (универсальный APK)](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk)**
 
-## Протоколы
+[Страница загрузки](https://georg1995105-hash.github.io/Phantom/) · [Лёгкий APK для ARM64](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk) · [История версий](https://github.com/georg1995105-hash/Phantom/releases/latest) · [Все релизы](https://github.com/georg1995105-hash/Phantom/releases)
 
-VLESS (REALITY, XHTTP, gRPC, WS, HTTPUpgrade), VMess, Trojan, Shadowsocks (включая 2022), Hysteria2, TUIC v5, ShadowTLS, WireGuard, SOCKS5, HTTP.
+> Ссылка «Скачать» **не привязана к номеру версии**. Она ведёт на универсальный APK из последнего официального стабильного GitHub Release. Черновые, тестовые и beta-выпуски не заменяют стабильную версию.
 
-## Совместимость с Remnawave
+| Устройство | APK |
+| --- | --- |
+| **Телефон / планшет / Android TV** | [Универсальный — все поддерживаемые архитектуры](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk) |
+| Android ARM64 | [Компактная ARM64-сборка](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk) |
+| Android ARM32 | [Компактная ARM32-сборка](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-armeabi-v7a-release.apk) |
+| Android x86 / x86_64 | [x86](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86-release.apk) · [x86_64](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86_64-release.apk) |
 
-- Принимает полные Xray JSON-конфиги (массив с `remarks`/`outbounds`/`balancers`/`observatory`/`routing`), запускает «как есть» + добавляет TUN-inbound.
-- Заголовки: `User-Agent: Phantom/<versionName>`, `x-hwid`, `x-device-os`, `x-device-model`, `x-ver-os`.
-- Читает `subscription-userinfo`, `profile-title`, `profile-update-interval`.
-- Mux, XHTTP, Hysteria2, балансировщики.
+### Установка
 
-## Сборка
+1. Скачайте APK для своего устройства. Если не знаете архитектуру, используйте **универсальный APK**.
+2. Установите файл через Android. Если система попросит разрешение на установку из браузера, подтвердите его для используемого браузера.
+3. Добавьте ссылку на подписку либо отдельный ключ и выберите сервер.
+4. Новые официальные версии можно устанавливать поверх старых без удаления приложения. Android при необходимости запросит подтверждение установки.
 
-APK собирается в GitHub Actions (`.github/workflows/build.yml`).
+**Важно:** APK из Pull Requests и тестовых сборок не предназначены для обновления официально подписанного приложения.
 
-Для ручной установки выпускается `phantom-universal-release.apk`. Для OTA клиент выбирает меньший APK по списку архитектур Android. Идентификатор приложения и сертификат общие. Для PR используется временный ключ. Официальные APK подписываются в ручном релизном workflow.
+### Возможности
 
-## План
+- Подписки Remnawave и совместимых сервисов, а также отдельные ключи.
+- VLESS/REALITY/XHTTP, VMess, Trojan, Shadowsocks, Hysteria2; TUIC и AnyTLS используют отдельный процесс sing-box.
+- Четыре вкладки, информация о подписке, список серверов, ручная проверка задержки.
+- DNS-настройки, маршрутизация отдельных приложений, QR-коды, темы оформления.
+- Интерфейс для телефона, планшета и Android TV; обновления через GitHub Releases.
 
-- [x] 1. Каркас + CI + подпись
-- [ ] 2. Имя «PHANTOM», иконка, applicationId
-- [ ] 3. Загрузка подписки с заголовками, запуск Xray JSON «как есть»
-- [ ] 4. Главный экран в стиле Happ
-- [ ] 5. Список серверов с пингом
-- [ ] 6. Карточка подписки + первый запуск
-- [ ] 7. Per-app proxy
-- [ ] 8. sing-box, tuic://, ShadowTLS, автовыбор ядра
+Доступность и качество отдельных протоколов зависят от сервера и сети. CI-тесты не заменяют проверку на реальных устройствах.
+
+### Обновления и безопасность
+
+Стабильные сборки публикуются только через [официальные GitHub Releases](https://github.com/georg1995105-hash/Phantom/releases). Встроенный загрузчик OTA проверяет SHA-256, версию, имя пакета и подпись перед установкой; Android может потребовать подтверждение. Если GitHub недоступен в сети, проверьте доступ из браузера через работающий VPN.
+
+### Исходный код и разработка
+
+Этот репозиторий содержит исходники Android-клиента. Источником опубликованных сборок являются соответствующие **теги Releases**; разработка и проверка новых функций ведутся в отдельных ветках и Pull Requests. Состояние ветки \`main\` может отличаться от последнего опубликованного тега.
+
+- [История релизов и APK](https://github.com/georg1995105-hash/Phantom/releases)
+- [Проверки GitHub Actions](https://github.com/georg1995105-hash/Phantom/actions/workflows/build.yml)
+- [Описание использованных нативных библиотек](THIRD_PARTY_LIBBOX.md)
+- [Подробные изменения](RELEASE_NOTES.md)
+
+**PHANTOM VPN** — Android-приложение. Кнопка скачивания не оформляет платную подписку. Для покупки и продления используется отдельный [официальный магазин](https://go.veor.pro/).
