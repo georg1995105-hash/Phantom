@@ -54,7 +54,15 @@ class TuicUdpBridgeIntegrationTest {
     }
 
     private fun verifyUdpRoundTrip(xraySocksPort: Int, id: Int) {
-        Socket("127.0.0.1", xraySocksPort).use { control ->
+        // Native Xray may publish its SOCKS listener slightly after startLoop.
+        var socket: Socket? = null
+        repeat(12) {
+            if (socket == null) {
+                socket = runCatching { Socket("127.0.0.1", xraySocksPort) }.getOrNull()
+                if (socket == null) Thread.sleep(100)
+            }
+        }
+        requireNotNull(socket) { "Xray SOCKS inbound did not start" }.use { control ->
             control.soTimeout = 8_000
             val input = control.getInputStream()
             val output = control.getOutputStream()
