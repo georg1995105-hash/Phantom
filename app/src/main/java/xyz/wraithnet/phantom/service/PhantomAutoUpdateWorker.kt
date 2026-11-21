@@ -36,7 +36,7 @@ class PhantomAutoUpdateWorker(context: Context, params: WorkerParameters) :
             val next = PhantomUpdates.check(ctx) ?: return Result.success()
             if (Build.VERSION.SDK_INT < 31 ||
                 !ctx.packageManager.canRequestPackageInstalls()) return Result.success()
-            val apk = PhantomUpdates.download(ctx, next) { }
+            val apk = PhantomUpdates.download(ctx, next, onProgress = { })
             if (prefs.getBoolean("vpn_running", false) ||
                 !prefs.getBoolean("auto_apk_updates", true)) return Result.success()
             PhantomUpdates.openInstaller(ctx, apk)
