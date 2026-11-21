@@ -50,10 +50,27 @@ object SingBoxBridgeConfig {
                 require(runCatching { UUID.fromString(uuid) }.isSuccess) {
                     "Неверный UUID TUIC"
                 }
+                val congestion = query["congestion_control"]?.takeIf(String::isNotBlank) ?: "cubic"
+                require(congestion in setOf("cubic", "new_reno", "bbr")) {
+                    "Неизвестный алгоритм управления TUIC"
+                }
+                val udpMode = query["udp_relay_mode"]?.takeIf(String::isNotBlank)
+                require(udpMode == null || udpMode in setOf("native", "quic")) {
+                    "Неизвестный режим передачи UDP в TUIC"
+                }
+                val udpOverStream = query["udp_over_stream"]?.let { booleanValue(it) }
+                require(udpMode == null || udpOverStream != true) {
+                    "TUIC: udp_relay_mode нельзя использовать одновременно с udp_over_stream"
+                }
                 outbound.put("uuid", uuid)
                     .put("password", decodedUser.substring(separator + 1))
-                    .put("congestion_control", query["congestion_control"] ?: "cubic")
-                    .put("zero_rtt_handshake", query["zero_rtt_handshake"] == "1")
+                    .put("congestion_control", congestion)
+                    .put("zero_rtt_handshake",
+                        query["zero_rtt_handshake"]?.let { booleanValue(it) } ?: false)
+                udpMode?.let { outbound.put("udp_relay_mode", it) }
+                udpOverStream?.let { outbound.put("udp_over_stream", it) }
+                query["heartbeat"]?.takeIf(String::isNotBlank)
+                    ?.let { outbound.put("heartbeat", it) }
             }
             "anytls" -> outbound.put("password", decodedUser)
         }
@@ -75,6 +92,12 @@ object SingBoxBridgeConfig {
                 .put("auto_detect_interface", autoDetectInterface)
                 .put("final", "proxy"))
             .toString()
+    }
+
+    private fun booleanValue(value: String): Boolean = when (value.lowercase()) {
+        "1", "true" -> true
+        "0", "false" -> false
+        else -> error("Неверный параметр TUIC: ожидается true/false или 1/0")
     }
 
     private fun query(raw: String): Map<String, String> = raw.split("&")
