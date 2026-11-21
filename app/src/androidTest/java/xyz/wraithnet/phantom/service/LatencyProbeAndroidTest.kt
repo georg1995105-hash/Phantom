@@ -14,6 +14,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import xyz.wraithnet.phantom.data.LatencyProbe
+import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.TcpEndpoint
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
@@ -63,6 +64,22 @@ class LatencyProbeAndroidTest {
             assertTrue("TUIC ping run ${round + 1} failed after native process recycling",
                 (delay ?: 0L) >= 45L)
         }
+    }
+
+    @Test fun pingAndOtaDiagnosticsNeverStoreShareLinksOrServerUrls() {
+        val context = instrumentation.targetContext
+        VpnEventLog.record(context, "ping",
+            "TUIC 0/1; тест tuic://secret@vpn.example.org:443; https://private.example/token")
+        val ping = VpnEventLog.read(context).first()
+        assertEquals("Проверка пинга", ping.state)
+        assertTrue(ping.reason.contains("TUIC 0/1"))
+        assertTrue(!ping.reason.contains("secret@"))
+        assertTrue(!ping.reason.contains("private.example"))
+        VpnEventLog.record(context, "update",
+            "APK 58 МиБ; средняя скорость 300 КиБ/с; повторы: 2")
+        val update = VpnEventLog.read(context).first()
+        assertEquals("Загрузка обновления", update.state)
+        assertTrue(update.reason.contains("300 КиБ/с"))
     }
 
     @Test fun openPortWithInvalidAuthenticationFailsTrafficCheck() = runBlocking {
