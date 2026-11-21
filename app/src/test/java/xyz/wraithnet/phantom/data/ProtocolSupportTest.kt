@@ -8,6 +8,17 @@ class ProtocolSupportTest {
         id = id, name = id, scheme = scheme, raw = "$scheme://example.com"
     )
 
+    @Test fun automaticTuicProbeIsOptInWithoutDisablingExistingPings() {
+        assertFalse(ProtocolSupport.shouldAutoProbe("tuic", false))
+        assertFalse(ProtocolSupport.shouldAutoProbe("TUIC", false))
+        assertTrue(ProtocolSupport.shouldAutoProbe("tuic", true))
+        for (scheme in listOf("vless", "xray", "json", "hysteria2", "hy2",
+            "anytls", "vmess", "trojan", "ss")) {
+            assertTrue(scheme, ProtocolSupport.shouldAutoProbe(scheme, false))
+            assertTrue(scheme, ProtocolSupport.shouldAutoProbe(scheme, true))
+        }
+    }
+
     @Test fun supportedProtocolsIncludeBothEngines() {
         listOf("vless", "vmess", "trojan", "ss", "xray", "hy2", "hysteria2",
             "tuic", "anytls").forEach { assertTrue(it, ProtocolSupport.isSupported(it)) }
