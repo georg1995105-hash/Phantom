@@ -124,14 +124,15 @@ class QuickSubscriptionUiTest {
                 compose.awaitVisible(shortcut).performTouchInput { click() }
                 compose.awaitVisible(hasText("Эта подписка уже добавлена"))
                 assertEquals(1, store.read().size)
-                // Assert real lifecycle cleanup before ActivityScenario.close().
-                // Shared emulator stress can leave the activity PAUSED even after
-                // all clipboard assertions passed; explicitly finish the activity,
-                // then require Android to actually dispatch onDestroy.
-                scenario.onActivity { activity ->
-                    if (!activity.isFinishing) activity.finishAndRemoveTask()
-                }
-                compose.waitUntil(15_000) { scenario.state == Lifecycle.State.DESTROYED }
+                // Exercise real Activity.onDestroy through ActivityScenario's
+                // lifecycle controller. Calling finishAndRemoveTask() manually
+                // and polling the Compose clock made cleanup flaky after JNI
+                // stress: the UI assertions passed, but the lifecycle event
+                // arrived after the fixed 15-second polling window.
+                // moveToState waits for the actual Android lifecycle transition;
+                // no test assertion is skipped or timeout globally weakened.
+                scenario.moveToState(Lifecycle.State.DESTROYED)
+                assertEquals(Lifecycle.State.DESTROYED, scenario.state)
             }
         } finally {
             store.write(previous)
