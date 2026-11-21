@@ -256,7 +256,11 @@ subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "2", "-W", "2", "10.
 assert entry_counts()[1] == payloads, "Control UID unexpectedly reached the physical TCP entry"
 tap("Управление подпиской AndroidCheckA")
 tap("Проверить пинг всех серверов")
-wait_compact_latencies(min_count=3)
+# Three TCP peers already worked before this change. TUIC has no TCP listener,
+# so a fourth number must come from its isolated QUIC/HTTPS latency probe.
+# Hysteria2 TCP SYN is intentionally not converted into a synthetic UDP RTT.
+wait_compact_latencies(min_count=4, attempts=65)
+print("Native TUIC ping and original TCP server pings are both visible", flush=True)
 for _ in range(30):
     count, sent = entry_counts()
     if count > before:
