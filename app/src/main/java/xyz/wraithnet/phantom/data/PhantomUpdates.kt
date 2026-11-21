@@ -43,6 +43,24 @@ object PhantomUpdates {
 
     internal fun assetFor(abis: List<String>, channel: String = "stable"): String? =
         assetCandidates(abis, channel).firstOrNull()
+
+    /** Select only a complete signed release asset with a verifiable digest. */
+    internal fun chooseAsset(assets: JSONArray, candidates: List<String>): org.json.JSONObject? {
+        for (name in candidates) {
+            for (j in 0 until assets.length()) {
+                val asset = assets.optJSONObject(j) ?: continue
+                if (asset.optString("name") != name ||
+                    asset.optString("state") != "uploaded") continue
+                val url = asset.optString("browser_download_url")
+                val hash = asset.optString("digest").removePrefix("sha256:")
+                if (!url.startsWith(PREFIX) || !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue
+                val size = asset.optLong("size", 0L)
+                if (size <= 0L || size > 250L * 1024 * 1024) continue
+                return asset
+            }
+        }
+        return null
+    }
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
 
     // Stable never accepts beta/pre-release assets even when tagged as X.Y.Z.
@@ -108,29 +126,16 @@ object PhantomUpdates {
             if (!eligible || !isNewerForChannel(version, installed, channel)) continue
             if (best != null && !isNewerForChannel(version, best.version, channel)) continue
             val assets = item.optJSONArray("assets") ?: continue
-            // Check asset preference, not GitHub's arbitrary array order.
-            // Older releases containing only universal APK still update safely.
-            for (assetName in candidateAssets) {
-                var selected = false
-                for (j in 0 until assets.length()) {
-                    val asset = assets.optJSONObject(j) ?: continue
-                    if (asset.optString("name") != assetName ||
-                        asset.optString("state") != "uploaded") continue
-                    val url = asset.optString("browser_download_url")
-                    val hash = asset.optString("digest").removePrefix("sha256:")
-                    if (!url.startsWith(PREFIX) ||
-                        !hash.matches(Regex("[a-fA-F0-9]{64}"))) continue
-                    val size = asset.optLong("size", 0L)
-                    if (size <= 0L || size > 250L * 1024 * 1024) continue
-                    best = PhantomRelease(
-                        version, url, hash.lowercase(Locale.ROOT),
-                        size, item.optString("body").take(1500)
-                    )
-                    selected = true
-                    break
-                }
-                if (selected) break
-            }
+            // The latest release is chosen by version, then the smallest
+            // compatible complete APK by candidate priority, not API order.
+            val asset = chooseAsset(assets, candidateAssets) ?: continue
+            best = PhantomRelease(
+                version,
+                asset.getString("browser_download_url"),
+                asset.getString("digest").removePrefix("sha256:").lowercase(Locale.ROOT),
+                asset.getLong("size"),
+                item.optString("body").take(1500)
+            )
         }
         best
     }
