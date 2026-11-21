@@ -263,7 +263,8 @@ internal fun ServersPage(
     pinnedId: String?, favorites: Set<String>, latency: Map<String, Long>,
     probing: Set<String>, measuring: Map<String, String>, refreshing: Set<String>, failed: Set<String>,
     onRefresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
-    onAutoProbe: (Subscription) -> Unit, favorite: (String) -> Unit,
+    onAutoProbe: (Subscription) -> Unit, onManualPing: (Subscription) -> Unit,
+    favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit, openUrl: (String) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
@@ -304,6 +305,15 @@ internal fun ServersPage(
                                     Caption(if (owner.updatedAt > 0) "Обновлено $time · $interval" else interval)
                                 }
                                 if (owner.id in failed) Text("Ошибка обновления · серверы сохранены", color = c.error, fontSize = 11.sp)
+                            }
+                        }
+                        if (servers.any { it.scheme.equals("tuic", ignoreCase = true) }) {
+                            IconButton(onClick = { onManualPing(owner) },
+                                enabled = owner.id !in probing,
+                                modifier = Modifier.tvFocusRing().semantics {
+                                    contentDescription = "Проверить пинг TUIC и других серверов"
+                                }) {
+                                Icon(Icons.Default.Speed, null, tint = c.primary)
                             }
                         }
                         if (remote) IconButton(onClick = { onRefresh(owner) }, enabled = owner.id !in refreshing,
@@ -349,6 +359,15 @@ internal fun ServersPage(
                             Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
                                 if (id in favorites) "Убрать из избранного" else "В избранное", Modifier.size(19.dp),
                                 tint = if (id in favorites) Color(0xFFCEB36D) else c.onSurfaceVariant)
+                        }
+                        if (single && server.scheme.equals("tuic", ignoreCase = true)) {
+                            IconButton(onClick = { onManualPing(owner) },
+                                enabled = owner.id !in probing,
+                                modifier = Modifier.tvFocusRing().semantics {
+                                    contentDescription = "Проверить пинг TUIC"
+                                }) {
+                                Icon(Icons.Default.Speed, null, tint = c.primary)
+                            }
                         }
                         if (single) OwnerMenu(name) { manage(owner) }
                     }
@@ -465,6 +484,8 @@ internal fun AppUpdateSheet(
     error: String?,
     onLater: () -> Unit,
     onUpdate: () -> Unit,
+    onDownloadInBrowser: () -> Unit,
+    onCancelDownload: () -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
     val brief = remember(release.notes) { ReleaseNotes.summary(release.notes, 3) }
@@ -512,13 +533,26 @@ internal fun AppUpdateSheet(
                     " · ${speedBytesPerSecond / 1024L} КБ/с" else "")
             }
             error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
+            // The in-app updater uses Phantom's direct network, which may not
+            // reach GitHub on Wi-Fi. Browser downloads can use Android VPN routing.
+            // Let users choose it before starting, not only after a long timeout.
+            if (!downloading) TextButton(
+                onClick = onDownloadInBrowser,
+                modifier = Modifier.align(Alignment.Start).tvFocusRing()
+            ) {
+                Icon(Icons.Default.OpenInBrowser, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Скачать через браузер")
+            }
             val shape = RoundedCornerShape(14.dp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilledTonalButton(onClick = onLater, enabled = !downloading, shape = shape,
+                FilledTonalButton(
+                    onClick = { if (downloading) onCancelDownload() else onLater() },
+                    shape = shape,
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = c.surfaceVariant, contentColor = c.onSurface),
                     modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
-                    Text("Позже")
+                    Text(if (downloading) "Остановить" else "Позже")
                 }
                 Button(onClick = onUpdate, enabled = !downloading, shape = shape,
                     modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {

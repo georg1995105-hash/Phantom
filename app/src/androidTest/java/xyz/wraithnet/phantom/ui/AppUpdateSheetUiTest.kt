@@ -25,17 +25,41 @@ import xyz.wraithnet.phantom.ui.theme.PhantomTheme
 class AppUpdateSheetUiTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun failureShowsBrowserFallbackWithoutBlockingWorkingUpdateButtons() {
+        val release = PhantomRelease("9.0.0", "", "", 1234,
+            "- Исправление загрузки через Wi-Fi")
+        var browserInvoked by mutableStateOf(false)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    PhantomTheme {
+                        AppUpdateSheet(release, false, 0, 0L, false,
+                            "GitHub недоступен по текущей сети",
+                            onLater = { }, onUpdate = { },
+                            onDownloadInBrowser = { browserInvoked = true },
+                            onCancelDownload = { })
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Скачать через браузер")).performClick()
+            compose.runOnIdle { assertTrue(browserInvoked) }
+        }
+    }
+
     @Test fun primaryAndLaterActionsStayTogetherBelowExpandableReleaseNotes() {
         val release = PhantomRelease("9.0.0", "", "", 0L,
             "- Первый пункт\n- Второй пункт\n- Третий пункт\n- Дополнительный пункт")
         var shown by mutableStateOf(true)
         var downloading by mutableStateOf(false)
+        var stopped by mutableStateOf(false)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     PhantomTheme {
                         if (shown) AppUpdateSheet(release, downloading, 40, 128L * 1024L, false, null,
-                            onLater = { shown = false }, onUpdate = { downloading = true })
+                            onLater = { shown = false }, onUpdate = { downloading = true },
+                            onDownloadInBrowser = { },
+                            onCancelDownload = { stopped = true; downloading = false })
                     }
                 }
             }
@@ -52,8 +76,8 @@ class AppUpdateSheetUiTest {
             compose.onNode(hasText("Дополнительный пункт", substring = true)).assertDoesNotExist()
             compose.awaitVisible(update).performClick()
             compose.awaitVisible(hasText("Загрузка 40% · 128 КБ/с"))
-            compose.awaitVisible(later and isNotEnabled())
-            compose.runOnIdle { downloading = false }
+            compose.awaitVisible(hasText("Остановить") and isEnabled()).performClick()
+            compose.runOnIdle { assertTrue(stopped) }
             compose.awaitVisible(later and isEnabled()).performClick()
             compose.onNode(update).assertDoesNotExist()
         }

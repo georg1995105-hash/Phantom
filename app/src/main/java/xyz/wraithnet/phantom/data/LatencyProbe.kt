@@ -17,6 +17,17 @@ import xyz.wraithnet.phantom.service.TcpPing
 /** Server list RTTs use physical TCP sockets except TUIC, which requires an actual QUIC tunnel. */
 object LatencyProbe {
     private val tcpSlots = Semaphore(12)
+    private const val AUTO_TUIC_PING = "auto_tuic_ping"
+
+    fun autoTuicEnabled(context: Context): Boolean =
+        context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            .getBoolean(AUTO_TUIC_PING, false)
+
+    fun setAutoTuicEnabled(context: Context, value: Boolean) {
+        context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            .edit().putBoolean(AUTO_TUIC_PING, value).apply()
+    }
+
 
     fun timeoutMs(context: Context): Int =
         context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)

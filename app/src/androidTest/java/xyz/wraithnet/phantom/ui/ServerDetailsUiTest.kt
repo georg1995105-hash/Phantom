@@ -37,7 +37,7 @@ class ServerDetailsUiTest {
                 Box(Modifier.width(320.dp)) {
                     ServersPage(listOf(phantom, other, key), phantom to phantom.servers.single(),
                         null, emptySet(), emptyMap(), emptySet(), emptyMap(), emptySet(), emptySet(),
-                        {}, {}, {}, {}, { _, _ -> }, {}, { links.add(it) })
+                        {}, {}, {}, {}, {}, { _, _ -> }, {}, { links.add(it) })
                 }
             }
         }

@@ -12,6 +12,11 @@ object ProtocolSupport {
     // TCP SYN is not a TUIC latency measurement: TUIC uses QUIC over UDP.
     // Preserve the existing TCP server-list pings for every other protocol.
     fun usesNativeLatency(scheme: String): Boolean = scheme.equals("tuic", ignoreCase = true)
+    // Do not cold-start another QUIC/Go runtime automatically while users
+    // browse server lists. TUIC latency remains available on explicit request.
+    // All pre-existing non-TUIC automatic pings keep their original behaviour.
+    fun shouldAutoProbe(scheme: String, enableTuic: Boolean): Boolean =
+        !usesNativeLatency(scheme) || enableTuic
 }
 
 /** The selected profile is scoped to its parent subscription, not only the link index. */

@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
@@ -73,6 +74,7 @@ import xyz.wraithnet.phantom.ui.settings.AppRoutingScreen
 import xyz.wraithnet.phantom.ui.settings.DnsSettingsScreen
 import xyz.wraithnet.phantom.service.VpnBootPolicy
 import xyz.wraithnet.phantom.ui.settings.DiagnosticsScreen
+import xyz.wraithnet.phantom.ui.settings.PingSettingsScreen
 import xyz.wraithnet.phantom.ui.settings.ThemeGalleryScreen
 import xyz.wraithnet.phantom.service.PhantomQuickTileService
 import xyz.wraithnet.phantom.data.SubscriptionParser
@@ -126,6 +128,7 @@ fun HomeScreen(
     var probing by remember { mutableStateOf(emptySet<String>()) }
     val measuring = remember { mutableStateMapOf<String, String>() }
     val scanned = remember { mutableMapOf<String, List<ServerProfile>>() }
+    val scannedWithAutoTuic = remember { mutableMapOf<String, Boolean>() }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     val serverPageState = rememberSaveableStateHolder()
@@ -167,6 +170,7 @@ fun HomeScreen(
             latencies.remove(it)
         }
         scanned.keys.retainAll(list.map { it.id }.toSet())
+        scannedWithAutoTuic.keys.retainAll(list.map { it.id }.toSet())
         subscriptions = list
     }
 
@@ -371,14 +375,24 @@ fun HomeScreen(
         }
     }
 
-    fun probeSubscription(item: Subscription, notify: Boolean = true) {
-        if (item.id in probing || (!notify && scanned[item.id] == item.servers)) return
+    fun probeSubscription(item: Subscription, notify: Boolean = true, tuicOnly: Boolean = false) {
+        val autoTuic = LatencyProbe.autoTuicEnabled(context)
+        if (item.id in probing || (!notify && scanned[item.id] == item.servers &&
+                    scannedWithAutoTuic[item.id] == autoTuic)) return
         probing = probing + item.id
-        scanned[item.id] = item.servers
+        // A manually requested TUIC probe must not suppress later automatic
+        // TCP pings for another protocol in the same subscription.
+        if (!tuicOnly) {
+            scanned[item.id] = item.servers
+            scannedWithAutoTuic[item.id] = autoTuic
+        }
         scope.launch {
             val message = try {
-                val probeOrder = item.servers.filter { ProtocolSupport.isSupported(it.scheme) }
-                    .sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
+                val probeOrder = item.servers.filter {
+                    ProtocolSupport.isSupported(it.scheme) &&
+                        (if (tuicOnly) ProtocolSupport.usesNativeLatency(it.scheme)
+                         else (notify || ProtocolSupport.shouldAutoProbe(it.scheme, autoTuic)))
+                }.sortedByDescending { item.id == selectedMatch?.first?.id && it.id == selected?.id }
                 val remaining = probeOrder.iterator()
                 // Keep individual failures local: a broken TUIC JNI/session
                 // must not cancel healthy VLESS, HY2 or XHTTP pings.
@@ -485,6 +499,7 @@ fun HomeScreen(
     var availableUpdate by remember { mutableStateOf<PhantomRelease?>(null) }
     var otaChecking by remember { mutableStateOf(false) }
     var otaDownload by remember { mutableStateOf(false) }
+    var otaDownloadJob by remember { mutableStateOf<Job?>(null) }
     var otaProgress by remember { mutableIntStateOf(0) }
     var otaSpeed by remember { mutableLongStateOf(0L) }
     var otaFile by remember { mutableStateOf<File?>(null) }
@@ -549,10 +564,10 @@ fun HomeScreen(
     }
 
     fun startOtaInstall() {
-        if (otaDownload) return
+        if (otaDownload || otaDownloadJob?.isActive == true) return
         val release = availableUpdate ?: return
         otaError = null
-        scope.launch {
+        otaDownloadJob = scope.launch {
             try {
                 val file = otaFile?.takeIf { it.exists() } ?: run {
                     otaDownload = true
@@ -567,10 +582,13 @@ fun HomeScreen(
                 if (!launched) {
                     otaError = "Разрешите установку из Phantom и нажмите «Установить» ещё раз"
                 }
+            } catch (_: CancellationException) {
+                otaError = "Загрузка остановлена. Можно скачать через браузер."
             } catch (e: Exception) {
                 otaError = e.message ?: "Не удалось установить обновление"
             } finally {
                 otaDownload = false
+                otaDownloadJob = null
             }
         }
     }
@@ -631,12 +649,13 @@ fun HomeScreen(
                     subscriptionAvailable = selectedMatch != null,
                     hasSubscriptions = subscriptions.isNotEmpty())
                 Destination.SERVERS -> serverPageState.SaveableStateProvider("servers") {
-                    DisposableEffect(Unit) { onDispose { scanned.clear() } }
+                    DisposableEffect(Unit) { onDispose { scanned.clear(); scannedWithAutoTuic.clear() } }
                     ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                         probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
                         manage = { activeSubMenu = it.id },
                         onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
+                        onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
                         favorite = { id ->
                             favorites = if (id in favorites) favorites - id else favorites + id
                             prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -714,6 +733,12 @@ fun HomeScreen(
             error = otaError,
             onLater = { showOtaSheet = false; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
+            onDownloadInBrowser = { availableUpdate?.downloadUrl?.let(::openUrl) },
+            onCancelDownload = {
+                otaDownloadJob?.cancel()
+                otaDownload = false
+                otaError = "Загрузка остановлена. Можно скачать через браузер."
+            },
         )
     }
 
@@ -1040,6 +1065,7 @@ private fun PhantomSettings(
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
+    var showPing by remember { mutableStateOf(false) }
     var showApps by remember { mutableStateOf(false) }
     var showDns by remember { mutableStateOf(false) }
 
@@ -1054,6 +1080,7 @@ private fun PhantomSettings(
         return
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
     if (showDns) { DnsSettingsScreen(onBack = { showDns = false }); return }
 
@@ -1092,6 +1119,7 @@ private fun PhantomSettings(
                 SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune) { toggle("network") }
                 if (group == "network") {
                     funActionRow("DNS", Icons.Default.Dns) { showDns = true }
+                    funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
