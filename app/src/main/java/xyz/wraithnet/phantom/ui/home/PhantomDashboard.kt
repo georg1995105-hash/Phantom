@@ -98,7 +98,10 @@ internal fun PageTitle(
     checkingExit: Boolean = false,
     openExit: () -> Unit = {},
 ) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
+    val tv = isTelevision()
+    Row(Modifier.fillMaxWidth().padding(
+        horizontal = if (tv) 10.dp else 18.dp,
+        vertical = if (tv) 8.dp else 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page == Destination.HOME) {
             Icon(painterResource(R.drawable.ic_stat_phantom), null, Modifier.size(34.dp),
@@ -335,7 +338,8 @@ internal fun ServersPage(
         }
     }
     val c = MaterialTheme.colorScheme
-    LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)) {
+    val tv = isTelevision()
+    LazyColumn(contentPadding = PaddingValues(horizontal = if (tv) 8.dp else 16.dp, vertical = 6.dp)) {
         if (groups.isEmpty()) item {
             Text("Добавьте подписку или ключ, чтобы увидеть серверы", Modifier.padding(12.dp))
         }
@@ -347,7 +351,7 @@ internal fun ServersPage(
             if (!single) item(key = "header:${owner.id}") {
                 Column(Modifier.groupSurface(first = true, last = !show || servers.isEmpty())) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f).heightIn(min = 58.dp).tvFocusRing().clickable {
+                        Row(Modifier.weight(1f).heightIn(min = if (tv) 50.dp else 58.dp).tvFocusRing().clickable {
                             expanded = ArrayList(if (show) expanded - owner.id else expanded + owner.id)
                         }.semantics { contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name },
                             verticalAlignment = Alignment.CenterVertically) {
@@ -401,7 +405,7 @@ internal fun ServersPage(
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (chosen) Spacer(Modifier.width(3.dp).height(24.dp)
                             .background(c.primary, RoundedCornerShape(2.dp)))
-                        Row(Modifier.weight(1f).heightIn(min = 54.dp).tvFocusRing().combinedClickable(
+                        Row(Modifier.weight(1f).heightIn(min = if (tv) 48.dp else 54.dp).tvFocusRing().combinedClickable(
                                 onClick = { choose(owner, server) },
                                 onLongClickLabel = "Открыть JSON конфигурации",
                                 onLongClick = { inspectedServer = server },
@@ -733,6 +737,44 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
 @Composable
 internal fun SubscriptionPage(currentSubscription: Subscription? = null, openShop: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    if (isTelevision()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = colors.surface,
+                border = BorderStroke(1.dp, colors.primary.copy(alpha = .36f))
+            ) {
+                Column(Modifier.fillMaxWidth().padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("PHANTOM VPN", color = colors.primary,
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Ваш доступ", style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold)
+                    if (currentSubscription != null) {
+                        SubscriptionAccessSummary(currentSubscription)
+                    } else {
+                        Text("Подписка не выбрана. Добавьте свою ссылку или оформите доступ.",
+                            color = colors.onSurfaceVariant)
+                    }
+                    HorizontalDivider(color = colors.outline.copy(alpha = .25f))
+                    Text("Покупка и продление — в официальном магазине.",
+                        color = colors.onSurfaceVariant)
+                    Button(
+                        onClick = openShop,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).tvFocusRing(),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("В магазин")
+                        Spacer(Modifier.width(12.dp))
+                        Icon(Icons.Default.NorthEast, null, Modifier.size(19.dp))
+                    }
+                    Caption("Продлить: в магазине «Моя подписка» → «Продлить».")
+                }
+            }
+        }
+        return
+    }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
         .padding(horizontal = 16.dp, vertical = 6.dp)) {
         Surface(shape = RoundedCornerShape(20.dp), color = colors.surface,
