@@ -38,6 +38,31 @@ object PhantomUpdates {
     private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=50"
     private val supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
+    // Official production signing certificate. Android package updates are
+    // impossible across unrelated signing keys, even for the same package name.
+    private const val OFFICIAL_CERT_SHA256 =
+        "86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca"
+
+    /** null = cannot determine; false = existing install must be backed up and migrated. */
+    @Suppress("DEPRECATION")
+    fun hasOfficialSigningCertificate(context: Context): Boolean? = runCatching {
+        val pm = context.packageManager
+        val digest = OFFICIAL_CERT_SHA256.chunked(2)
+            .map { it.toInt(16).toByte() }.toByteArray()
+        if (Build.VERSION.SDK_INT >= 28) {
+            // Recognizes valid Android signing-key rotation history as well.
+            pm.hasSigningCertificate(context.packageName, digest,
+                PackageManager.CERT_INPUT_SHA256)
+        } else {
+            val installed = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+            installed.signatures.orEmpty().any { signature ->
+                MessageDigest.getInstance("SHA-256").digest(signature.toByteArray())
+                    .contentEquals(digest)
+            }
+        }
+    }.getOrNull()
+
+
     // An ABI-specific APK is a complete, separately signed installable package,
     // NOT an Android split APK. The first ABI is Android's preferred native ABI.
     // Avoid transferring all four independent Go native libraries on a phone.
@@ -335,7 +360,9 @@ object PhantomUpdates {
             archive.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
             else archive.signatures?.map { it.toCharsString() }?.toSet()
         require(!currentKeys.isNullOrEmpty() && currentKeys == nextKeys) {
-            "Подпись обновления не совпадает с установленным приложением"
+            "Подпись обновления не совпадает с установленным приложением. " +
+                "Сначала сохраните подписки и настройки: Настройки → Резервная копия. " +
+                "Android не позволяет обновить приложение с другим ключом подписи."
         }
     }
 
