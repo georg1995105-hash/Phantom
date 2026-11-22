@@ -334,17 +334,28 @@ fun HomeScreen(
         }
     }
 
+    val qrCameraAvailable = remember(context) { hasQrCamera(context) }
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
     }
     fun scanQr() {
-        scanLauncher.launch(
-            ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
-                .setPrompt("Наведите камеру на QR-код подписки")
-                .setOrientationLocked(true)
-                .setBeepEnabled(false)
-        )
+        if (!qrCameraAvailable) {
+            importMode = "url"
+            importError = "Камера недоступна. Введите ссылку подписки."
+            return
+        }
+        runCatching {
+            scanLauncher.launch(
+                ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                    .setPrompt("Наведите камеру на QR-код подписки")
+                    .setOrientationLocked(true)
+                    .setBeepEnabled(false)
+            )
+        }.onFailure {
+            importMode = "url"
+            importError = "Не удалось открыть камеру. Введите ссылку подписки."
+        }
     }
 
     LaunchedEffect(externalImport) {
@@ -675,8 +686,7 @@ fun HomeScreen(
                 if (tab == Destination.HOME) {
                     ConnectionImportActions(
                         onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
-                        onScanQr = if (tv || !context.packageManager.hasSystemFeature(
-                                android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) null else ::scanQr,
+                        onScanQr = if (tv || !qrCameraAvailable) null else ::scanQr,
                         hasSubscriptions = subscriptions.isNotEmpty(),
                         importing = importBusy,
                     )
@@ -817,13 +827,20 @@ fun HomeScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                if (tv) {
+                    Text("На телевизоре выберите «Ссылка подписки» и введите адрес " +
+                        "пультом или через клавиатуру телефона. Передача с телефона по QR пока недоступна.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
                 funActionRow("Ссылка подписки", Icons.Default.Link) {
                     showImportMenu = false; importMode = "url"
                 }
                 funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
                     showImportMenu = false; quickImportFromClipboard()
                 }
-                if (!tv || context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
+                if (!tv && qrCameraAvailable) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
                     showImportMenu = false
                     scanQr()
                 }
