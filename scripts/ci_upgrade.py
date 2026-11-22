@@ -139,9 +139,10 @@ def visible_after_scroll(label, max_swipes=6):
 
 
 def show_servers():
-    """Phone Home includes the real, independent subscription/server groups."""
+    """Subscriptions start directly after Connected on the single Home page."""
     tap("Главная")
-    visible_after_scroll("Серверы", max_swipes=10)
+    # The decorative "Серверы" section label and duplicate current-country
+    # card were deliberately removed. The Home tab resets scrolling to top.
 
 
 def screenshot(name):
@@ -176,7 +177,8 @@ tap("Тема оформления")
 tap("Светлая")
 adb("shell", "input", "keyevent", "4")
 node("Светлая")
-tap("Серверы")
+tap("Главная")
+visible_after_scroll("В избранное", max_swipes=10)
 tap("В избранное")
 tap("Главная")
 install_apk(new, "-r")
