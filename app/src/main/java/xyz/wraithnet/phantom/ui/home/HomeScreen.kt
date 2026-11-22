@@ -22,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -145,6 +146,7 @@ fun HomeScreen(
     var pairingSending by remember { mutableStateOf(false) }
     var pairingSendError by remember { mutableStateOf<String?>(null) }
     val serverPageState = rememberSaveableStateHolder()
+    val unifiedHomeListState = rememberLazyListState()
     var qrSource by remember { mutableStateOf<String?>(null) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
@@ -749,7 +751,8 @@ fun HomeScreen(
     Scaffold(
         modifier = if (tv) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier,
         topBar = {
-            if (!tv) Box(Modifier.statusBarsPadding()) {
+            if (!tv && tab != Destination.HOME && tab != Destination.SERVERS)
+                Box(Modifier.statusBarsPadding()) {
                 PageTitle(
                     tab,
                     exit = if (vpnStatus == "connected") exitNetwork else null,
@@ -759,18 +762,9 @@ fun HomeScreen(
             }
         },
         bottomBar = {
-            if (!tv) Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (tab == Destination.HOME) {
-                    ConnectionImportActions(
-                        onOpenImport = { showImportMenu = true },
-                        onScanQr = if (qrCameraAvailable) ::scanQr else null,
-                        onTvPair = null,
-                        hasSubscriptions = subscriptions.isNotEmpty(),
-                        importing = importBusy,
-                    )
-                }
-                TabBar(tab) { tab = it }
-            }
+            // Only the tab strip is fixed. All Home content, including import actions
+            // and every provider/server row, belongs to one parent LazyColumn.
+            if (!tv) TabBar(tab) { tab = it }
         }
     ) { inner ->
         val colors = MaterialTheme.colorScheme
@@ -787,29 +781,34 @@ fun HomeScreen(
                 )
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (tab) {
-                Destination.HOME -> ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
-                    toggle = {
-                        softTap()
-                        when {
-                            vpnStatus == "connected" -> onStopVpn()
-                            selected == null -> { tab = Destination.SERVERS; showImportMenu = true }
-                            else -> onStartVpn(selected.raw)
-                        }
-                    }, choose = { tab = Destination.SERVERS },
-                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
-                    onRefreshSubscription = {
-                        selectedMatch?.first?.let { owner ->
-                            scope.launch { refresh(owner) }
-                        }
-                    },
-                    subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
-                    subscriptionAvailable = selectedMatch != null,
-                    hasSubscriptions = subscriptions.isNotEmpty(),
-                    tvFocusEpoch = refreshVersion,
-                    tvModalVisible = showTvPairing || showImportMenu ||
-                        importMode != null || qrSource != null || activeSubMenu != null)
-                Destination.SERVERS -> serverPageState.SaveableStateProvider("servers") {
-                    DisposableEffect(Unit) { onDispose { scanned.clear(); scannedWithAutoTuic.clear() } }
+                Destination.HOME, Destination.SERVERS -> {
+                    if (tv && tab == Destination.HOME) {
+                        ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
+                                            toggle = {
+                                                softTap()
+                                                when {
+                                                    vpnStatus == "connected" -> onStopVpn()
+                                                    selected == null -> { tab = Destination.SERVERS; showImportMenu = true }
+                                                    else -> onStartVpn(selected.raw)
+                                                }
+                                            }, choose = { tab = Destination.SERVERS },
+                                            error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
+                                            onRefreshSubscription = {
+                                                selectedMatch?.first?.let { owner ->
+                                                    scope.launch { refresh(owner) }
+                                                }
+                                            },
+                                            subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
+                                            subscriptionAvailable = selectedMatch != null,
+                                            hasSubscriptions = subscriptions.isNotEmpty(),
+                                            tvFocusEpoch = refreshVersion,
+                                            tvModalVisible = showTvPairing || showImportMenu ||
+                                                importMode != null || qrSource != null || activeSubMenu != null)
+                    } else {
+                        serverPageState.SaveableStateProvider("servers") {
+                            DisposableEffect(Unit) {
+                                onDispose { scanned.clear(); scannedWithAutoTuic.clear() }
+                            }
                     ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
                         probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
@@ -840,7 +839,50 @@ fun HomeScreen(
                                 }
                                 if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                        }, openUrl = ::openUrl)
+                        }, openUrl = ::openUrl,
+                        header = if (tv) null else ({
+                            Column {
+                                PageTitle(Destination.HOME,
+                                    exit = if (vpnStatus == "connected") exitNetwork else null,
+                                    checkingExit = vpnStatus == "connected" && exitLoading,
+                                    openExit = { exitDetails = true })
+                                ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
+                                                    toggle = {
+                                                        softTap()
+                                                        when {
+                                                            vpnStatus == "connected" -> onStopVpn()
+                                                            selected == null -> { showImportMenu = true }
+                                                            else -> onStartVpn(selected.raw)
+                                                        }
+                                                    }, choose = { scope.launch { unifiedHomeListState.animateScrollToItem(1) } },
+                                                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
+                                                    onRefreshSubscription = {
+                                                        selectedMatch?.first?.let { owner ->
+                                                            scope.launch { refresh(owner) }
+                                                        }
+                                                    },
+                                                    subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
+                                                    subscriptionAvailable = selectedMatch != null,
+                                                    hasSubscriptions = subscriptions.isNotEmpty(),
+                                                    tvFocusEpoch = refreshVersion,
+                                                    tvModalVisible = showTvPairing || showImportMenu ||
+                                                        importMode != null || qrSource != null || activeSubMenu != null,
+                                    embedded = true)
+                                ConnectionImportActions(
+                                    onOpenImport = { showImportMenu = true },
+                                    onScanQr = if (qrCameraAvailable) ::scanQr else null,
+                                    hasSubscriptions = subscriptions.isNotEmpty(),
+                                    importing = importBusy)
+                                Text("Серверы",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(start = 16.dp, top = 12.dp,
+                                        bottom = 9.dp))
+                            }
+                        }),
+                        listState = if (tv) null else unifiedHomeListState)
+                        }
+                    }
                 }
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(currentSubscription = selectedMatch?.first) {
                     openUrl("https://go.veor.pro/")
