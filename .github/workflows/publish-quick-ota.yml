@@ -1,0 +1,124 @@
+name: Publish quick signed APK OTA
+
+on:
+  workflow_dispatch:
+    inputs:
+      quick_run_id:
+        description: 'Successful Quick signed APK workflow run ID'
+        required: true
+        type: string
+      source_sha:
+        description: 'Exact reviewed source commit SHA'
+        required: true
+        type: string
+      release_tag:
+        description: 'Stable release tag, e.g. v0.3.17'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: quick-ota-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm release and source are intentional
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUICK_RUN_ID: ${{ inputs.quick_run_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$QUICK_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          upstream=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUICK_RUN_ID")
+          printf '%s' "$upstream" | jq -e '
+            .name == "Quick signed APK" and
+            .event == "workflow_dispatch" and
+            .status == "completed" and
+            .conclusion == "success" and
+            .head_branch == "main"
+          ' >/dev/null
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Release already exists for $RELEASE_TAG"
+            exit 1
+          fi
+          echo "Upstream signed artifact and destination tag verified."
+      - name: Download signed installer from successful fast build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: ${{ inputs.quick_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          name: phantom-quick-official-signed
+          path: release-assets
+      - name: Verify official Android APK signature, package and version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          apk=release-assets/Phantom.apk
+          test -s "$apk"
+          target=release-assets/phantom-universal-release.apk
+          mv "$apk" "$target"
+          version="${RELEASE_TAG#v}"
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          test -n "$sdkmanager"
+          "$sdkmanager" --install "build-tools;35.0.0"
+          tools="$ANDROID_HOME/build-tools/35.0.0"
+          "$tools/apksigner" verify --print-certs "$target" | grep -Fx \
+            'Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
+          "$tools/zipalign" -c -P 16 4 "$target"
+          "$tools/aapt" dump badging "$target" | grep -F "package: name='xyz.wraithnet.phantom'"
+          "$tools/aapt" dump badging "$target" | grep -F "versionName='$version'"
+          test "$(stat -c '%s' "$target")" -lt 262144000
+          sha256sum "$target"
+      - name: Publish official stable OTA release from verified signed APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
+          Phantom VPN 0.3.17
+
+          - Главная страница: подключение, статистика и полный список серверов с единой прокруткой.
+          - Сохранены карточки всех подписок, отдельные обновления, сроки, трафик, пинги и ключи.
+          - Компактнее раздел «Подписка», без удаления сведений.
+          - Телевизионная навигация, QR-передача с телефона и обновление приложения остаются доступны.
+
+          Сборка подписана официальным ключом Phantom. Приложение можно обновить поверх установленной версии без удаления данных. Полная проверка Android/TV в отдельном CI для этого интерфейса ещё не завершилась успешно; выпуск предоставляется для проверки владельцем.
+          EOF
+          gh release create "$RELEASE_TAG" \
+            "release-assets/phantom-universal-release.apk" \
+            --target "$SOURCE_SHA" \
+            --title "PHANTOM VPN $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --latest
+      - name: Verify API metadata used by Phantom OTA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" | jq -e '
+            .draft == false and .prerelease == false and
+            ([.assets[] | select(.name == "phantom-universal-release.apk"
+             and .state == "uploaded"
+             and (.size > 1025)
+             and (.size < 262144000)
+             and (.digest | startswith("sha256:")))] | length) == 1
+          '
