@@ -893,13 +893,6 @@ fun HomeScreen(
                                                         }
                                                     }, choose = { scope.launch { unifiedHomeListState.animateScrollToItem(1) } },
                                                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
-                                                    onRefreshSubscription = {
-                                                        selectedMatch?.first?.let { owner ->
-                                                            scope.launch { refresh(owner) }
-                                                        }
-                                                    },
-                                                    subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
-                                                    subscriptionAvailable = selectedMatch != null,
                                                     hasSubscriptions = subscriptions.isNotEmpty(),
                                                     tvFocusEpoch = refreshVersion,
                                                     tvModalVisible = showTvPairing || showImportMenu ||
