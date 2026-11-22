@@ -603,8 +603,7 @@ internal fun AppUpdateSheet(
                     modifier = Modifier.size(22.dp))
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta")
-                        "Обновление Phantom Beta" else "Обновление Phantom",
+                    Text("Обновление Phantom",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold)
                     Caption("Версия " + release.version)
