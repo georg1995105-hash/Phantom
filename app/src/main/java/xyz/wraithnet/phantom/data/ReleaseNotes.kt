@@ -8,7 +8,10 @@ object ReleaseNotes {
             .map { it.trim() }
             .filter { it.isNotBlank() && !it.startsWith("#") }
             .map { it.removePrefix("- ").removePrefix("* ").trim() }
-            .filter { it.isNotBlank() }
+            .filter {
+                it.isNotBlank() &&
+                    !Regex("""(?i)^Phantom VPN v?\d+\.\d+\.\d+$""").matches(it)
+            }
             .take(maxItems)
             .joinToString("\n") { "• " + it }
     }
