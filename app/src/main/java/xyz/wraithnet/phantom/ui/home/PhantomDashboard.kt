@@ -142,8 +142,8 @@ internal fun PageTitle(
 }
 
 @Composable
-internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
-    seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
+internal fun ConnectionPage(status: String,
+    seconds: Long, toggle: () -> Unit, error: (() -> Unit)?,
     hasSubscriptions: Boolean,
     tvFocusEpoch: Int = 0, tvModalVisible: Boolean = false,
     embedded: Boolean = false) {
@@ -232,30 +232,10 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     textAlign = TextAlign.Center, fontWeight = FontWeight.SemiBold)
             }
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
-            Spacer(Modifier.height(if (embedded) 7.dp else 12.dp))
-            Panel {
-                Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    if (server != null) Text(CountryFlags.flag(server), fontSize = 28.sp)
-                    else Icon(Icons.Default.Storage, null)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(server?.let(::displayServerName) ?: "Выбрать сервер", fontWeight = FontWeight.SemiBold)
-                        server?.let { Caption(protocolLabel(it)) }
-                        if (download >= 0 || upload >= 0) {
-                            Spacer(Modifier.height(5.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-                                if (download >= 0) Text("↓ " + sizeLabel(download),
-                                    fontSize = 11.sp, color = c.onSurfaceVariant)
-                                if (upload >= 0) Text("↑ " + sizeLabel(upload),
-                                    fontSize = 11.sp, color = c.onSurfaceVariant)
-                            }
-                        }
-                    }
-                    Icon(Icons.Default.ChevronRight, "К серверам")
-                }
-            }
-            Spacer(Modifier.height(if (embedded) 6.dp else 16.dp))
+            // The current country is already displayed in PageTitle on phones.
+            // Keep the subscription list immediately below the connected state.
+            Spacer(Modifier.height(if (embedded) 2.dp else 8.dp))
+
         }
     }
 }
@@ -326,6 +306,19 @@ private fun Caption(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
 }
 
+/** Remote subscriptions always precede individual keys, on phone, tablet and TV.
+ * Pinning only changes the order inside its own category.
+ */
+internal fun orderedSubscriptions(
+    subscriptions: List<Subscription>,
+    pinnedId: String?,
+): List<Subscription> = subscriptions.sortedWith(
+    compareByDescending<Subscription> {
+        it.source.startsWith("https://", ignoreCase = true) ||
+            it.source.startsWith("http://", ignoreCase = true)
+    }.thenByDescending { it.id == pinnedId }
+)
+
 /** Identical subscription titles are distinguished without exposing private URLs. */
 internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription>): String {
     val duplicates = all.filter { it.title.trim().equals(owner.title.trim(), ignoreCase = true) }
@@ -353,7 +346,7 @@ internal fun ServersPage(
     var details by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var inspectedServer by remember { mutableStateOf<ServerProfile?>(null) }
     val groups = remember(subscriptions, pinnedId, favorites) {
-        subscriptions.sortedByDescending { it.id == pinnedId }.map { owner ->
+        orderedSubscriptions(subscriptions, pinnedId).map { owner ->
             owner to owner.servers.sortedWith(compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                 .thenByDescending { "${owner.id}:${it.id}" in favorites })
         }
