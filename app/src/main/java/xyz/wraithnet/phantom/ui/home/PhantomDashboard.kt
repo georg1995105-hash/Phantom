@@ -695,17 +695,17 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
     Surface(color = colors.surfaceVariant.copy(alpha = .37f),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))) {
-        Column(Modifier.fillMaxWidth().padding(17.dp)) {
+        Column(Modifier.fillMaxWidth().padding(13.dp)) {
             Text("ВЫБРАННАЯ ПОДПИСКА", fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                 color = colors.onSurfaceVariant)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(5.dp))
             Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = colors.outline.copy(alpha = .2f))
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(13.dp)) {
                 Column(Modifier.weight(1f)) {
                     Caption("СРОК")
@@ -723,12 +723,12 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
                 }
             }
             access.progress?.let { fraction ->
-                Spacer(Modifier.height(13.dp))
+                Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { fraction },
                     modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(6.dp)),
                     color = colors.primary, trackColor = colors.outline.copy(alpha = .16f))
             }
-            Spacer(Modifier.height(9.dp))
+            Spacer(Modifier.height(6.dp))
             Caption("Данные получены от сервера подписки")
         }
     }
@@ -776,65 +776,64 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
         return
     }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Surface(shape = RoundedCornerShape(20.dp), color = colors.surface,
-            border = BorderStroke(1.dp, colors.primary.copy(alpha = .38f))) {
+        .padding(horizontal = 16.dp, vertical = 5.dp)) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = colors.surface,
+            border = BorderStroke(1.dp, colors.primary.copy(alpha = .30f))
+        ) {
             Column {
                 Box(Modifier.fillMaxWidth().background(Brush.linearGradient(
-                    listOf(Color(0xFFB5F5D0), Color(0xFFE6F8EA))))) {
-                    Box(Modifier.align(Alignment.TopEnd).offset(x = 54.dp, y = (-56).dp)
-                        .size(192.dp).border(1.dp, Color(0x5523754C), CircleShape))
-                    Box(Modifier.align(Alignment.TopEnd).offset(x = 35.dp, y = (-38).dp)
-                        .size(152.dp).border(1.dp, Color(0x3323754C), CircleShape))
-                    Column(Modifier.padding(horizontal = 23.dp, vertical = 24.dp)) {
-                        Text("PHANTOM VPN", color = Color(0xFF133A27),
-                            fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                        Spacer(Modifier.height(26.dp))
-                        Text("ВАШ\nДОСТУП.", color = Color(0xFF0C2D1D),
-                            fontSize = 43.sp, lineHeight = 44.sp,
-                            fontWeight = FontWeight.Bold, letterSpacing = (-1.5).sp)
-                        Spacer(Modifier.height(12.dp))
-                        Text("ОФИЦИАЛЬНЫЙ МАГАЗИН", color = Color(0xFF24533B),
-                            fontSize = 10.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp)
+                    listOf(Color(0xFF1A4035), Color(0xFF0D2924))))) {
+                    // Low-contrast decorative rings: never compete with the actual account data.
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = 36.dp, y = (-42).dp)
+                        .size(126.dp).border(1.dp, Color(0x263BB68F), CircleShape))
+                    Box(Modifier.align(Alignment.TopEnd).offset(x = 21.dp, y = (-26).dp)
+                        .size(96.dp).border(1.dp, Color(0x1E73CBA6), CircleShape))
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp)) {
+                        Text("PHANTOM VPN", color = Color(0xFF90B8A7),
+                            fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                        Spacer(Modifier.height(7.dp))
+                        Text("ВАШ ДОСТУП.", color = Color(0xFFE3F2E9),
+                            fontSize = 26.sp, lineHeight = 30.sp,
+                            fontWeight = FontWeight.Bold, letterSpacing = (-.6).sp)
+                        Spacer(Modifier.height(4.dp))
+                        Text("ОФИЦИАЛЬНЫЙ МАГАЗИН", color = Color(0xFFA1CDB7),
+                            fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp)
                     }
                 }
-                Column(Modifier.padding(20.dp)) {
+                Column(Modifier.padding(13.dp)) {
                     if (currentSubscription != null) {
                         SubscriptionAccessSummary(currentSubscription)
                     } else {
-                        Surface(color = colors.surfaceVariant.copy(alpha = .37f),
-                            shape = RoundedCornerShape(16.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Surface(color = colors.surfaceVariant.copy(alpha = .30f),
+                            shape = RoundedCornerShape(14.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(13.dp)) {
                                 Text("Подписка не выбрана", fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(5.dp))
-                                Text("Оформите доступ в магазине или добавьте свою ссылку на подписку.",
+                                Spacer(Modifier.height(4.dp))
+                                Text("Добавьте подписку в разделе «Серверы» или оформите доступ.",
                                     color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(12.dp))
                     Text("Управление доступом",
-                        style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Покупка и продление в официальном магазине.",
-                        color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(18.dp))
+                        fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(9.dp))
                     Button(onClick = openShop,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).tvFocusRing(),
-                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).tvFocusRing(),
+                        shape = RoundedCornerShape(13.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFFA0EABD), contentColor = Color(0xFF0D271B))) {
+                            containerColor = Color(0xFF64AF8E), contentColor = Color(0xFF0A241A))) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("В магазин", fontWeight = FontWeight.Bold)
-                            Icon(Icons.Default.NorthEast, null, Modifier.size(19.dp))
+                            Icon(Icons.Default.NorthEast, null, Modifier.size(18.dp))
                         }
                     }
-                    Spacer(Modifier.height(18.dp))
-                    HorizontalDivider(color = colors.outline.copy(alpha = .25f))
-                    Spacer(Modifier.height(13.dp))
-                    Caption("Продлить: в магазине «Моя подписка» → «Продлить».")
+                    Spacer(Modifier.height(10.dp))
+                    Caption("Продлить: «Моя подписка» → «Продлить» в магазине.")
                 }
             }
         }
