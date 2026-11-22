@@ -378,8 +378,8 @@ internal fun ServersPage(
                             Icon(if (show) Icons.Default.ExpandMore else Icons.Default.ChevronRight, null,
                                 Modifier.padding(horizontal = 6.dp).size(18.dp), tint = c.primary)
                             Column {
-                                Text(name, fontWeight = FontWeight.SemiBold, maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+                                Text(name, fontWeight = FontWeight.SemiBold, maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis, fontSize = 14.sp, lineHeight = 17.sp)
                                 if (remote) {
                                     val time = android.text.format.DateFormat.getTimeFormat(
                                         androidx.compose.ui.platform.LocalContext.current).format(java.util.Date(owner.updatedAt))
@@ -549,7 +549,7 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
                 if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
                     Caption(if (traffic == null) "Лимит" else "Трафик")
                     Text(listOfNotNull(traffic, limit).joinToString(" / ") {
-                        it.replace(" ", "\\u00A0")
+                        it.replace(" ", "\u00A0")
                     }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 2)
                 } else Spacer(Modifier.weight(1f))
                 if (expiry != null) Column(Modifier.weight(1f),
