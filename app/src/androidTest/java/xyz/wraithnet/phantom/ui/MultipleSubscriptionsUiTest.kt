@@ -100,9 +100,12 @@ class MultipleSubscriptionsUiTest {
                 val pingFirst = hasContentDescription("Проверить пинг $firstTitle")
                 val pingSecond = hasContentDescription("Проверить пинг $secondTitle")
                 compose.onNode(hasScrollAction()).performScrollToNode(pingFirst)
-                compose.awaitVisible(pingFirst and isEnabled())
+                // An automatic ping may already be running, so the control
+                // can legitimately be disabled for the duration of that scan.
+                // Its presence for EVERY owner is the invariant here.
+                compose.awaitVisible(pingFirst)
                 compose.onNode(hasScrollAction()).performScrollToNode(pingSecond)
-                compose.awaitVisible(pingSecond and isEnabled())
+                compose.awaitVisible(pingSecond)
                 val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
                 compose.onNode(secondServer).assertDoesNotExist()
                 compose.onNode(hasScrollAction()).performScrollToNode(
