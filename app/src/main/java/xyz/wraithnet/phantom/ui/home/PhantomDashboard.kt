@@ -799,7 +799,7 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                         Spacer(Modifier.height(7.dp))
                         Text("ВАШ ДОСТУП.", color = Color(0xFFE3F2E9),
                             fontSize = 26.sp, lineHeight = 30.sp,
-                            fontWeight = FontWeight.Bold, letterSpacing = (-.6).sp)
+                            fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp)
                         Spacer(Modifier.height(4.dp))
                         Text("ОФИЦИАЛЬНЫЙ МАГАЗИН", color = Color(0xFFA1CDB7),
                             fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp)
