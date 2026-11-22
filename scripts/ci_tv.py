@@ -170,11 +170,16 @@ if not page_size_16k:
     assert not any(n.get("text") == "Сканировать QR" or
                    n.get("content-desc") == "Сканировать QR-код подписки"
                    for n in nodes()), "Camera QR import must be absent on Android TV"
-    tap("Закрыть")
+    # A television is remote-only. Closing the dialog by BACK must restore
+    # D-pad navigation without requiring a touchscreen tap (which forces the
+    # Android TV emulator into touch mode and hides its keyboard focus).
+    key("BACK")
     wait_label("QR с телефона")
-    # D-pad OK must return to the VPN power control after dismissing the QR.
-    # With no selected server, activating it opens the normal import menu.
-    time.sleep(.5)
+    time.sleep(.6)
+    focused = [(n.get("text", ""), n.get("content-desc", ""),
+                n.get("bounds", "")) for n in nodes() if n.get("focused") == "true"]
+    print("TV focus after closing receiver QR with remote:", focused, flush=True)
+    # OK must activate the real power control: no selected server => import.
     key("DPAD_CENTER")
     wait_label("Добавить конфигурацию")
     key("BACK")
