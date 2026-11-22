@@ -327,7 +327,7 @@ internal fun ServersPage(
     onRefresh: (Subscription) -> Unit, manage: (Subscription) -> Unit,
     onAutoProbe: (Subscription) -> Unit, onManualPing: (Subscription) -> Unit,
     favorite: (String) -> Unit,
-    choose: (Subscription, ServerProfile) -> Unit, add: () -> Unit, openUrl: (String) -> Unit,
+    choose: (Subscription, ServerProfile) -> Unit, openUrl: (String) -> Unit,
 ) {
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
         (selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)?.let { this.add(it) }
