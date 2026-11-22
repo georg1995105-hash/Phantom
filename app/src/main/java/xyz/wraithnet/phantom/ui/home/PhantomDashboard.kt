@@ -177,6 +177,9 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     // Wait for the button's focus target to attach before
                     // requesting focus on Android TV emulators and set-top boxes.
                     withFrameNanos { }
+                    // Android TV may keep the dismissed Dialog window focused for a
+                    // frame after Compose removes it. Request focus after that handoff.
+                    kotlinx.coroutines.delay(180)
                     initialFocus.requestFocus()
                 }
             }
