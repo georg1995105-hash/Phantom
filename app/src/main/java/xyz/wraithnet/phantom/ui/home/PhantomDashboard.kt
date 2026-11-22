@@ -25,6 +25,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.*
@@ -587,57 +590,77 @@ internal fun AppUpdateSheet(
     onUpdate: () -> Unit,
     onDownloadInBrowser: () -> Unit,
     onCancelDownload: () -> Unit,
+    signingMismatch: Boolean = false,
+    onOpenBackup: () -> Unit = {},
 ) {
     val c = MaterialTheme.colorScheme
     val brief = remember(release.notes) { ReleaseNotes.summary(release.notes, 3) }
     val details = remember(release.notes) { ReleaseNotes.summary(release.notes, 15) }
     var expanded by rememberSaveable(release.version) { mutableStateOf(false) }
     val downloadInProgress by rememberUpdatedState(downloading)
-    ModalBottomSheet(
-        onDismissRequest = { if (!downloading) onLater() },
-        containerColor = c.surface,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
-            confirmValueChange = { it != SheetValue.Hidden || !downloadInProgress }),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val tv = isTelevision()
+    val maxHeight = (LocalConfiguration.current.screenHeightDp.dp *
+        if (tv) 0.80f else 0.82f).coerceAtLeast(280.dp)
+    val blocked = signingMismatch ||
+        error?.startsWith("Подпись обновления не совпадает") == true
+    val sheetBody: @Composable () -> Unit = {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = maxHeight)
+                .padding(horizontal = if (tv) 22.dp else 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.SystemUpdateAlt, null, tint = c.primary, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp))
+                Icon(Icons.Default.SystemUpdateAlt, null, tint = c.primary,
+                    modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta")
-                            "Обновление Phantom Beta" else "Обновление Phantom",
+                    Text(if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta")
+                        "Обновление Phantom Beta" else "Обновление Phantom",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Caption("Версия ${release.version}")
+                        fontWeight = FontWeight.SemiBold)
+                    Caption("Версия " + release.version)
                 }
             }
             if (brief.isNotBlank()) {
-                Column(Modifier.weight(1f, fill = false).fillMaxWidth()) {
-                    Text(if (expanded) details else brief,
-                        modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
-                        color = c.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-                    if (brief != details) {
-                        TextButton(onClick = { expanded = !expanded },
-                            modifier = Modifier.align(Alignment.End).tvFocusRing()) {
-                            Text(if (expanded) "Меньше" else "Ещё")
-                        }
-                    }
+                Text(if (expanded) details else brief,
+                    modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    fontSize = 13.sp, lineHeight = 18.sp,
+                    color = c.onSurfaceVariant)
+                if (brief != details) TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.align(Alignment.End).tvFocusRing()) {
+                    Text(if (expanded) "Меньше" else "Ещё")
                 }
             }
             if (downloading) {
-                LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
+                LinearProgressIndicator(progress = { progress / 100f },
+                    modifier = Modifier.fillMaxWidth())
                 Caption("Загрузка $progress%" + if (speedBytesPerSecond > 0L)
-                    " · ${speedBytesPerSecond / 1024L} КБ/с" else "")
+                    " · " + speedBytesPerSecond / 1024L + " КБ/с" else "")
             }
-            error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
-            // The in-app updater uses Phantom's direct network, which may not
-            // reach GitHub on Wi-Fi. Browser downloads can use Android VPN routing.
-            // Let users choose it before starting, not only after a long timeout.
-            if (!downloading) TextButton(
+            if (blocked) {
+                Surface(color = c.errorContainer.copy(alpha = .45f),
+                    shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(11.dp)) {
+                        Text("Другая подпись приложения",
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            color = c.onErrorContainer)
+                        Spacer(Modifier.height(5.dp))
+                        Text("Android не разрешит обновление поверх этой копии. " +
+                            "Сначала сохраните подписки и настройки в резервную копию. " +
+                            "Не удаляйте Phantom до сохранения файла.",
+                            fontSize = 12.sp, lineHeight = 17.sp,
+                            color = c.onErrorContainer)
+                        TextButton(onClick = onOpenBackup, modifier = Modifier.tvFocusRing()) {
+                            Text("Резервная копия")
+                        }
+                    }
+                }
+            } else error?.let {
+                Text(it, color = c.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (!downloading && !blocked) TextButton(
                 onClick = onDownloadInBrowser,
                 modifier = Modifier.align(Alignment.Start).tvFocusRing()
             ) {
@@ -646,18 +669,22 @@ internal fun AppUpdateSheet(
                 Text("Скачать через браузер")
             }
             val shape = RoundedCornerShape(14.dp)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilledTonalButton(
                     onClick = { if (downloading) onCancelDownload() else onLater() },
                     shape = shape,
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = c.surfaceVariant, contentColor = c.onSurface),
-                    modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
-                    Text(if (downloading) "Остановить" else "Позже")
-                }
-                Button(onClick = onUpdate, enabled = !downloading, shape = shape,
-                    modifier = Modifier.weight(1f).heightIn(min = 50.dp).tvFocusRing(shape)) {
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing(shape)
+                ) { Text(if (downloading) "Остановить" else "Позже") }
+                Button(
+                    onClick = onUpdate, enabled = !downloading && !blocked,
+                    shape = shape,
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing(shape)
+                ) {
                     Text(when {
+                        blocked -> "Недоступно"
                         downloading -> "Скачивание…"
                         readyToInstall -> "Установить"
                         else -> "Обновить"
@@ -666,6 +693,23 @@ internal fun AppUpdateSheet(
             }
         }
     }
+    if (tv) {
+        Dialog(onDismissRequest = { if (!downloading) onLater() },
+            properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(.72f).widthIn(max = 660.dp)
+                    .heightIn(max = maxHeight),
+                shape = RoundedCornerShape(22.dp),
+                color = c.surface
+            ) { sheetBody() }
+        }
+    } else ModalBottomSheet(
+        onDismissRequest = { if (!downloading) onLater() },
+        containerColor = c.surface,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
+            confirmValueChange = { it != SheetValue.Hidden || !downloadInProgress }),
+    ) { sheetBody() }
 }
 
 internal fun daysLeft(expiry: Long, now: Long): Long =
