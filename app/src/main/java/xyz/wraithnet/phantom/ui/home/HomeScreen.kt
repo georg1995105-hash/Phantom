@@ -883,7 +883,7 @@ fun HomeScreen(
                                     exit = if (vpnStatus == "connected") exitNetwork else null,
                                     checkingExit = vpnStatus == "connected" && exitLoading,
                                     openExit = { exitDetails = true })
-                                ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
+                                ConnectionPage(vpnStatus, connectedSeconds,
                                                     toggle = {
                                                         softTap()
                                                         when {
@@ -891,7 +891,7 @@ fun HomeScreen(
                                                             selected == null -> { showImportMenu = true }
                                                             else -> onStartVpn(selected.raw)
                                                         }
-                                                    }, choose = { scope.launch { unifiedHomeListState.animateScrollToItem(1) } },
+                                                    },
                                                     error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
                                                     hasSubscriptions = subscriptions.isNotEmpty(),
                                                     tvFocusEpoch = refreshVersion,
@@ -905,11 +905,8 @@ fun HomeScreen(
                                         hasSubscriptions = false,
                                         importing = importBusy)
                                 }
-                                Text("Серверы",
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(start = 16.dp, top = 12.dp,
-                                        bottom = 9.dp))
+                                // Subscription cards start directly under the connection
+                                // status; no extra country card or redundant section title.
                             }
                         }),
                         footer = if (tv || subscriptions.isEmpty()) null else ({
