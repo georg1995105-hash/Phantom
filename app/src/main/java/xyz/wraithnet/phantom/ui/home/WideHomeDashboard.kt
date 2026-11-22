@@ -91,7 +91,7 @@ internal fun WideHomeDashboard(
         }
     }
     // After returning from pairing or import restore a real remote focus target.
-    LaunchedEffect(tv, focusEpoch, modalVisible) {
+    LaunchedEffect(tv, focusEpoch, modalVisible, status == "starting") {
         if (tv && !modalVisible) {
             // Cold Android TV startup and dialog dismissal can attach the
             // Compose focus target before the Activity window gains focus.
@@ -142,7 +142,12 @@ internal fun WideHomeDashboard(
                             .clip(CircleShape)
                             .background(if (active) scheme.primaryContainer.copy(alpha = .48f)
                                 else scheme.surfaceVariant.copy(alpha = .58f))
-                            .clickable(enabled = !connecting) { onToggle() }
+                            // Never drop D-pad focus during the VPN handshake.
+                            // An inactive click while starting is harmless; removing
+                            // focusability moves OK onto an unrelated TV control.
+                            .clickable(enabled = tv || !connecting) {
+                                if (!connecting) onToggle()
+                            }
                             .semantics {
                                 contentDescription = if (active) "Отключить VPN"
                                     else if (connecting) "Подключение"
