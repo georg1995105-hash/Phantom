@@ -850,7 +850,7 @@ fun HomeScreen(
                             onRefresh = { sub -> scope.launch { refresh(sub) } },
                             onManage = { activeSubMenu = it.id },
                             onProbe = { sub -> probeSubscription(sub, notify = false) },
-                            onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
+                            onManualPing = { sub -> probeSubscription(sub, notify = true) },
                             onFavorite = { id ->
                                 favorites = if (id in favorites) favorites - id else favorites + id
                                 prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -860,6 +860,7 @@ fun HomeScreen(
                             onScanQr = if (!tv && qrCameraAvailable) ::scanQr else null,
                             onShowError = if (vpnStatus == "error" && vpnError.isNotBlank())
                                 ({ showErrorDetails = true }) else null,
+                            onOpenUrl = ::openUrl,
                         )
                     } else {
                         serverPageState.SaveableStateProvider("servers") {
