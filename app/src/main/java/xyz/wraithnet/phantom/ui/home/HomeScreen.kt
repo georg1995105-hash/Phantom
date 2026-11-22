@@ -840,7 +840,7 @@ fun HomeScreen(
                                 }
                                 if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                        }, add = { showImportMenu = true }, openUrl = ::openUrl)
+                        }, openUrl = ::openUrl)
                 }
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(currentSubscription = selectedMatch?.first) {
                     openUrl("https://go.veor.pro/")
