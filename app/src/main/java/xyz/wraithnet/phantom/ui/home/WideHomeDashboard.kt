@@ -72,8 +72,9 @@ internal fun WideHomeDashboard(
 ) {
     val tv = isTelevision()
     val scheme = MaterialTheme.colorScheme
-    val config = LocalConfiguration.current
-    val gridColumns = if (!tv && config.screenWidthDp >= 1100) 3 else 2
+    // Wide TV uses two columns for a D-pad; touch tablets use a single
+    // readable full-width list. Three/two columns on tablets were confusing.
+    val gridColumns = if (tv) 2 else 1
     val scroll = rememberLazyListState()
     val powerFocus = remember { FocusRequester() }
     var selectedForJson by remember { mutableStateOf<ServerProfile?>(null) }
