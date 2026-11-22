@@ -12,11 +12,10 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "0.3.20"
+        versionCode = 48
+        versionName = "0.3.21"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
-        buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -26,13 +25,10 @@ android {
         }
     }
 
+    // The only produced distribution APK contains all four supported ABIs.
+    // No ABI splits, no independent beta package and no second updater channel.
     splits {
-        abi {
-            isEnable = !project.hasProperty("nativeSmoke")
-            reset()
-            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
-            isUniversalApk = true
-        }
+        abi { isEnable = false }
     }
 
     buildTypes {
@@ -45,12 +41,7 @@ android {
                 "proguard-rules.pro"
             )
         }
-        create("beta") {
-            initWith(getByName("release"))
-            applicationIdSuffix = ".beta"
-            buildConfigField("String", "UPDATE_CHANNEL", "\"beta\"")
-            matchingFallbacks += listOf("release")
-        }
+
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
@@ -76,16 +67,6 @@ android {
     }
 }
 
-androidComponents {
-    onVariants(selector().withBuildType("beta")) { variant ->
-        val betaVersion = providers.gradleProperty("phantomBetaVersion").orElse("0.3.17-beta.1")
-        val betaCode = providers.gradleProperty("phantomBetaCode").map { it.toInt() }.orElse(44001)
-        variant.outputs.forEach { output ->
-            output.versionName.set(betaVersion)
-            output.versionCode.set(betaCode)
-        }
-    }
-}
 
 dependencies {
     // Xray core (libv2ray.aar downloaded by CI)
