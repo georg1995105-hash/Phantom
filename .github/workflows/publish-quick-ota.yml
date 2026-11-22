@@ -66,6 +66,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           SOURCE_SHA: ${{ inputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           test -f release-assets/source-commit.txt
@@ -84,6 +85,22 @@ jobs:
           "$tools/zipalign" -c -P 16 4 "$target"
           "$tools/aapt" dump badging "$target" | grep -F "package: name='xyz.wraithnet.phantom'"
           "$tools/aapt" dump badging "$target" | grep -F "versionName='$version'"
+          # A signed APK with an unchanged or lower versionCode cannot install
+          # over the existing official Phantom, even with the same key.
+          current_code=$("$tools/aapt" dump badging "$target" |
+            sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p" | head -1)
+          [[ "$current_code" =~ ^[0-9]+$ ]]
+          previous_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [[ -n "$previous_tag" && "$previous_tag" != "$RELEASE_TAG" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$previous_tag" \
+              --jq .content | base64 -d > "$RUNNER_TEMP/previous-gradle.kts"
+            previous_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/previous-gradle.kts")
+            [[ "$previous_code" =~ ^[0-9]+$ ]]
+            if (( current_code <= previous_code )); then
+              echo "::error::OTA versionCode $current_code must exceed previous $previous_code"
+              exit 1
+            fi
+          fi
           test "$(stat -c '%s' "$target")" -lt 262144000
           sha256sum "$target"
       - name: Publish official stable OTA release from verified signed APK
