@@ -155,8 +155,22 @@ assert verify_native(APK, PACKAGE) == ("x86_64" if page_size_16k else "x86")
 resolve = adb("shell", "cmd", "package", "resolve-activity", "--brief", "-a",
               "android.intent.action.MAIN", "-c", CATEGORY, PACKAGE)
 assert PACKAGE + "/.MainActivity" in resolve
-cases = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
 component = resolve.splitlines()[-1]
+if not page_size_16k:
+    # Real Android TV emulation has no camera. Import must expose URL entry,
+    # never a camera activity that cannot succeed on a remote-only device.
+    launched = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
+                   "-c", CATEGORY, "-n", component)
+    assert "Status: ok" in launched, launched
+    tap("Добавить подписку")
+    wait_label("Ссылка подписки")
+    assert not any(n.get("text") == "Сканировать QR" or
+                   n.get("content-desc") == "Сканировать QR-код подписки"
+                   for n in nodes()), "Camera QR import must be absent on Android TV"
+    key("BACK")
+    adb("shell", "am", "force-stop", PACKAGE)
+    print("Android TV subscription URL entry and no-camera QR guard passed", flush=True)
+cases = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
 for index, (protocol, label) in enumerate((
     ("hysteria2", "TVCheckXray"), ("tuic", "TVCheckTUIC")
 )):
