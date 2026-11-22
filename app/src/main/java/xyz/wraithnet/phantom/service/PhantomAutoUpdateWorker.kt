@@ -32,6 +32,11 @@ class PhantomAutoUpdateWorker(context: Context, params: WorkerParameters) :
             !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return Result.success()
         // Installing an APK kills its running process; wait for VPN to be idle.
         if (prefs.getBoolean("vpn_running", false)) return Result.success()
+        // A differently signed legacy/CI APK cannot be upgraded in-place.
+        // Do not repeatedly transfer a huge installer that Android must reject.
+        if (PhantomUpdates.hasOfficialSigningCertificate(ctx) != true) {
+            return Result.success()
+        }
         return try {
             val next = PhantomUpdates.check(ctx) ?: return Result.success()
             if (Build.VERSION.SDK_INT < 31 ||
