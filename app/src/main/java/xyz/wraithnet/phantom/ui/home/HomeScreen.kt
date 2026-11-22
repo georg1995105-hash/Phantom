@@ -794,7 +794,10 @@ fun HomeScreen(
                     },
                     subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
                     subscriptionAvailable = selectedMatch != null,
-                    hasSubscriptions = subscriptions.isNotEmpty())
+                    hasSubscriptions = subscriptions.isNotEmpty(),
+                    tvFocusEpoch = refreshVersion,
+                    tvModalVisible = showTvPairing || showImportMenu ||
+                        importMode != null || qrSource != null || activeSubMenu != null)
                 Destination.SERVERS -> serverPageState.SaveableStateProvider("servers") {
                     DisposableEffect(Unit) { onDispose { scanned.clear(); scannedWithAutoTuic.clear() } }
                     ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,

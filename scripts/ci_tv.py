@@ -172,6 +172,12 @@ if not page_size_16k:
                    for n in nodes()), "Camera QR import must be absent on Android TV"
     tap("Закрыть")
     wait_label("QR с телефона")
+    # D-pad OK must return to the VPN power control after dismissing the QR.
+    # With no selected server, activating it opens the normal import menu.
+    time.sleep(.5)
+    key("DPAD_CENTER")
+    wait_label("Добавить конфигурацию")
+    key("BACK")
     tap("Добавить подписку")
     wait_label("Ссылка подписки")
     key("BACK")
