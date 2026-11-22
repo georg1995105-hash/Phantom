@@ -4,6 +4,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
