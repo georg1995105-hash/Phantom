@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
@@ -734,9 +735,37 @@ fun HomeScreen(
         }
     }
 
+    // TV and real tablets have their own wide Home, not a stretched phone page.
+    val wideTablet = !isTelevision() &&
+        LocalConfiguration.current.smallestScreenWidthDp >= 600
+    val onServerPicked: (Subscription, ServerProfile) -> Unit = { owner, server ->
+                            if (ProtocolSupport.isSupported(server.scheme)) {
+                                val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
+                                    vpnStatus == "connected" && prefs.getString("vpn_last_profile", null) != server.raw
+                                softTap()
+                                selectedId = server.id
+                                selectedSubId = owner.id
+                                prefs.edit().putString("selected_server_id", server.id)
+                                    .putString("selected_subscription_id", owner.id).apply()
+                                scope.launch {
+                                    persist { current ->
+                                        current.map { item ->
+                                            if (item.id == owner.id && item.source == owner.source &&
+                                                item.servers.any { it.id == server.id })
+                                                item.copy(selectedServerId = server.id)
+                                            else item
+                                        }
+                                    }
+                                }
+                                if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
+                            } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
+                        }
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
     val tv = isTelevision()
+    LaunchedEffect(tv, tab) {
+        if (tv && tab == Destination.SERVERS) tab = Destination.HOME
+    }
     // On an empty television installation the useful QR is a receiver code:
     // scan it using Phantom on the phone and choose the subscription to send.
     // Do not auto-open the camera scanner (TV has no camera).
@@ -781,7 +810,7 @@ fun HomeScreen(
                 colors.surface, colors.background)))) {
             if (tv) TvSideNavigation(tab) { tab = it }
             Column(Modifier.weight(1f).fillMaxHeight()) {
-                if (tv) PageTitle(
+                if (tv && tab != Destination.HOME) PageTitle(
                     tab,
                     exit = if (vpnStatus == "connected") exitNetwork else null,
                     checkingExit = vpnStatus == "connected" && exitLoading,
@@ -790,28 +819,48 @@ fun HomeScreen(
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     when (tab) {
                 Destination.HOME, Destination.SERVERS -> {
-                    if (tv && tab == Destination.HOME) {
-                        ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
-                                            toggle = {
-                                                softTap()
-                                                when {
-                                                    vpnStatus == "connected" -> onStopVpn()
-                                                    selected == null -> { tab = Destination.SERVERS; showImportMenu = true }
-                                                    else -> onStartVpn(selected.raw)
-                                                }
-                                            }, choose = { tab = Destination.SERVERS },
-                                            error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
-                                            onRefreshSubscription = {
-                                                selectedMatch?.first?.let { owner ->
-                                                    scope.launch { refresh(owner) }
-                                                }
-                                            },
-                                            subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
-                                            subscriptionAvailable = selectedMatch != null,
-                                            hasSubscriptions = subscriptions.isNotEmpty(),
-                                            tvFocusEpoch = refreshVersion,
-                                            tvModalVisible = showTvPairing || showImportMenu ||
-                                                importMode != null || qrSource != null || activeSubMenu != null)
+                    if ((tv || wideTablet) && tab == Destination.HOME) {
+                        WideHomeDashboard(
+                            status = vpnStatus,
+                            selected = selectedMatch,
+                            download = downloadBytes,
+                            upload = uploadBytes,
+                            seconds = connectedSeconds,
+                            subscriptions = subscriptions,
+                            pinnedId = pinnedSubId,
+                            favorites = favorites,
+                            latency = latencies,
+                            measuring = measuring,
+                            refreshing = refreshing,
+                            probing = probing,
+                            failed = refreshFailed,
+                            importing = importBusy,
+                            focusEpoch = refreshVersion,
+                            modalVisible = showTvPairing || showImportMenu ||
+                                importMode != null || qrSource != null || activeSubMenu != null,
+                            onToggle = {
+                                softTap()
+                                when {
+                                    vpnStatus == "connected" -> onStopVpn()
+                                    selected == null -> showImportMenu = true
+                                    else -> onStartVpn(selected.raw)
+                                }
+                            },
+                            onSelect = onServerPicked,
+                            onRefresh = { sub -> scope.launch { refresh(sub) } },
+                            onManage = { activeSubMenu = it.id },
+                            onProbe = { sub -> probeSubscription(sub, notify = false) },
+                            onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
+                            onFavorite = { id ->
+                                favorites = if (id in favorites) favorites - id else favorites + id
+                                prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                            },
+                            onImport = { showImportMenu = true },
+                            onPairQr = if (tv) ({ showTvPairing = true }) else null,
+                            onScanQr = if (!tv && qrCameraAvailable) ::scanQr else null,
+                            onShowError = if (vpnStatus == "error" && vpnError.isNotBlank())
+                                ({ showErrorDetails = true }) else null,
+                        )
                     } else {
                         serverPageState.SaveableStateProvider("servers") {
                             DisposableEffect(Unit) {
@@ -826,28 +875,7 @@ fun HomeScreen(
                         favorite = { id ->
                             favorites = if (id in favorites) favorites - id else favorites + id
                             prefs.edit().putStringSet("favorite_servers", favorites).apply()
-                        }, choose = { owner, server ->
-                            if (ProtocolSupport.isSupported(server.scheme)) {
-                                val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
-                                    vpnStatus == "connected" && prefs.getString("vpn_last_profile", null) != server.raw
-                                softTap()
-                                selectedId = server.id
-                                selectedSubId = owner.id
-                                prefs.edit().putString("selected_server_id", server.id)
-                                    .putString("selected_subscription_id", owner.id).apply()
-                                scope.launch {
-                                    persist { current ->
-                                        current.map { item ->
-                                            if (item.id == owner.id && item.source == owner.source &&
-                                                item.servers.any { it.id == server.id })
-                                                item.copy(selectedServerId = server.id)
-                                            else item
-                                        }
-                                    }
-                                }
-                                if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
-                            } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                        }, openUrl = ::openUrl,
+                        }, choose = onServerPicked, openUrl = ::openUrl,
                         header = if (tv) null else ({
                             Column {
                                 PageTitle(Destination.HOME,
@@ -941,15 +969,7 @@ fun HomeScreen(
                 }
             )
                 }
-                if (tv && tab == Destination.HOME) {
-                    ConnectionImportActions(
-                        onOpenImport = { showImportMenu = true },
-                        onScanQr = null,
-                        onTvPair = if (subscriptions.isEmpty()) ({ showTvPairing = true }) else null,
-                        hasSubscriptions = subscriptions.isNotEmpty(),
-                        importing = importBusy,
-                    )
-                }
+
             }
         }
     }
