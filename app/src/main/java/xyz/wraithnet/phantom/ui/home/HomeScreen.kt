@@ -764,7 +764,14 @@ fun HomeScreen(
         bottomBar = {
             // Only the tab strip is fixed. All Home content, including import actions
             // and every provider/server row, belongs to one parent LazyColumn.
-            if (!tv) TabBar(tab) { tab = it }
+            if (!tv) TabBar(tab) { next ->
+                tab = next
+                // Returning to Home or tapping its selected tab starts at the top
+                // of the SAME lazy page. No server-only nested scrolling.
+                if (next == Destination.HOME) {
+                    scope.launch { unifiedHomeListState.scrollToItem(0) }
+                }
+            }
         }
     ) { inner ->
         val colors = MaterialTheme.colorScheme
