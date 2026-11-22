@@ -137,9 +137,10 @@ def wait_power_focus():
     x, y = (box[0] + box[2]) // 2, (box[1] + box[3]) // 2
     for _ in range(32):
         focused = [n for n in nodes() if n.get("focused") == "true"]
-        if any((lambda r: len(r) == 4 and r[0] <= x <= r[2] and r[1] <= y <= r[3])(
-                list(map(int, re.findall(r"\d+", n.get("bounds", "")))))) for n in focused):
-            return
+        for node in focused:
+            rect = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+            if len(rect) == 4 and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
+                return
         time.sleep(.15)
     snapshot = [(n.get("text", ""), n.get("content-desc", ""),
                  n.get("bounds", "")) for n in nodes() if n.get("focused") == "true"]
