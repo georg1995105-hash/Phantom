@@ -35,7 +35,7 @@ class AQuickSubscriptionUiTest {
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @Test fun serversImportAddsClipboardLinkAndRejectsDuplicate() {
+    @Test fun homeUnifiedImportAddsClipboardLinkAndRejectsDuplicate() {
         val store = SubscriptionStore(context)
         val previous = store.read()
         val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
@@ -48,18 +48,19 @@ class AQuickSubscriptionUiTest {
             store.write(emptyList())
             prefs.edit().remove("selected_subscription_id").remove("selected_server_id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                compose.awaitVisible(hasContentDescription("Вкладка Серверы"))
-                    .performTouchInput { click() }
-                val entry = hasText("Добавить подписку или ключ") and isEnabled()
+                val entry = hasContentDescription("Добавить подписку или ключ") and isEnabled()
+                compose.awaitVisible(hasContentDescription("Вкладка Главная"))
+                compose.awaitVisible(entry)
+                if (hasQrCamera(context)) {
+                    compose.awaitVisible(hasContentDescription("Сканировать QR-код подписки"))
+                } else {
+                    compose.onNode(hasContentDescription("Сканировать QR-код подписки"))
+                        .assertDoesNotExist()
+                }
                 compose.awaitVisible(entry).performTouchInput { click() }
                 compose.awaitVisible(hasText("Добавить конфигурацию"))
                 compose.awaitVisible(hasText("Ссылка подписки"))
                 compose.awaitVisible(hasText("Ручной ввод"))
-                if (hasQrCamera(context)) {
-                    compose.awaitVisible(hasText("Сканировать QR"))
-                } else {
-                    compose.onNode(hasText("Сканировать QR")).assertDoesNotExist()
-                }
                 try {
                     compose.waitUntil(10_000) {
                         var focused = false
