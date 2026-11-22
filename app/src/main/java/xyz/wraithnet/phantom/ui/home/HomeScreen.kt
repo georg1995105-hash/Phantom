@@ -1693,11 +1693,6 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
                 if (group == "about") {
-                    Text(
-                        "Канал обновлений · " + if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta") "Бета" else "Стабильный",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -1772,9 +1767,7 @@ private fun TvAboutSettings(
                 Text("PHANTOM VPN", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
-                Text("Версия ${version} · " +
-                    if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta")
-                        "Бета" else "Стабильная",
+                Text("Версия ${version}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
