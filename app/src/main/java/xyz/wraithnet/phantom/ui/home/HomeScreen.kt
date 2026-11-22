@@ -6,6 +6,9 @@ import android.content.ClipboardManager
 import android.os.Build
 import android.os.PersistableBundle
 import android.content.Context
+import android.content.res.Configuration
+import android.content.pm.ActivityInfo
+import xyz.wraithnet.phantom.ui.PhantomCaptureActivity
 import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings
@@ -357,6 +360,11 @@ fun HomeScreen(
     }
 
     val qrCameraAvailable = remember(context) { hasQrCamera(context) }
+    // Read from current Compose configuration on EACH composition, not once at
+    // app launch: tablets may rotate between opening Home and tapping Scan.
+    val qrLaunchOrientation = if (LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE)
+        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { scanned ->
             if (TvSubscriptionPairing.isPairingCode(scanned)) {
@@ -374,9 +382,12 @@ fun HomeScreen(
         runCatching {
             scanLauncher.launch(
                 ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                    .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                    .setCaptureActivity(PhantomCaptureActivity::class.java)
                     .setPrompt("Наведите камеру на QR-код подписки")
-                    .setOrientationLocked(true)
+                    // Portrait-only manifest and ZXing lock rotated tablets.
+                    // Keep the orientation of the SCREEN that opened the scanner.
+                    .setOrientationLocked(false)
+                    .addExtra(PhantomCaptureActivity.EXTRA_CAPTURE_ORIENTATION, qrLaunchOrientation)
                     .setBeepEnabled(false)
             )
         }.onFailure {
