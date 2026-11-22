@@ -9,6 +9,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.*
@@ -71,7 +74,7 @@ internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
     val c = MaterialTheme.colorScheme
     NavigationBar(modifier = Modifier.clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
         containerColor = c.surface, tonalElevation = 0.dp) {
-        Destination.entries.forEach { page ->
+        Destination.entries.filter { it != Destination.SERVERS }.forEach { page ->
             NavigationBarItem(modifier = Modifier.tvFocusRing().semantics { contentDescription = "Вкладка ${page.title}" }, selected = current == page, onClick = { select(page) },
                 icon = { Icon(page.icon, null) }, label = { Text(page.title, fontSize = 11.sp, maxLines = 1) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = c.primary,
@@ -139,16 +142,21 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
     subscriptionAvailable: Boolean, hasSubscriptions: Boolean,
-    tvFocusEpoch: Int = 0, tvModalVisible: Boolean = false) {
+    tvFocusEpoch: Int = 0, tvModalVisible: Boolean = false,
+    embedded: Boolean = false) {
     val c = MaterialTheme.colorScheme
     val tv = isTelevision()
     val initialFocus = remember { FocusRequester() }
+    val ownerView = LocalView.current
     val connected = status == "connected"
     val starting = status == "starting"
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val gap = if (!hasSubscriptions) 12.dp else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+    BoxWithConstraints(if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
+        val gap = if (embedded) 9.dp else if (!hasSubscriptions) 12.dp
+            else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
+        Column((if (embedded) Modifier.fillMaxWidth()
+                else Modifier.fillMaxWidth().verticalScroll(rememberScrollState()))
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(gap))
             val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
@@ -174,13 +182,15 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             // resume, not only at the first composition of the TV screen.
             LaunchedEffect(tv, tvFocusEpoch, tvModalVisible, starting) {
                 if (tv && !tvModalVisible && !starting) {
-                    // Wait for the button's focus target to attach before
-                    // requesting focus on Android TV emulators and set-top boxes.
-                    withFrameNanos { }
-                    // Android TV may keep the dismissed Dialog window focused for a
-                    // frame after Compose removes it. Request focus after that handoff.
-                    kotlinx.coroutines.delay(180)
-                    initialFocus.requestFocus()
+                    // The Activity window regains focus asynchronously after dismissing
+                    // a Compose Dialog. Request only when the power target is attached.
+                    repeat(12) {
+                        withFrameNanos { }
+                        if (ownerView.hasWindowFocus() && initialFocus.requestFocus()) {
+                            return@LaunchedEffect
+                        }
+                        kotlinx.coroutines.delay(90)
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -240,7 +250,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(if (embedded) 6.dp else 16.dp))
         }
     }
 }
@@ -328,6 +338,8 @@ internal fun ServersPage(
     onAutoProbe: (Subscription) -> Unit, onManualPing: (Subscription) -> Unit,
     favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, openUrl: (String) -> Unit,
+    header: (@Composable () -> Unit)? = null,
+    listState: LazyListState? = null,
 ) {
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
         (selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)?.let { this.add(it) }
@@ -342,7 +354,13 @@ internal fun ServersPage(
     }
     val c = MaterialTheme.colorScheme
     val tv = isTelevision()
-    LazyColumn(contentPadding = PaddingValues(horizontal = if (tv) 8.dp else 16.dp, vertical = 6.dp)) {
+    val ownListState = rememberLazyListState()
+    LazyColumn(
+        state = listState ?: ownListState,
+        contentPadding = PaddingValues(horizontal = if (tv) 8.dp else 16.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        if (header != null) item(key = "combined-home") { header() }
         if (groups.isEmpty()) item {
             Text("Добавьте подписку или ключ, чтобы увидеть серверы", Modifier.padding(12.dp))
         }
