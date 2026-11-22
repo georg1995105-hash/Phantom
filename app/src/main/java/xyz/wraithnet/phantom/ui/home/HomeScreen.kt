@@ -348,7 +348,8 @@ fun HomeScreen(
             // Never silently use the physical network when an active-node
             // refresh fails. Background refreshes intentionally stay direct.
             val remote = SubscriptionFetcher.download(
-                context, item.source, store.deviceId(), item, vpnRoute = vpnRoute)
+                context, item.source, store.deviceId(), item, vpnRoute = vpnRoute,
+                manual = !quiet)
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
             if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
@@ -389,7 +390,7 @@ fun HomeScreen(
                 !quiet && vpnStatus == PhantomVpnService.STATUS_STARTING ->
                     "Дождитесь подключения VPN и повторите проверку"
                 checkingNode ->
-                    "Через $nodeLabel обновить не удалось · прямого обхода VPN не было"
+                    "Через $nodeLabel обновить не удалось (до 15 с) · без обхода VPN"
                 else -> "Не удалось обновить подписку. Сохранённые серверы доступны."
             }
         } finally {
