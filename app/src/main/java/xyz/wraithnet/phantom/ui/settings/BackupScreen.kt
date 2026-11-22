@@ -4,7 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.tvFocusRing().clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import xyz.wraithnet.phantom.ui.home.tvFocusRing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -95,7 +96,7 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
                     Icon(Icons.Default.ArrowBack, "Назад")
                 }
                 Spacer(Modifier.width(8.dp))
@@ -122,7 +123,7 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    Row(Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(enabled = !busy) {
                         export.launch("phantom-backup.json")
                     }.padding(horizontal = 17.dp, vertical = 19.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -136,7 +137,7 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
                         Icon(Icons.Default.ChevronRight, null)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .24f))
-                    Row(Modifier.fillMaxWidth().clickable(enabled = !busy) {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(enabled = !busy) {
                         import.launch(arrayOf("application/json", "text/plain", "*/*"))
                     }.padding(horizontal = 17.dp, vertical = 19.dp),
                         verticalAlignment = Alignment.CenterVertically) {
