@@ -33,6 +33,7 @@ import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
+import xyz.wraithnet.phantom.data.SubscriptionPingText
 
 /**
  * Real TV/tablet Home. A SINGLE lazy vertical scroller owns connection, every
