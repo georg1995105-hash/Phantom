@@ -711,7 +711,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
     Surface(color = colors.surfaceVariant.copy(alpha = .37f),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))) {
-        Column(Modifier.fillMaxWidth().padding(13.dp)) {
+        Column(Modifier.fillMaxWidth().padding(11.dp)) {
             Text("ВЫБРАННАЯ ПОДПИСКА", fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                 color = colors.onSurfaceVariant)
@@ -761,8 +761,8 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                 color = colors.surface,
                 border = BorderStroke(1.dp, colors.primary.copy(alpha = .36f))
             ) {
-                Column(Modifier.fillMaxWidth().padding(22.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("PHANTOM VPN", color = colors.primary,
                         fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text("Ваш доступ", style = MaterialTheme.typography.titleLarge,
@@ -806,19 +806,19 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                         .size(126.dp).border(1.dp, Color(0x263BB68F), CircleShape))
                     Box(Modifier.align(Alignment.TopEnd).offset(x = 21.dp, y = (-26).dp)
                         .size(96.dp).border(1.dp, Color(0x1E73CBA6), CircleShape))
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                         Text("PHANTOM VPN", color = Color(0xFF90B8A7),
                             fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                        Spacer(Modifier.height(7.dp))
+                        Spacer(Modifier.height(5.dp))
                         Text("ВАШ ДОСТУП.", color = Color(0xFFE3F2E9),
-                            fontSize = 26.sp, lineHeight = 30.sp,
+                            fontSize = 24.sp, lineHeight = 28.sp,
                             fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp)
                         Spacer(Modifier.height(4.dp))
                         Text("ОФИЦИАЛЬНЫЙ МАГАЗИН", color = Color(0xFFA1CDB7),
                             fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp)
                     }
                 }
-                Column(Modifier.padding(13.dp)) {
+                Column(Modifier.padding(11.dp)) {
                     if (currentSubscription != null) {
                         SubscriptionAccessSummary(currentSubscription)
                     } else {
@@ -827,16 +827,16 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                             Column(Modifier.fillMaxWidth().padding(13.dp)) {
                                 Text("Подписка не выбрана", fontWeight = FontWeight.SemiBold)
                                 Spacer(Modifier.height(4.dp))
-                                Text("Добавьте подписку в разделе «Серверы» или оформите доступ.",
+                                Text("Добавьте подписку на главной странице или оформите доступ.",
                                     color = colors.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(9.dp))
                     Text("Управление доступом",
                         fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(9.dp))
+                    Spacer(Modifier.height(7.dp))
                     Button(onClick = openShop,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).tvFocusRing(),
                         shape = RoundedCornerShape(13.dp),
@@ -848,7 +848,7 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                             Icon(Icons.Default.NorthEast, null, Modifier.size(18.dp))
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(7.dp))
                     Caption("Продлить: «Моя подписка» → «Продлить» в магазине.")
                 }
             }
