@@ -129,6 +129,24 @@ def tap(label):
     adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
 
 
+def wait_power_focus():
+    """Confirm that the TV power button, not the navigation rail, owns OK."""
+    button = wait_label("Подключить VPN")
+    box = list(map(int, re.findall(r"\d+", button.get("bounds", ""))))
+    assert len(box) == 4, f"Missing power button bounds: {button.attrib}"
+    x, y = (box[0] + box[2]) // 2, (box[1] + box[3]) // 2
+    for _ in range(32):
+        focused = [n for n in nodes() if n.get("focused") == "true"]
+        for node in focused:
+            rect = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+            if len(rect) == 4 and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
+                return
+        time.sleep(.15)
+    snapshot = [(n.get("text", ""), n.get("content-desc", ""),
+                 n.get("bounds", "")) for n in nodes() if n.get("focused") == "true"]
+    raise AssertionError("Power did not receive TV focus on cold start: " + repr(snapshot))
+
+
 page_size_16k = sys.argv[1:] == ["--16k"]
 if page_size_16k:
     assert adb("shell", "getconf", "PAGE_SIZE") == "16384"
@@ -170,15 +188,21 @@ if not page_size_16k:
     assert not any(n.get("text") == "Сканировать QR" or
                    n.get("content-desc") == "Сканировать QR-код подписки"
                    for n in nodes()), "Camera QR import must be absent on Android TV"
-    tap("Закрыть")
+    # A television is remote-only. Closing the dialog by BACK must restore
+    # D-pad navigation without requiring a touchscreen tap (which forces the
+    # Android TV emulator into touch mode and hides its keyboard focus).
+    key("BACK")
     wait_label("QR с телефона")
-    # D-pad OK must return to the VPN power control after dismissing the QR.
-    # With no selected server, activating it opens the normal import menu.
-    time.sleep(.5)
+    time.sleep(.6)
+    focused = [(n.get("text", ""), n.get("content-desc", ""),
+                n.get("bounds", "")) for n in nodes() if n.get("focused") == "true"]
+    print("TV focus after closing receiver QR with remote:", focused, flush=True)
+    # OK must activate the real power control: no selected server => import.
     key("DPAD_CENTER")
     wait_label("Добавить конфигурацию")
     key("BACK")
-    tap("Добавить подписку")
+    tap("Вкладка Главная")
+    tap("Добавить подписку или ключ")
     wait_label("Ссылка подписки")
     key("BACK")
     adb("shell", "am", "force-stop", PACKAGE)
@@ -205,10 +229,14 @@ for index, (protocol, label) in enumerate((
     if page_size_16k:
         tap("Подключить VPN")
     else:
-        wait_label("Подключить VPN")
+        # Compose may display text before its D-pad focus target is attached.
+        # Pressing OK too early can activate the navigation rail instead.
+        wait_power_focus()
         key("DPAD_CENTER")
     try:
-        wait_label("Подключено")
+        # On wide TV the state is inside the clickable power control. Its
+        # semantics action changes from "Подключить" to "Отключить".
+        wait_label("Подключено" if page_size_16k else "Отключить VPN")
     except AssertionError as ex:
         raise AssertionError(f"{device} {protocol} tunnel did not connect: {ex}") from ex
     processes = [PACKAGE]
@@ -225,17 +253,48 @@ for index, (protocol, label) in enumerate((
         tap("Отключить VPN")
     else:
         key("DPAD_CENTER")
-    wait_label("Отключено")
+    wait_label("Отключено" if page_size_16k else "Подключить VPN")
     print(f"{device} native {protocol}: connected and disconnected", flush=True)
 if not page_size_16k:
-    # Move to the bottom navigation using only directional keys.
-    for _ in range(7):
-        key("DPAD_DOWN")
-    for _ in range(4):
-        key("DPAD_LEFT")
-    key("DPAD_RIGHT")
-    key("DPAD_CENTER")
+    # The Android TV UI has a real D-pad navigation rail, not phone bottom
+    # tabs. Test every destination and TV-only About subpage on the actual
+    # signed universal APK, with no touch-only controls or dead-end menus.
+    # All servers are reachable directly on Home in two columns.
+    # The separate Servers rail tab is intentionally absent.
+    assert not any(n.get("content-desc") == "Вкладка Серверы" for n in nodes())
+    wait_label("Серверы")
     wait_label("В избранное")
-    key("BACK")
+    wait_label("Открыть JSON конфигурации " + label)
     wait_label("Подключить VPN")
-    print("Android TV launcher, universal x86 runtime, D-pad VPN, server list and Back passed")
+    tap("Вкладка Подписка")
+    wait_label("В магазин")
+    tap("Вкладка Настройки")
+    wait_label("Подключение")
+    tap("Подключение")
+    wait_label("DNS")
+    tap("DNS")
+    wait_label("Сохранить")
+    key("BACK")
+    wait_label("Подключение")
+    # Navigate settings by remote keys; expanding items must be reachable by
+    # D-pad scrolling, not only via touch.
+    for _ in range(24):
+        if any(n.get("text") == "О приложении" for n in nodes()):
+            break
+        key("DPAD_DOWN")
+    tap("О приложении")
+    wait_label("Проверить обновление приложения")
+    wait_label("Автообновление по Wi-Fi")
+    tap("Компоненты и лицензии")
+    wait_label("ВОЗМОЖНОСТИ КЛИЕНТА")
+    key("BACK")
+    wait_label("Журнал VPN")
+    tap("Журнал VPN")
+    wait_label("Журнал VPN")
+    key("BACK")
+    wait_label("К настройкам")
+    tap("К настройкам")
+    wait_label("Резервная копия")
+    tap("Вкладка Главная")
+    wait_label("Подключить VPN")
+    print("Android TV: D-pad, unified server grid, three rail tabs, VPN cores, DNS, About, journal and Back passed")

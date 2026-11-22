@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -85,13 +87,18 @@ class MultipleSubscriptionsUiTest {
                 .putString("selected_server_id", "same-server-id")
                 .remove("pinned_sub_id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                compose.awaitVisible(hasContentDescription("Вкладка Серверы")).performTouchInput { click() }
+                // Phone Home now owns the complete server LazyColumn; no second scroll.
+                compose.awaitVisible(hasContentDescription("Вкладка Главная"))
+                compose.onNode(hasScrollAction()).performScrollToNode(hasText("Тестовая подписка · 1"))
                 val firstTitle = "${first.title} · 1"
                 val secondTitle = "${second.title} · 2"
                 compose.awaitVisible(hasText(firstTitle))
+                compose.onNode(hasScrollAction()).performScrollToNode(hasText(secondTitle))
                 compose.awaitVisible(hasText(secondTitle))
                 val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
                 compose.onNode(secondServer).assertDoesNotExist()
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Выбрать сервер Нидерланды тест"))
                 compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды тест"))
                 compose.awaitVisible(hasContentDescription("Выбрать сервер Автовыбор"))
                     .performTouchInput { click() }
@@ -101,18 +108,33 @@ class MultipleSubscriptionsUiTest {
                 }
                 // Server groups start with the first owner's group open. The
                 // second group must be opened before choosing its server.
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Раскрыть подписку $secondTitle"))
                 compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                     .performTouchInput { click() }
+                compose.onNode(hasScrollAction()).performScrollToNode(secondServer)
                 compose.awaitVisible(secondServer).performTouchInput { click() }
-                compose.awaitVisible(hasText("Автовыбор"))
-                compose.awaitVisible(hasContentDescription("Свернуть подписку $firstTitle")).performTouchInput { click() }
-                compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
-                compose.awaitVisible(hasContentDescription("Кабинет ${first.title}"))
-                compose.awaitVisible(hasText("Трафик"))
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Выбрать сервер Автовыбор"))
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Свернуть подписку $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Свернуть подписку $firstTitle"))
+                    .performTouchInput { click() }
+                compose.onNode(hasContentDescription("Выбрать сервер Автовыбор"))
+                    .assertDoesNotExist()
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Кабинет $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Кабинет $firstTitle"))
+                compose.onAllNodes(hasText("Трафик"))[0].assertExists()
+                compose.onNode(hasScrollAction()).performScrollToNode(secondServer)
                 compose.awaitVisible(secondServer)
-                compose.onAllNodes(hasText("Подробнее"))[0].performTouchInput { click() }
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Подробнее о $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Подробнее о $firstTitle"))
+                    .performTouchInput { click() }
                 compose.awaitVisible(hasText("Условия провайдера"))
-                compose.onNode(hasText("Автовыбор")).assertDoesNotExist()
+                compose.onNode(hasContentDescription("Выбрать сервер Автовыбор"))
+                    .assertDoesNotExist()
                 compose.runOnIdle {
                     assertEquals(second.id, prefs.getString("selected_subscription_id", null))
                     assertEquals("same-server-id", prefs.getString("selected_server_id", null))
@@ -120,11 +142,17 @@ class MultipleSubscriptionsUiTest {
 
                 val refreshFirst = hasContentDescription("Обновить подписку $firstTitle")
                 val refreshSecond = hasContentDescription("Обновить подписку $secondTitle")
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Управление подпиской $firstTitle"))
                 compose.awaitVisible(hasContentDescription("Управление подпиской $firstTitle"))
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Управление подпиской $secondTitle"))
                 compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
+                compose.onNode(hasScrollAction()).performScrollToNode(refreshFirst)
                 compose.awaitVisible(refreshFirst and isEnabled()).performTouchInput { click() }
                 assertEquals("/first", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 compose.awaitVisible(refreshFirst and isNotEnabled())
+                compose.onNode(hasScrollAction()).performScrollToNode(refreshSecond)
                 compose.awaitVisible(refreshSecond and isEnabled()).performTouchInput { click() }
                 assertEquals("/second", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 releaseResponses.countDown()
@@ -135,6 +163,7 @@ class MultipleSubscriptionsUiTest {
                 assertEquals(refreshedLink, subscriptions.first().servers.single().raw)
                 assertEquals(second.copy(selectedServerId = "same-server-id"), subscriptions.last())
                 val secondMenu = hasContentDescription("Управление подпиской $secondTitle")
+                compose.onNode(hasScrollAction()).performScrollToNode(secondMenu)
                 compose.awaitVisible(secondMenu).performClick()
                 for (action in listOf("Проверить пинг всех серверов", "Обновить подписку", "Копировать ссылку",
                         "Показать QR-код", "Закрепить", "Поделиться", "Удалить подписку")) {
@@ -157,7 +186,7 @@ class MultipleSubscriptionsUiTest {
                 compose.onNode(hasText(secondTitle)).assertDoesNotExist()
                 assertEquals(first.webPageUrl, subscriptions.first().webPageUrl)
                 assertEquals(first.announcement, subscriptions.first().announcement)
-                compose.awaitVisible(hasContentDescription("Вкладка Серверы"))
+                compose.awaitVisible(hasContentDescription("Вкладка Главная"))
                     .performTouchInput { click() }
                 // App recreation must not reset ownership to the first
                 // subscription even when both servers have the same ID.

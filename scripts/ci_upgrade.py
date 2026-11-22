@@ -138,6 +138,13 @@ def visible_after_scroll(label, max_swipes=6):
                 str(width // 2), str(int(height * .27)), "360")
 
 
+def show_servers():
+    """Subscriptions start directly after Connected on the single Home page."""
+    tap("Главная")
+    # The decorative "Серверы" section label and duplicate current-country
+    # card were deliberately removed. The Home tab resets scrolling to top.
+
+
 def screenshot(name):
     path = Path("upgrade-screens")
     path.mkdir(exist_ok=True)
@@ -170,7 +177,8 @@ tap("Тема оформления")
 tap("Светлая")
 adb("shell", "input", "keyevent", "4")
 node("Светлая")
-tap("Серверы")
+tap("Главная")
+visible_after_scroll("В избранное", max_swipes=10)
 tap("В избранное")
 tap("Главная")
 install_apk(new, "-r")
@@ -192,17 +200,21 @@ assert current_code > previous_code, (
 print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} ({current_code})",
       flush=True)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
-node("UpgradeCheck")
+visible_after_scroll("UpgradeCheck")
 node("Отключено")
-node("Обновить выбранную подписку")
-tap("Обновить выбранную подписку")
-node("UpgradeCheck")
+# A standalone key cannot be refreshed as a subscription. The redundant
+# global refresh CTA was removed; per-owner refresh remains on owner cards.
+adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
+ui = adb("shell", "cat", "/sdcard/phantom-ui.xml")
+assert "Обновить выбранную подписку" not in ui
+assert 'text="Время"' not in ui
+visible_after_scroll("UpgradeCheck")
 screenshot("home")
-tap("Серверы")
-node("UpgradeCheck")
-node("Убрать из избранного")
+show_servers()
+visible_after_scroll("UpgradeCheck")
+visible_after_scroll("Убрать из избранного")
 screenshot("servers")
-node("Добавить подписку или ключ")
+visible_after_scroll("Добавить подписку или ключ", max_swipes=18)
 tap("Подписка")
 node("В магазин")
 screenshot("subscriptions")
@@ -215,8 +227,8 @@ tap_in_list("О приложении")
 tap_in_list("Проверить обновление приложения")
 adb("shell", "am", "force-stop", PACKAGE)
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
-tap("Серверы")
-node("Убрать из избранного")
+show_servers()
+visible_after_scroll("Убрать из избранного")
 
 
 # Continue through the native TUN checks in the package installed above.
@@ -226,7 +238,7 @@ tap_in_list("Тёмно-зелёная")
 adb("shell", "input", "keyevent", "4")
 node("Тёмно-зелёная")
 screenshot("forest-settings")
-tap("Серверы")
+show_servers()
 # Switch the real Android VPN between the TUIC and AnyTLS loopback peers. Android
 # establishes a real TUN. The production connectivity check verifies HTTPS.
 adb("shell", "svc", "wifi", "enable")
@@ -242,8 +254,8 @@ profiles = [
 payload = json.dumps(profiles, separators=(",", ":"))
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", payload]))
-tap("Раскрыть подписку AndroidCheckA")
-tap("Выбрать сервер AndroidCheckA")
+tap_in_list("Раскрыть подписку AndroidCheckA")
+tap_in_list("Выбрать сервер AndroidCheckA")
 tap("Главная")
 node("AndroidCheckA")
 adb("shell", "appops", "set", PACKAGE, "ACTIVATE_VPN", "allow")
@@ -255,20 +267,20 @@ time.sleep(4)
 adb("shell", "input", "keyevent", "KEYCODE_WAKEUP")
 adb("shell", "wm", "dismiss-keyguard")
 node("Подключено")
-tap("Серверы")
+show_servers()
 # This port accepts a TCP handshake but has no proxy. The active TUIC peer rejects traffic to it.
 def entry_counts():
     with urllib.request.urlopen("http://127.0.0.1:34301/TcpEntryCounts", timeout=2) as response:
         return json.load(response)
 
 
-node("XhttpProbe")
+visible_after_scroll("XhttpProbe")
 wait_compact_latencies(min_count=3)
 before, payloads = entry_counts()
 subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "2", "-W", "2", "10.0.2.2", "34304"],
                input=b"via-tun", capture_output=True, timeout=8)
 assert entry_counts()[1] == payloads, "Control UID unexpectedly reached the physical TCP entry"
-tap("Управление подпиской AndroidCheckA")
+tap_in_list("Управление подпиской AndroidCheckA")
 tap("Проверить пинг всех серверов")
 # Three TCP peers already worked before this change. TUIC has no TCP listener,
 # so a fourth number must come from its isolated QUIC/HTTPS latency probe.
@@ -285,16 +297,16 @@ print("TCP handshake on the physical network with another TUIC node active; zero
 tap("Главная")
 node("Подключено")
 node("AndroidCheckA")
-tap("Серверы")
+show_servers()
 screenshot("forest-servers")
-tap("Выбрать сервер AndroidCheckB")
+tap_in_list("Выбрать сервер AndroidCheckB")
 tap("Главная")
 node("AndroidCheckB")
 node("Подключено")
 tap("Отключить VPN")
 node("Отключено")
-tap("Серверы")
-tap("Свернуть подписку AndroidCheckA")
+show_servers()
+tap_in_list("Свернуть подписку AndroidCheckA")
 tap("Главная")
 
 # Import the same provider JSON used by the native routing test. The first
@@ -303,7 +315,7 @@ tap("Главная")
 balance = Path("app/src/androidTest/assets/provider-balance.json").read_text()
 adb("shell", shlex.join(["am", "start", "-W", "-n", ACTIVITY, "-a", "android.intent.action.SEND",
                         "-t", "text/plain", "--es", "android.intent.extra.TEXT", balance]))
-tap("Серверы")
+show_servers()
 tap_in_list("Выбрать сервер Автовыбор")
 # This fixture uses a provider-only fallback DNS name. Its routed behavior is verified below.
 tap("Главная")
@@ -341,8 +353,8 @@ finally:
 
 print("Signed APK: provider Xray JSON connected through the XHTTP fallback", flush=True)
 screenshot("provider-auto-connected")
-tap("Серверы")
-node("Выбрать сервер Автовыбор")
+show_servers()
+visible_after_scroll("Выбрать сервер Автовыбор")
 tap("Главная")
 node("Подключено")
 tap("Отключить VPN")
@@ -399,22 +411,23 @@ except AssertionError:
     screenshot("qr-failure")
     print(adb("logcat", "-d", "-s", "CameraPreview", "CameraInstance", "CameraManager", "DecoderThread"))
     raise
-tap("Серверы")
+show_servers()
 tap_in_list("Раскрыть подписку OfflineSubscriptionCheck")
 node("OfflineSubscriptionCheck", attempts=20)
 print("Camera QR imported a subscription without a second confirmation", flush=True)
 tap_in_list("Выбрать сервер OfflineSubscriptionCheck")
 tap("Главная")
-tap("Обновить выбранную подписку")
+visible_after_scroll("Обновить подписку OfflineSubscriptionCheck", max_swipes=18)
+tap("Обновить подписку OfflineSubscriptionCheck")
 node("Подписка обновлена")
-tap("Серверы")
-node("Управление подпиской OfflineSubscriptionCheck")
+show_servers()
+visible_after_scroll("Управление подпиской OfflineSubscriptionCheck")
 tap("Подписка")
 node("В магазин")
 screenshot("forest-subscriptions")
 # Verify that renewal guidance stays reachable on a narrow device.
 adb("shell", "wm", "size", "720x1600")
-renewal_hint = "Продлить: в магазине «Моя подписка» → «Продлить»."
+renewal_hint = "Продлить: «Моя подписка» → «Продлить» в магазине."
 for attempt in range(10):
     try:
         node(renewal_hint, attempts=1)
@@ -442,20 +455,25 @@ for action in ("В магазин",):
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 tap("Главная")
-tap("Обновить выбранную подписку")
-tap("Серверы")
+visible_after_scroll("Обновить подписку OfflineSubscriptionCheck", max_swipes=18)
+tap("Обновить подписку OfflineSubscriptionCheck")
+show_servers()
 # After failed offline refresh the new card shows an explicit owner-scoped
 # error while preserving servers. Check the current UI contract, not text
 # removed with the old duplicate subscription summary.
-node("Ошибка обновления · серверы сохранены", attempts=36)
-tap("Серверы")
-node("OfflineSubscriptionCheck")
+# The failed owner can be far below the viewport in the ONE unified
+# scrolling page. Navigate to that owner; never replace the error assertion.
+visible_after_scroll("Управление подпиской OfflineSubscriptionCheck", max_swipes=18)
+visible_after_scroll("Ошибка обновления · серверы сохранены", max_swipes=18)
+node("Управление подпиской OfflineSubscriptionCheck")
+show_servers()
+visible_after_scroll("OfflineSubscriptionCheck", max_swipes=18)
 
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
     tap("Подписка")
     visible_after_scroll("В магазин")
-    for tab in ("Главная", "Серверы", "Подписка", "Настройки"):
+    for tab in ("Главная", "Подписка", "Настройки"):
         node(tab)
     screenshot("phone-landscape")
 finally:
@@ -472,8 +490,8 @@ try:
         adb("shell", "am", "force-stop", PACKAGE)
         adb("shell", "am", "start", "-W", "-n", ACTIVITY)
         node("Главная")
-        tap("Серверы")
-        node("OfflineSubscriptionCheck")
+        show_servers()
+        visible_after_scroll("OfflineSubscriptionCheck")
         tap("Подписка")
         visible_after_scroll("В магазин")
         tap("Настройки")

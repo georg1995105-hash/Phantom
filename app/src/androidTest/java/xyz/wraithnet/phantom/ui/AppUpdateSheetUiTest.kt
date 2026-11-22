@@ -1,9 +1,14 @@
 package xyz.wraithnet.phantom.ui
 
 import androidx.activity.compose.setContent
+import android.content.res.Configuration
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
@@ -43,6 +48,63 @@ class AppUpdateSheetUiTest {
             }
             compose.awaitVisible(hasText("Скачать через браузер")).performClick()
             compose.runOnIdle { assertTrue(browserInvoked) }
+        }
+    }
+
+    @Test fun differentSigningKeyDisablesInstallAndOpensRealBackupPath() {
+        val release = PhantomRelease("0.3.18", "", "", 1234,
+            "- Улучшен Android TV\\n- Исправлен размер окна")
+        var installRequested by mutableStateOf(false)
+        var backupRequested by mutableStateOf(false)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    PhantomTheme {
+                        AppUpdateSheet(release, false, 0, 0L, false, null,
+                            onLater = {}, onUpdate = { installRequested = true },
+                            onDownloadInBrowser = {}, onCancelDownload = {},
+                            signingMismatch = true,
+                            onOpenBackup = { backupRequested = true })
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Другая подпись приложения"))
+            compose.awaitVisible(hasText("Недоступно") and isNotEnabled())
+            compose.awaitVisible(hasText("Резервная копия")).performClick()
+            compose.runOnIdle {
+                assertTrue(backupRequested)
+                assertTrue(!installRequested)
+            }
+            compose.onAllNodes(hasText("Скачать через браузер")).assertCountEquals(0)
+        }
+    }
+
+    @Test fun televisionUpdateDialogKeepsActionsVisibleWithLongNotes() {
+        val release = PhantomRelease("0.3.18", "", "", 1234L,
+            (1..22).joinToString("\\n") { "- Изменение номер " + it + ": подробности исправления" })
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val tvConfiguration = Configuration(activity.resources.configuration).apply {
+                    uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or
+                        Configuration.UI_MODE_TYPE_TELEVISION
+                }
+                activity.setContent {
+                    CompositionLocalProvider(LocalConfiguration provides tvConfiguration) {
+                        PhantomTheme {
+                            AppUpdateSheet(release, false, 0, 0L, false, null,
+                                onLater = {}, onUpdate = {},
+                                onDownloadInBrowser = {}, onCancelDownload = {})
+                        }
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Обновление Phantom"))
+            compose.awaitVisible(hasText("Ещё")).performClick()
+            val later = compose.awaitVisible(hasText("Позже")).getUnclippedBoundsInRoot()
+            val update = compose.awaitVisible(hasText("Обновить")).getUnclippedBoundsInRoot()
+            assertTrue(later.bottom > 0.dp && update.bottom > 0.dp)
+            assertTrue(later.right <= update.left)
+            compose.awaitVisible(hasText("Меньше")).performClick()
         }
     }
 

@@ -5,7 +5,19 @@ import android.content.pm.PackageManager
 import android.hardware.camera2.CameraManager
 import android.content.res.Configuration
 import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -47,4 +59,59 @@ internal fun Modifier.tvFocusRing(shape: Shape = RoundedCornerShape(12.dp)): Mod
     return onFocusChanged { focused = it.isFocused }.then(
         if (focused) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape) else Modifier
     )
+}
+
+/**
+ * A dedicated TV rail replaces the touch-centric bottom NavigationBar on TV.
+ * Three stable D-pad targets. Servers are now on Home without an extra tab.
+ * Full owner actions, ping, favorites and JSON remain accessible in the grid.
+ */
+@Composable
+internal fun TvSideNavigation(
+    current: Destination,
+    select: (Destination) -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    Column(
+        Modifier.width(142.dp).fillMaxHeight()
+            .padding(start = 6.dp, end = 6.dp, bottom = 8.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(c.surface)
+            .padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("PHANTOM", fontSize = 17.sp, fontWeight = FontWeight.Bold,
+            color = c.onSurface, modifier = Modifier.padding(start = 12.dp))
+        Text("VPN · Android TV", fontSize = 10.sp, color = c.onSurfaceVariant,
+            modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
+        Destination.entries.filter { it != Destination.SERVERS }.forEach { destination ->
+            val active = current == destination
+            val shape = RoundedCornerShape(13.dp)
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                    .clip(shape)
+                    .background(if (active) c.primaryContainer else Color.Transparent)
+                    .tvFocusRing(shape)
+                    .clickable { select(destination) }
+                    .semantics { contentDescription = "Вкладка ${destination.title}" }
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(destination.icon, contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (active) c.primary else c.onSurfaceVariant)
+                Text(destination.title,
+                    fontSize = 13.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                    color = if (active) c.onSurface else c.onSurfaceVariant,
+                    maxLines = 1)
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text("OK · Выбрать", fontSize = 11.sp, color = c.onSurfaceVariant,
+            modifier = Modifier.padding(start = 12.dp))
+        Text("BACK · Назад", fontSize = 11.sp, color = c.onSurfaceVariant,
+            modifier = Modifier.padding(start = 12.dp))
+    }
 }

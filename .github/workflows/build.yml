@@ -3,12 +3,6 @@ name: Build APK
 on:
   workflow_dispatch:
     inputs:
-      release_channel:
-        description: 'Manual release channel (beta is a separate Android package)'
-        required: true
-        default: stable
-        type: choice
-        options: [stable, beta]
       release_tag:
         description: 'If set, publish signed APK as a GitHub Release with this tag'
         required: false
@@ -93,49 +87,14 @@ jobs:
           test -n "$VERSION"
           grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
 
-      - name: Build release APK
-        env:
-          RELEASE_CHANNEL: ${{ inputs.release_channel }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
+      - name: Build and test single universal APK
         run: |
+          set -euo pipefail
           chmod +x gradlew
-          set +e
-          tasks=(:app:testDebugUnitTest :app:lintRelease :app:assembleRelease)
-          beta_args=()
-          if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
-            tasks+=(:app:testBetaUnitTest :app:lintBeta :app:assembleBeta)
-          fi
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "${RELEASE_CHANNEL:-stable}" == "beta" ]]; then
-            # Each published beta must increase versionCode, even within the
-            # same stable base version: beta.1=34001, beta.2=34002, etc.
-            if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-beta\.([1-9][0-9]*)$ ]]; then
-              echo "::error::Expected a tag like v0.3.7-beta.2"; exit 1
-            fi
-            beta_base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
-            beta_number="${BASH_REMATCH[4]}"
-            stable_version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
-            stable_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' app/build.gradle.kts)
-            if [[ "$beta_base" != "$stable_version" || ! "$stable_code" =~ ^[0-9]+$ ]]; then
-              echo "::error::Beta base must equal the source stable version"; exit 1
-            fi
-            if (( beta_number > 999 )); then
-              echo "::error::Beta ordinal must be between 1 and 999"; exit 1
-            fi
-            beta_code=$((stable_code * 1000 + beta_number))
-            beta_args+=("-PphantomBetaVersion=${RELEASE_TAG#v}" "-PphantomBetaCode=$beta_code")
-            echo "Building beta version=${RELEASE_TAG#v} versionCode=$beta_code"
-          fi
-          ./gradlew --no-daemon --max-workers=1 --stacktrace "${beta_args[@]}" "${tasks[@]}"
-          result=$?
-          if [ "$result" -ne 0 ]; then
-            report=app/build/intermediates/lint_intermediate_text_report/release/lintReportRelease/lint-results-release.txt
-            if [ -f "$report" ]; then
-              echo "::group::Android Lint full findings"
-              sed -n '1,220p' "$report"
-              echo "::endgroup::"
-            fi
-          fi
-          exit "$result"
+          # One application package, one ABI-universal APK, no Beta variant.
+          ./gradlew --no-daemon --max-workers=1 --stacktrace \
+            :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
 
       - name: Generate disposable CI signing key (no release secrets)
         if: github.event_name != 'workflow_dispatch'
@@ -156,47 +115,35 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > app/keystore.jks
           test -s app/keystore.jks
 
-      - name: Sign APK
+      - name: Sign the ONLY official universal APK
         env:
           KEYSTORE_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEYSTORE_PASSWORD || 'phantom-ci-only-2026' }}
           KEYSTORE_ALIAS: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEYSTORE_ALIAS || 'ci-ephemeral' }}
           KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APP_KEY_PASSWORD || 'phantom-ci-only-2026' }}
         run: |
-          for abi in arm64-v8a armeabi-v7a x86_64 x86 universal; do
-            dir=app/build/outputs/apk/release
-            unsigned="$dir/app-$abi-release-unsigned.apk"
-            signed="$dir/phantom-$abi-release.apk"
-            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 "$unsigned" "aligned-$abi.apk"
-            # Android 11 incremental extraction matches lib/x86_64 for lib/x86.
-            # Distribute a standalone package with v2/v3 signing for full installs.
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
-              --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
-              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
-              --v4-signing-enabled false \
-              --out "$signed" "aligned-$abi.apk"
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
-            rm "aligned-$abi.apk"
-          done
+          set -euo pipefail
+          dir=app/build/outputs/apk/release
+          unsigned="$dir/app-release-unsigned.apk"
+          signed="$dir/phantom-universal-release.apk"
+          test -s "$unsigned"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 "$unsigned" aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
+            --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
+            --v4-signing-enabled false --out "$signed" aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$signed"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$signed" | grep -Fx \
+              'Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
+          fi
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$signed" \
+            | grep -F "package: name='xyz.wraithnet.phantom'"
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
             for lib in libgojni.so libbox.so; do
-              unzip -Z1 "$dir/phantom-universal-release.apk" "lib/$abi/$lib" > /dev/null
+              unzip -Z1 "$signed" "lib/$abi/$lib" >/dev/null
             done
           done
-          # Sign beta separately; its package identity cannot replace stable.
-          beta_dir=app/build/outputs/apk/beta
-          if [[ -f "$beta_dir/app-universal-beta-unsigned.apk" ]]; then
-            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -P 16 4 \
-              "$beta_dir/app-universal-beta-unsigned.apk" "aligned-beta.apk"
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
-              --ks app/keystore.jks --ks-key-alias "$KEYSTORE_ALIAS" \
-              --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD \
-              --v4-signing-enabled false \
-              --out "$beta_dir/phantom-beta-universal-release.apk" "aligned-beta.apk"
-            "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$beta_dir/phantom-beta-universal-release.apk"
-            "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$beta_dir/phantom-beta-universal-release.apk" | grep -F "package: name='xyz.wraithnet.phantom.beta'"
-            rm "aligned-beta.apk"
-          fi
-          # Never keep the production signing material on the test runner.
+          rm -f aligned.apk
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             rm -f app/keystore.jks
           fi
@@ -214,11 +161,6 @@ jobs:
           sha256sum "$apk"
           python3 scripts/audit_universal_apk.py \
             "$apk"
-          beta=app/build/outputs/apk/beta/phantom-beta-universal-release.apk
-          if [[ -f "$beta" ]]; then
-            "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$beta"
-            python3 scripts/audit_universal_apk.py "$beta"
-          fi
 
       - name: Prepare loopback protocol peers
         if: github.event_name != 'push'
@@ -362,39 +304,17 @@ jobs:
           path: upgrade-screens/
           retention-days: 7
 
-      - name: Stage universal PR test APK
-        if: github.event_name == 'pull_request'
-        run: |
-          mkdir -p pr-artifact
-          cp app/build/outputs/apk/release/phantom-universal-release.apk pr-artifact/Phantom.apk
+      # PR tests use an ephemeral CI key only within this runner.
+      # Never distribute those APKs: they cannot update official installs.
 
-      - name: Upload PR test APK
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: phantom-pr-universal-ci-signed
-          path: pr-artifact/Phantom.apk
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 2
-
-      - name: Upload verified release APKs
-        if: github.event_name == 'workflow_dispatch' && inputs.release_channel == 'stable'
+      - name: Upload one universal release APK
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
-          # Keep ABI-named APK assets while older installed clients still select
-          # architecture-specific assets from the latest GitHub Release.
-          path: app/build/outputs/apk/release/phantom-*-release.apk
-          compression-level: 0
-          retention-days: 2
-
-      - name: Upload verified beta APK
-        if: github.event_name == 'workflow_dispatch' && inputs.release_channel == 'beta'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: phantom-beta-release
-          path: app/build/outputs/apk/beta/phantom-beta-universal-release.apk
+          # The universal APK contains arm64/arm32/x86/x86_64. Every channel
+          # must present one installable APK; old clients already fall back to it.
+          path: app/build/outputs/apk/release/phantom-universal-release.apk
           compression-level: 0
           retention-days: 2
 
@@ -421,7 +341,6 @@ jobs:
           merge-multiple: true
 
       - name: Validate requested version and assets
-        if: inputs.release_channel == 'stable'
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
@@ -429,66 +348,25 @@ jobs:
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
           test -s "release-assets/phantom-universal-release.apk"
-          # All prior ABI-specific OTA clients must retain a matching asset even
-          # when a later release becomes the latest stable version.
-          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-            test -s "release-assets/phantom-$abi-release.apk"
-          done
-          sha256sum release-assets/phantom-*-release.apk
+          # Legacy clients look for their ABI first and then fall back to universal.
+          sha256sum release-assets/phantom-universal-release.apk
 
-      - name: Stage official universal and legacy architecture APKs
-        if: inputs.release_channel == 'stable'
+      - name: Stage single official universal APK
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           mkdir -p publish-assets
-          cp release-assets/phantom-*-release.apk publish-assets/
-          sha256sum publish-assets/phantom-*-release.apk
+          cp release-assets/phantom-universal-release.apk publish-assets/
+          sha256sum publish-assets/phantom-universal-release.apk
 
       - name: Publish official release
-        if: inputs.release_channel == 'stable'
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: PHANTOM VPN ${{ inputs.release_tag }}
-          files: publish-assets/phantom-*-release.apk
+          files: publish-assets/phantom-universal-release.apk
           prerelease: false
           body_path: RELEASE_NOTES.md
 
-      - name: Ensure Android build tools for beta APK validation
-        if: inputs.release_channel == 'beta'
-        run: |
-          set -euo pipefail
-          if [[ ! -x "$ANDROID_HOME/build-tools/35.0.0/aapt" || ! -x "$ANDROID_HOME/build-tools/35.0.0/apksigner" ]]; then
-            sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
-            test -n "$sdkmanager"
-            "$sdkmanager" --install "build-tools;35.0.0"
-          fi
-
-      - name: Validate beta tag and signed artifact
-        if: inputs.release_channel == 'beta'
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          set -euo pipefail
-          beta=release-assets/phantom-beta-universal-release.apk
-          test -s "$beta"
-          actual=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$beta" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
-          test -n "$actual"
-          test "$RELEASE_TAG" = "v$actual"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$beta"
-          sha256sum "$beta"
-
-      - name: Publish prerelease to beta channel
-        if: inputs.release_channel == 'beta'
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
-        with:
-          tag_name: ${{ inputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          name: PHANTOM VPN Beta ${{ inputs.release_tag }}
-          files: release-assets/phantom-beta-universal-release.apk
-          prerelease: true
-          make_latest: false
-          body_path: BETA_RELEASE_NOTES.md

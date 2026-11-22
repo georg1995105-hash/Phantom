@@ -3,6 +3,8 @@ package xyz.wraithnet.phantom.ui.settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -10,6 +12,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import xyz.wraithnet.phantom.ui.home.tvFocusRing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -37,7 +40,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад") }
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) { Icon(Icons.Default.ArrowBack, "Назад") }
                 Spacer(Modifier.width(8.dp))
                 Text("DNS", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold)
@@ -72,7 +75,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
         }
     ) { insets ->
         Column(
-            Modifier.fillMaxSize().padding(insets)
+            Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -94,7 +97,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                 )
                 choices.forEachIndexed { index, (choice, title, description) ->
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().tvFocusRing().clickable {
                             settings = settings.copy(mode = choice)
                             message = null
                         }.padding(horizontal = 12.dp, vertical = 11.dp),
@@ -147,7 +150,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                     containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(18.dp)
             ) {
-                Row(Modifier.fillMaxWidth().clickable { fallback = !fallback }
+                Row(Modifier.fillMaxWidth().tvFocusRing().clickable { fallback = !fallback }
                     .padding(horizontal = 16.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {

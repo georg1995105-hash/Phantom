@@ -22,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
@@ -137,6 +139,7 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var showTvPairing by remember { mutableStateOf(false) }
+    var tvPairGeneration by remember { mutableIntStateOf(0) }
     var tvPairCode by remember { mutableStateOf<String?>(null) }
     var tvPairError by remember { mutableStateOf<String?>(null) }
     var tvPairListener by remember { mutableStateOf<TvSubscriptionPairing.Listener?>(null) }
@@ -144,6 +147,7 @@ fun HomeScreen(
     var pairingSending by remember { mutableStateOf(false) }
     var pairingSendError by remember { mutableStateOf<String?>(null) }
     val serverPageState = rememberSaveableStateHolder()
+    val unifiedHomeListState = rememberLazyListState()
     var qrSource by remember { mutableStateOf<String?>(null) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
     var importMode by remember { mutableStateOf<String?>(null) }
@@ -391,7 +395,7 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(showTvPairing) {
+    LaunchedEffect(showTvPairing, tvPairGeneration) {
         if (!showTvPairing) return@LaunchedEffect
         tvPairCode = null
         tvPairError = null
@@ -634,6 +638,7 @@ fun HomeScreen(
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
     var showOtaSheet by remember { mutableStateOf(false) }
+    var openBackupFromOta by remember { mutableStateOf(false) }
     // Only an explicit check from Settings may open the update sheet over Settings.
     var otaManuallyRequested by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
@@ -730,86 +735,10 @@ fun HomeScreen(
         }
     }
 
-    BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
-    var showErrorDetails by remember { mutableStateOf(false) }
-    val tv = isTelevision()
-    // On an empty television installation the useful QR is a receiver code:
-    // scan it using Phantom on the phone and choose the subscription to send.
-    // Do not auto-open the camera scanner (TV has no camera).
-    LaunchedEffect(tv, subscriptions.isEmpty(), importBusy, externalImport) {
-        // A deep link may be importing a profile during cold start; do not
-        // overlay the pairing QR over it. Importing from the phone also updates
-        // subscriptions BEFORE the encrypted receiver sends its ACK. Never
-        // auto-close the QR on that update: only the receiver closes after ACK.
-        if (tv && subscriptions.isEmpty() && !importBusy && externalImport.isNullOrBlank()) {
-            showTvPairing = true
-        }
-    }
-    Scaffold(
-        modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
-        topBar = {
-            Box(Modifier.statusBarsPadding()) {
-                PageTitle(
-                    tab,
-                    exit = if (vpnStatus == "connected") exitNetwork else null,
-                    checkingExit = vpnStatus == "connected" && exitLoading,
-                    openExit = { exitDetails = true },
-                )
-            }
-        },
-        bottomBar = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (tab == Destination.HOME) {
-                    ConnectionImportActions(
-                        onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
-                        onScanQr = if (tv || !qrCameraAvailable) null else ::scanQr,
-                        onTvPair = if (tv && subscriptions.isEmpty()) ({ showTvPairing = true }) else null,
-                        hasSubscriptions = subscriptions.isNotEmpty(),
-                        importing = importBusy,
-                    )
-                }
-                TabBar(tab) { tab = it }
-            }
-        }
-    ) { inner ->
-        val colors = MaterialTheme.colorScheme
-        Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
-            .background(Brush.linearGradient(listOf(colors.background,
-                colors.surface, colors.background)))) {
-            when (tab) {
-                Destination.HOME -> ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
-                    toggle = {
-                        softTap()
-                        when {
-                            vpnStatus == "connected" -> onStopVpn()
-                            selected == null -> { tab = Destination.SERVERS; showImportMenu = true }
-                            else -> onStartVpn(selected.raw)
-                        }
-                    }, choose = { tab = Destination.SERVERS },
-                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
-                    onRefreshSubscription = {
-                        selectedMatch?.first?.let { owner ->
-                            scope.launch { refresh(owner) }
-                        }
-                    },
-                    subscriptionRefreshing = selectedMatch?.first?.id?.let { it in refreshing } == true,
-                    subscriptionAvailable = selectedMatch != null,
-                    hasSubscriptions = subscriptions.isNotEmpty(),
-                    tvFocusEpoch = refreshVersion,
-                    tvModalVisible = showTvPairing || showImportMenu ||
-                        importMode != null || qrSource != null || activeSubMenu != null)
-                Destination.SERVERS -> serverPageState.SaveableStateProvider("servers") {
-                    DisposableEffect(Unit) { onDispose { scanned.clear(); scannedWithAutoTuic.clear() } }
-                    ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
-                        probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
-                        onRefresh = { sub -> scope.launch { refresh(sub) } },
-                        manage = { activeSubMenu = it.id },
-                        onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
-                        onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
-                        favorite = { id ->
-                            favorites = if (id in favorites) favorites - id else favorites + id
-                            prefs.edit().putStringSet("favorite_servers", favorites).apply()
-                        }, choose = { owner, server ->
+    // TV and real tablets have their own wide Home, not a stretched phone page.
+    val wideTablet = !isTelevision() &&
+        LocalConfiguration.current.smallestScreenWidthDp >= 600
+    val onServerPicked: (Subscription, ServerProfile) -> Unit = { owner, server ->
                             if (ProtocolSupport.isSupported(server.scheme)) {
                                 val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
                                     vpnStatus == "connected" && prefs.getString("vpn_last_profile", null) != server.raw
@@ -830,13 +759,174 @@ fun HomeScreen(
                                 }
                                 if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
-                        }, add = { showImportMenu = true }, openUrl = ::openUrl)
+                        }
+    BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
+    var showErrorDetails by remember { mutableStateOf(false) }
+    val tv = isTelevision()
+    LaunchedEffect(tv, tab) {
+        if (tv && tab == Destination.SERVERS) tab = Destination.HOME
+    }
+    // On an empty television installation the useful QR is a receiver code:
+    // scan it using Phantom on the phone and choose the subscription to send.
+    // Do not auto-open the camera scanner (TV has no camera).
+    LaunchedEffect(tv, subscriptions.isEmpty(), importBusy, externalImport) {
+        // A deep link may be importing a profile during cold start; do not
+        // overlay the pairing QR over it. Importing from the phone also updates
+        // subscriptions BEFORE the encrypted receiver sends its ACK. Never
+        // auto-close the QR on that update: only the receiver closes after ACK.
+        if (tv && subscriptions.isEmpty() && !importBusy && externalImport.isNullOrBlank()) {
+            showTvPairing = true
+        }
+    }
+    Scaffold(
+        modifier = if (tv) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier,
+        topBar = {
+            if (!tv && tab != Destination.HOME && tab != Destination.SERVERS)
+                Box(Modifier.statusBarsPadding()) {
+                PageTitle(
+                    tab,
+                    exit = if (vpnStatus == "connected") exitNetwork else null,
+                    checkingExit = vpnStatus == "connected" && exitLoading,
+                    openExit = { exitDetails = true },
+                )
+            }
+        },
+        bottomBar = {
+            // Only the tab strip is fixed. All Home content, including import actions
+            // and every provider/server row, belongs to one parent LazyColumn.
+            if (!tv) TabBar(tab) { next ->
+                tab = next
+                // Returning to Home or tapping its selected tab starts at the top
+                // of the SAME lazy page. No server-only nested scrolling.
+                if (next == Destination.HOME) {
+                    scope.launch { unifiedHomeListState.scrollToItem(0) }
+                }
+            }
+        }
+    ) { inner ->
+        val colors = MaterialTheme.colorScheme
+        Row(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
+            .background(Brush.linearGradient(listOf(colors.background,
+                colors.surface, colors.background)))) {
+            if (tv) TvSideNavigation(tab) { tab = it }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (tv && tab != Destination.HOME) PageTitle(
+                    tab,
+                    exit = if (vpnStatus == "connected") exitNetwork else null,
+                    checkingExit = vpnStatus == "connected" && exitLoading,
+                    openExit = { exitDetails = true },
+                )
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (tab) {
+                Destination.HOME, Destination.SERVERS -> {
+                    if ((tv || wideTablet) && tab == Destination.HOME) {
+                        WideHomeDashboard(
+                            status = vpnStatus,
+                            selected = selectedMatch,
+                            download = downloadBytes,
+                            upload = uploadBytes,
+                            seconds = connectedSeconds,
+                            subscriptions = subscriptions,
+                            pinnedId = pinnedSubId,
+                            favorites = favorites,
+                            latency = latencies,
+                            measuring = measuring,
+                            refreshing = refreshing,
+                            probing = probing,
+                            failed = refreshFailed,
+                            importing = importBusy,
+                            focusEpoch = refreshVersion,
+                            modalVisible = showTvPairing || showImportMenu ||
+                                importMode != null || qrSource != null || activeSubMenu != null,
+                            onToggle = {
+                                softTap()
+                                when {
+                                    vpnStatus == "connected" -> onStopVpn()
+                                    selected == null -> showImportMenu = true
+                                    else -> onStartVpn(selected.raw)
+                                }
+                            },
+                            onSelect = onServerPicked,
+                            onRefresh = { sub -> scope.launch { refresh(sub) } },
+                            onManage = { activeSubMenu = it.id },
+                            onProbe = { sub -> probeSubscription(sub, notify = false) },
+                            onManualPing = { sub -> probeSubscription(sub, notify = true) },
+                            onFavorite = { id ->
+                                favorites = if (id in favorites) favorites - id else favorites + id
+                                prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                            },
+                            onImport = { showImportMenu = true },
+                            onPairQr = if (tv) ({ showTvPairing = true }) else null,
+                            onScanQr = if (!tv && qrCameraAvailable) ::scanQr else null,
+                            onShowError = if (vpnStatus == "error" && vpnError.isNotBlank())
+                                ({ showErrorDetails = true }) else null,
+                            onOpenUrl = ::openUrl,
+                        )
+                    } else {
+                        serverPageState.SaveableStateProvider("servers") {
+                            DisposableEffect(Unit) {
+                                onDispose { scanned.clear(); scannedWithAutoTuic.clear() }
+                            }
+                    ServersPage(subscriptions, selectedMatch, pinnedSubId, favorites, latencies,
+                        probing = probing, measuring = measuring, refreshing = refreshing, failed = refreshFailed,
+                        onRefresh = { sub -> scope.launch { refresh(sub) } },
+                        manage = { activeSubMenu = it.id },
+                        onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
+                        onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
+                        favorite = { id ->
+                            favorites = if (id in favorites) favorites - id else favorites + id
+                            prefs.edit().putStringSet("favorite_servers", favorites).apply()
+                        }, choose = onServerPicked, openUrl = ::openUrl,
+                        header = if (tv) null else ({
+                            Column {
+                                PageTitle(Destination.HOME,
+                                    exit = if (vpnStatus == "connected") exitNetwork else null,
+                                    checkingExit = vpnStatus == "connected" && exitLoading,
+                                    openExit = { exitDetails = true })
+                                ConnectionPage(vpnStatus, connectedSeconds,
+                                                    toggle = {
+                                                        softTap()
+                                                        when {
+                                                            vpnStatus == "connected" -> onStopVpn()
+                                                            selected == null -> { showImportMenu = true }
+                                                            else -> onStartVpn(selected.raw)
+                                                        }
+                                                    },
+                                                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
+                                                    hasSubscriptions = subscriptions.isNotEmpty(),
+                                                    tvFocusEpoch = refreshVersion,
+                                                    tvModalVisible = showTvPairing || showImportMenu ||
+                                                        importMode != null || qrSource != null || activeSubMenu != null,
+                                    embedded = true)
+                                if (subscriptions.isEmpty()) {
+                                    ConnectionImportActions(
+                                        onOpenImport = { showImportMenu = true },
+                                        onScanQr = if (qrCameraAvailable) ::scanQr else null,
+                                        hasSubscriptions = false,
+                                        importing = importBusy)
+                                }
+                                // Subscription cards start directly under the connection
+                                // status; no extra country card or redundant section title.
+                            }
+                        }),
+                        footer = if (tv || subscriptions.isEmpty()) null else ({
+                            ConnectionImportActions(
+                                onOpenImport = { showImportMenu = true },
+                                onScanQr = if (qrCameraAvailable) ::scanQr else null,
+                                hasSubscriptions = true,
+                                importing = importBusy)
+                        }),
+                        listState = if (tv) null else unifiedHomeListState)
+                        }
+                    }
                 }
                 Destination.SUBSCRIPTIONS -> SubscriptionPage(currentSubscription = selectedMatch?.first) {
                     openUrl("https://go.veor.pro/")
                 }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
+                    openBackupRequest = openBackupFromOta,
+                    onBackupRequestHandled = { openBackupFromOta = false },
                     onCheckAppUpdate = ::checkAppUpdateNow,
                     onBackupRestored = {
                         applySubscriptions(store.read())
@@ -869,6 +959,9 @@ fun HomeScreen(
                     }
                 }
             )
+                }
+
+            }
         }
     }
     if (showOtaSheet && availableUpdate != null &&
@@ -884,6 +977,13 @@ fun HomeScreen(
             onLater = { showOtaSheet = false; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
             onDownloadInBrowser = { availableUpdate?.downloadUrl?.let(::openUrl) },
+            signingMismatch = PhantomUpdates.hasOfficialSigningCertificate(context) == false,
+            onOpenBackup = {
+                showOtaSheet = false
+                otaDismissed = true
+                openBackupFromOta = true
+                tab = Destination.SETTINGS
+            },
             onCancelDownload = {
                 otaDownloadJob?.cancel()
                 otaDownload = false
@@ -908,8 +1008,8 @@ fun HomeScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
                 if (tv) {
-                    Text("На телевизоре выберите «Ссылка подписки» и введите адрес " +
-                        "пультом или через клавиатуру телефона. Передача с телефона по QR пока недоступна.",
+                    Text("Чтобы отправить подписку с телефона, выберите «Добавить с телефона» " +
+                        "и отсканируйте QR-код телевизора в Phantom. Также можно ввести URL пультом.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
@@ -1002,7 +1102,7 @@ fun HomeScreen(
                         CircularProgressIndicator(Modifier.size(26.dp))
                         Text("Подготавливаем защищённое соединение…")
                     } else if (tvPairError == null) {
-                        Text("Ожидание подписки с телефона…",
+                        Text("QR действует 2 минуты · Ожидание подписки с телефона…",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall)
                     }
@@ -1012,6 +1112,11 @@ fun HomeScreen(
             confirmButton = {
                 TextButton(onClick = { showTvPairing = false }, modifier = Modifier.tvFocusRing()) {
                     Text("Закрыть")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { tvPairGeneration++ }, modifier = Modifier.tvFocusRing()) {
+                    Text("Обновить QR")
                 }
             }
         )
@@ -1300,8 +1405,10 @@ private fun funActionRow(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 55.dp)
-        .tvFocusRing().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp),
+    val tv = isTelevision()
+    Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 48.dp else 55.dp)
+        .tvFocusRing().clickable(enabled = enabled, onClick = onClick)
+        .padding(horizontal = if (tv) 12.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1348,7 +1455,9 @@ internal fun dateLabel(seconds: Long): String =
 private fun PhantomSettings(
     onThemeChange: (PhantomThemeMode) -> Unit,
     onCheckAppUpdate: () -> Unit,
-    onBackupRestored: () -> Unit
+    onBackupRestored: () -> Unit,
+    openBackupRequest: Boolean = false,
+    onBackupRequestHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
@@ -1372,6 +1481,20 @@ private fun PhantomSettings(
 
     var showComponents by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
+    LaunchedEffect(openBackupRequest) {
+        if (openBackupRequest) {
+            showBackup = true
+            onBackupRequestHandled()
+        }
+    }
+    val tv = isTelevision()
+    var group by rememberSaveable { mutableStateOf("") }
+    BackHandler(enabled = tv && group.isNotEmpty()) { group = "" }
+    val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(tv, group) {
+        if (tv && group == "background") settingsScroll.animateScrollToItem(4)
+        if (tv && group == "network") settingsScroll.animateScrollToItem(0)
+    }
     if (showThemeGallery) {
         ThemeGalleryScreen(
             selected = mode,
@@ -1411,9 +1534,25 @@ private fun PhantomSettings(
             context.startActivity(Intent(Settings.ACTION_SETTINGS))
         }
     }
-    var group by rememberSaveable { mutableStateOf("") }
     fun toggle(name: String) { group = if (group == name) "" else name }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+    if (tv && group == "about") {
+        TvAboutSettings(
+            version = version,
+            autoApkUpdates = autoApkUpdates,
+            onToggleAuto = { enabled ->
+                autoApkUpdates = enabled
+                prefs.edit().putBoolean("auto_apk_updates", enabled).apply()
+                PhantomAutoUpdateWorker.schedule(context.applicationContext)
+            },
+            onCheckUpdate = onCheckAppUpdate,
+            onComponents = { showComponents = true },
+            onLog = { showLog = true },
+            onBack = { group = "" },
+        )
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = settingsScroll,
+        contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Panel {
@@ -1475,7 +1614,7 @@ private fun PhantomSettings(
             }
         }
         item { Panel { SettingsAction("Тема оформления", mode.title, Icons.Default.Palette) { showThemeGallery = true } } }
-        item {
+        if (!tv) item {
             Panel {
                 SettingsAction("Кнопка в шторке Android", "Быстрое подключение VPN", Icons.Default.PowerSettingsNew) {
                     PhantomQuickTileService.offerToAdd(context) { tileMessage = it }
@@ -1486,7 +1625,7 @@ private fun PhantomSettings(
         item {
             Panel {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().tvFocusRing().clickable {
                             bootConnect = !bootConnect
                             prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, bootConnect).apply()
                         }.padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1513,7 +1652,7 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("Фоновая работа", "Экран, батарея, всегда включённый VPN", Icons.Default.BatteryStd) { toggle("background") }
                 if (group == "background") {
-                    Row(Modifier.fillMaxWidth().clickable {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         keepActive = !keepActive
                         prefs.edit().putBoolean("keep_active", keepActive).apply()
                         if (prefs.getBoolean("vpn_running", false)) {
@@ -1554,11 +1693,6 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
                 if (group == "about") {
-                    Text(
-                        "Канал обновлений · " + if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta") "Бета" else "Стабильный",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -1586,7 +1720,11 @@ private fun PhantomSettings(
 @Composable
 private fun SettingsAction(title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
     action: () -> Unit) {
-    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    val tv = isTelevision()
+    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
+        .padding(horizontal = if (tv) 14.dp else 16.dp,
+            vertical = if (tv) 11.dp else 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
@@ -1594,5 +1732,64 @@ private fun SettingsAction(title: String, summary: String, icon: androidx.compos
             Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Icon(Icons.Default.ChevronRight, null)
+    }
+}
+
+/**
+ * Dedicated television About screen. On the phone the original inline
+ * expandable section is retained; on TV hiding actions below the fold made
+ * "About" appear empty when using a D-pad.
+ */
+@Composable
+private fun TvAboutSettings(
+    version: String,
+    autoApkUpdates: Boolean,
+    onToggleAuto: (Boolean) -> Unit,
+    onCheckUpdate: () -> Unit,
+    onComponents: () -> Unit,
+    onLog: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        TextButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
+            Icon(Icons.Default.ArrowBack, null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("К настройкам")
+        }
+        Text("О приложении", style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold)
+        Panel {
+            Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                Text("PHANTOM VPN", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text("Версия ${version}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
+            Row(
+                Modifier.fillMaxWidth().tvFocusRing().clickable {
+                    onToggleAuto(!autoApkUpdates)
+                }.padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Автообновление по Wi-Fi", fontWeight = FontWeight.Medium)
+                    Text("Установка поверх Phantom с сохранением подписок и настроек.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = autoApkUpdates, onCheckedChange = null)
+            }
+            funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt,
+                onClick = onCheckUpdate)
+            funActionRow("Компоненты и лицензии", Icons.Default.Layers,
+                onClick = onComponents)
+            funActionRow("Журнал VPN", Icons.Default.List, onClick = onLog)
+        }
     }
 }

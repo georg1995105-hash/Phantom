@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import xyz.wraithnet.phantom.ui.home.tvFocusRing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
@@ -146,13 +147,13 @@ fun AppRoutingScreen(onBack: () -> Unit) {
         topBar = {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
                     Icon(Icons.Default.ArrowBack, "Назад")
                 }
                 Text("Приложения и VPN", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Box {
-                    IconButton(onClick = { menuOpen = true }) {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.tvFocusRing()) {
                         Icon(Icons.Default.MoreVert, "Импорт, экспорт и выбор приложений")
                     }
                     DropdownMenu(
@@ -242,7 +243,7 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                     AppRouting.ONLY to "Через VPN только выбранные",
                     AppRouting.EXCLUDE to "Выбранные — без VPN"
                 ).forEach { (value, title) ->
-                    Row(Modifier.fillMaxWidth().clickable {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         mode = value; gentleTap()
                     }.heightIn(min = 50.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = mode == value, onClick = {
@@ -259,7 +260,7 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth()
                     )
                     Row(
-                        Modifier.fillMaxWidth().clickable { showSystem = !showSystem }
+                        Modifier.fillMaxWidth().tvFocusRing().clickable { showSystem = !showSystem }
                             .padding(vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -344,7 +345,7 @@ private fun RoutingAppRow(
             }.getOrNull()
         }
     }
-    Row(Modifier.fillMaxWidth().clickable(onClick = onToggle)
+    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = onToggle)
         .heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
         Checkbox(checked = selected, onCheckedChange = { onToggle() })
         Spacer(Modifier.width(8.dp))

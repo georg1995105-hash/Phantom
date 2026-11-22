@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import xyz.wraithnet.phantom.ui.home.tvFocusRing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -43,7 +44,7 @@ fun ThemeGalleryScreen(
                 Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
                     Icon(Icons.Default.ArrowBack, "Назад")
                 }
                 Text("Оформление", style = MaterialTheme.typography.titleLarge,
@@ -103,7 +104,7 @@ private fun ThemeOptionCard(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .border(if (active) 2.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
-            .clickable {
+            .tvFocusRing().clickable {
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 onChoose(option)
             }

@@ -1,4 +1,4 @@
-package xyz.wraithnet.phantom.ui
+package xyz.wraithnet.phantom.aaa
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -11,9 +11,10 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.test.click
-import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performTouchInput
@@ -25,6 +26,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import xyz.wraithnet.phantom.MainActivity
+import xyz.wraithnet.phantom.ui.awaitVisible
 import xyz.wraithnet.phantom.data.SubscriptionStore
 
 @RunWith(AndroidJUnit4::class)
@@ -36,7 +38,7 @@ class AQuickSubscriptionUiTest {
 
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @Test fun firstLaunchClipboardAddsSubscriptionWithOneTapAndRejectsDuplicate() {
+    @Test fun homeUnifiedImportAddsClipboardLinkAndRejectsDuplicate() {
         val store = SubscriptionStore(context)
         val previous = store.read()
         val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
@@ -49,21 +51,20 @@ class AQuickSubscriptionUiTest {
             store.write(emptyList())
             prefs.edit().remove("selected_subscription_id").remove("selected_server_id").commit()
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                val shortcut = hasContentDescription("Добавить подписку") and isEnabled()
-                val add = compose.awaitVisible(shortcut).getUnclippedBoundsInRoot()
-                val tabs = compose.awaitVisible(hasContentDescription("Вкладка Главная"))
-                    .getUnclippedBoundsInRoot()
-                assertTrue(add.bottom <= tabs.top)
-                compose.onNode(hasText("PING")).assertDoesNotExist()
+                val entry = hasContentDescription("Добавить подписку или ключ") and isEnabled()
+                compose.awaitVisible(hasContentDescription("Вкладка Главная"))
+                compose.onNode(hasScrollAction()).performScrollToNode(entry)
+                compose.awaitVisible(entry)
                 if (hasQrCamera(context)) {
-                    val qr = compose.awaitVisible(hasContentDescription("Сканировать QR-код подписки"))
-                        .getUnclippedBoundsInRoot()
-                    assertTrue(add.right <= qr.left)
-                    assertTrue(qr.top < add.bottom && add.top < qr.bottom)
+                    compose.awaitVisible(hasContentDescription("Сканировать QR-код подписки"))
                 } else {
                     compose.onNode(hasContentDescription("Сканировать QR-код подписки"))
                         .assertDoesNotExist()
                 }
+                compose.awaitVisible(entry).performTouchInput { click() }
+                compose.awaitVisible(hasText("Добавить конфигурацию"))
+                compose.awaitVisible(hasText("Ссылка подписки"))
+                compose.awaitVisible(hasText("Ручной ввод"))
                 try {
                     compose.waitUntil(10_000) {
                         var focused = false
@@ -95,12 +96,19 @@ class AQuickSubscriptionUiTest {
                     ) {
                         throw AssertionError("Android did not focus the clipboard test window:\n$window", error)
                     }
+                    // A verified *system launcher* ANR can survive its own Close
+                    // button while the activity remains alive in the background.
+                    // Force-stop ONLY that launcher process on this disposable CI
+                    // emulator. Never suppress an ANR from Phantom itself.
+                    ParcelFileDescriptor.AutoCloseInputStream(
+                        automation.executeShellCommand("am force-stop com.android.launcher3")
+                    ).use { it.readBytes() }
                     context.startActivity(Intent(context, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     })
                     try {
-                        compose.waitUntil(10_000) {
+                        compose.waitUntil(20_000) {
                             var focused = false
                             scenario.onActivity { focused = it.hasWindowFocus() }
                             focused
@@ -120,24 +128,22 @@ class AQuickSubscriptionUiTest {
                     clipboard.setPrimaryClip(clip)
                     assertEquals(link, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
                 }
-                compose.awaitVisible(shortcut).performTouchInput { click() }
-                val confirmation = compose.awaitVisible(hasText("Подписка добавлена"))
-                    .getUnclippedBoundsInRoot()
-                assertTrue(confirmation.bottom <= compose.awaitVisible(shortcut).getUnclippedBoundsInRoot().top)
+                compose.awaitVisible(hasText("Из буфера обмена")).performTouchInput { click() }
+                compose.awaitVisible(hasText("Подписка добавлена"))
                 assertEquals(1, store.read().size)
                 assertEquals("First", store.read().single().servers.single().name)
 
-                compose.awaitVisible(shortcut).performTouchInput { click() }
+                compose.awaitVisible(entry).performTouchInput { click() }
+                compose.awaitVisible(hasText("Из буфера обмена")).performTouchInput { click() }
                 compose.awaitVisible(hasText("Эта подписка уже добавлена"))
                 assertEquals(1, store.read().size)
-                // Exercise real Activity.onDestroy through ActivityScenario's
-                // lifecycle controller. Calling finishAndRemoveTask() manually
-                // and polling the Compose clock made cleanup flaky after JNI
-                // stress: the UI assertions passed, but the lifecycle event
-                // arrived after the fixed 15-second polling window.
-                // moveToState waits for the actual Android lifecycle transition;
-                // no test assertion is skipped or timeout globally weakened.
-                scenario.moveToState(Lifecycle.State.DESTROYED)
+                // Explicit finish avoids ActivityScenario's synthetic DESTROYED transition
+                // while a launcher transition may leave an otherwise healthy Activity
+                // in PAUSED. Still require real Android onDestroy before passing.
+                scenario.onActivity { it.finish() }
+                compose.waitUntil(20_000) {
+                    scenario.state == Lifecycle.State.DESTROYED
+                }
                 assertEquals(Lifecycle.State.DESTROYED, scenario.state)
             }
         } finally {
