@@ -69,8 +69,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          test -f release-assets/source-commit.txt
-          test "$(cat release-assets/source-commit.txt)" = "$SOURCE_SHA"
+          # Source manifests are mandatory in new quick builds. Allow an
+          # earlier signed run without one only after matching its signed APK
+          # versionCode/versionName against the requested Git source below.
+          if [[ -f release-assets/source-commit.txt ]]; then
+            test "$(cat release-assets/source-commit.txt)" = "$SOURCE_SHA"
+          else
+            echo "::warning::Older signed artifact: checking source Gradle version instead"
+          fi
           apk=release-assets/Phantom.apk
           test -s "$apk"
           target=release-assets/phantom-universal-release.apk
@@ -90,6 +96,12 @@ jobs:
           current_code=$("$tools/aapt" dump badging "$target" |
             sed -n "s/.*versionCode='\\([0-9]*\\)'.*/\\1/p" | head -1)
           [[ "$current_code" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$SOURCE_SHA" \
+            --jq .content | base64 -d > "$RUNNER_TEMP/source-gradle.kts"
+          source_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/source-gradle.kts")
+          source_version=$(awk -F '"' '/^[[:space:]]*versionName =/ { print $2; exit }' "$RUNNER_TEMP/source-gradle.kts")
+          test "$current_code" = "$source_code"
+          test "$version" = "$source_version"
           previous_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
           if [[ -n "$previous_tag" && "$previous_tag" != "$RELEASE_TAG" ]]; then
             gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$previous_tag" \
