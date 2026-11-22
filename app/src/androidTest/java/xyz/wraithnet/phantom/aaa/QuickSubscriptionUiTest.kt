@@ -80,42 +80,50 @@ class AQuickSubscriptionUiTest {
                             it.contains("mCurrentFocus") || it.contains("mFocusedApp") || it.contains("mScreenOn")
                         }.joinToString("\n")
                     }
-                    // CI's default launcher (Quickstep) may ANR after heavyweight JNI
-                    // integration tests. Recover ONLY that verified system ANR; keep
-                    // every Phantom focus / import assertion and fail on app ANRs.
-                    val launcherAnr = window.lineSequence().any {
-                        it.contains("mCurrentFocus=") &&
-                            it.contains("Application Not Responding: com.android.launcher3")
+                    // ActivityScenario can keep a reference to a launched
+                    // Activity whose hasWindowFocus() is stale, even though
+                    // WindowManager confirms the real Phantom MainActivity
+                    // is focused. Accept only that exact foreground window,
+                    // not an arbitrary visible application.
+                    val phantomIsForeground = window.lineSequence().any {
+                        it.contains("mCurrentFocus=Window{") &&
+                            it.contains("${context.packageName}/${MainActivity::class.java.name}")
                     }
-                    val root = automation.rootInActiveWindow
-                    val knownTitle = root?.findAccessibilityNodeInfosByText("Quickstep isn't responding")
-                        ?.isNotEmpty() == true
-                    val close = root?.findAccessibilityNodeInfosByText("Close app")?.firstOrNull()
-                    if (!launcherAnr || !knownTitle ||
-                        close?.performAction(AccessibilityNodeInfo.ACTION_CLICK) != true
-                    ) {
-                        throw AssertionError("Android did not focus the clipboard test window:\n$window", error)
-                    }
-                    // A verified *system launcher* ANR can survive its own Close
-                    // button while the activity remains alive in the background.
-                    // Force-stop ONLY that launcher process on this disposable CI
-                    // emulator. Never suppress an ANR from Phantom itself.
-                    ParcelFileDescriptor.AutoCloseInputStream(
-                        automation.executeShellCommand("am force-stop com.android.launcher3")
-                    ).use { it.readBytes() }
-                    context.startActivity(Intent(context, MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    })
-                    try {
-                        compose.waitUntil(20_000) {
-                            var focused = false
-                            scenario.onActivity { focused = it.hasWindowFocus() }
-                            focused
+                    if (!phantomIsForeground) {
+                        // Recover only a VERIFIED system launcher ANR. Never
+                        // suppress Phantom ANRs or bypass the import assertions.
+                        val launcherAnr = window.lineSequence().any {
+                            it.contains("mCurrentFocus=") &&
+                                it.contains("Application Not Responding: com.android.launcher3")
                         }
-                    } catch (retry: ComposeTimeoutException) {
-                        throw AssertionError("System Quickstep ANR was dismissed, but Phantom still " +
-                            "did not regain window focus:\n$window", retry)
+                        val root = automation.rootInActiveWindow
+                        val knownTitle = root?.findAccessibilityNodeInfosByText("Quickstep isn't responding")
+                            ?.isNotEmpty() == true
+                        val close = root?.findAccessibilityNodeInfosByText("Close app")?.firstOrNull()
+                        if (!launcherAnr || !knownTitle ||
+                            close?.performAction(AccessibilityNodeInfo.ACTION_CLICK) != true
+                        ) {
+                            throw AssertionError("Android did not focus the clipboard test window:\n$window", error)
+                        }
+                        // Force-stop ONLY the stuck launcher process on the
+                        // disposable CI emulator, then assert Phantom returns.
+                        ParcelFileDescriptor.AutoCloseInputStream(
+                            automation.executeShellCommand("am force-stop com.android.launcher3")
+                        ).use { it.readBytes() }
+                        context.startActivity(Intent(context, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        })
+                        try {
+                            compose.waitUntil(20_000) {
+                                var focused = false
+                                scenario.onActivity { focused = it.hasWindowFocus() }
+                                focused
+                            }
+                        } catch (retry: ComposeTimeoutException) {
+                            throw AssertionError("System Quickstep ANR was dismissed, but Phantom still " +
+                                "did not regain window focus:\n$window", retry)
+                        }
                     }
                 }
                 scenario.onActivity {
