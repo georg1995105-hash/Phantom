@@ -187,21 +187,31 @@ object PhantomHttp {
         headers: Map<String, String> = emptyMap(),
         callTimeoutMs: Long = 45_000L,
         vpnRoute: ActiveVpnSubscriptionProxy.Route? = null,
+        manual: Boolean = false,
         read: (Response) -> T,
     ): T = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).get().apply {
             headers.forEach { (name, value) -> header(name, value) }
         }.build()
-        for (attempt in 0..2) {
+        val maxAttempts = if (manual) 1 else 3
+        for (attempt in 0 until maxAttempts) {
             if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
                 throw IOException("Выбранная нода VPN отключена или изменена")
             }
-            val call = subscriptionClient(context, vpnRoute).newCall(request)
+            // No silent retries on manual checks: the whole operation must
+            // finish promptly, including slow TCP, TLS, redirects and body read.
+            val baseClient = subscriptionClient(context, vpnRoute)
+            val requestClient = if (manual) baseClient.newBuilder()
+                .retryOnConnectionFailure(false)
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build() else baseClient
+            val call = requestClient.newCall(request)
             if (callTimeoutMs > 0L) call.timeout().timeout(callTimeoutMs, TimeUnit.MILLISECONDS)
             val response = try {
                 call.execute()
             } catch (e: IOException) {
-                if (attempt < 2 && retryable(e)) {
+                if (attempt + 1 < maxAttempts && retryable(e)) {
                     // The network/DNS may not yet be ready after a VPN switch.
                     delay(if (attempt == 0) 450L else 1200L)
                     continue
