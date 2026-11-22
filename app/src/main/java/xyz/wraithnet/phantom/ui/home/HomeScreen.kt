@@ -1320,8 +1320,10 @@ private fun funActionRow(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 55.dp)
-        .tvFocusRing().clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp),
+    val tv = isTelevision()
+    Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 48.dp else 55.dp)
+        .tvFocusRing().clickable(enabled = enabled, onClick = onClick)
+        .padding(horizontal = if (tv) 12.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, Modifier.size(21.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1630,7 +1632,11 @@ private fun PhantomSettings(
 @Composable
 private fun SettingsAction(title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
     action: () -> Unit) {
-    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+    val tv = isTelevision()
+    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
+        .padding(horizontal = if (tv) 14.dp else 16.dp,
+            vertical = if (tv) 11.dp else 16.dp),
+        verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
