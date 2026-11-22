@@ -13,6 +13,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.performTouchInput
@@ -50,6 +52,7 @@ class AQuickSubscriptionUiTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val entry = hasContentDescription("Добавить подписку или ключ") and isEnabled()
                 compose.awaitVisible(hasContentDescription("Вкладка Главная"))
+                compose.onNode(hasScrollAction()).performScrollToNode(entry)
                 compose.awaitVisible(entry)
                 if (hasQrCamera(context)) {
                     compose.awaitVisible(hasContentDescription("Сканировать QR-код подписки"))
