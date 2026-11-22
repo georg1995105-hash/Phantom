@@ -929,8 +929,8 @@ fun HomeScreen(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
                 if (tv) {
-                    Text("На телевизоре выберите «Ссылка подписки» и введите адрес " +
-                        "пультом или через клавиатуру телефона. Передача с телефона по QR пока недоступна.",
+                    Text("Чтобы отправить подписку с телефона, выберите «Добавить с телефона» " +
+                        "и отсканируйте QR-код телевизора в Phantom. Также можно ввести URL пультом.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
