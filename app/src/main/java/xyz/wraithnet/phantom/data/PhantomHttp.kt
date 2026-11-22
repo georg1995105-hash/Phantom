@@ -7,6 +7,8 @@ import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
+import okhttp3.Credentials
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -18,6 +20,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.ConnectException
 import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -128,6 +132,26 @@ object PhantomHttp {
         }
     }
 
+    /**
+     * A manual refresh can explicitly use the active profile's localhost HTTP
+     * inbound. The app UID is excluded from TUN; a regular OkHttp request would
+     * instead use the physical network and falsely suggest that the selected
+     * country is working. Never retry these requests on the direct client.
+     */
+    private fun subscriptionClient(context: Context, route: ActiveVpnSubscriptionProxy.Route?): OkHttpClient {
+        if (route == null) return client(context)
+        return client(context).newBuilder()
+            .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", route.port)))
+            .proxyAuthenticator { _, response ->
+                if (response.request.header("Proxy-Authorization") != null) null
+                else response.request.newBuilder()
+                    .header("Proxy-Authorization", Credentials.basic("phantom", route.password))
+                    .build()
+            }
+            .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
+            .build()
+    }
+
     private fun hasStrictPrivateDns(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -157,18 +181,22 @@ object PhantomHttp {
 
     class Failure(message: String, cause: IOException) : IOException(message, cause)
 
-    suspend fun <T> get(
+    internal suspend fun <T> get(
         context: Context,
         url: String,
         headers: Map<String, String> = emptyMap(),
         callTimeoutMs: Long = 45_000L,
+        vpnRoute: ActiveVpnSubscriptionProxy.Route? = null,
         read: (Response) -> T,
     ): T = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).get().apply {
             headers.forEach { (name, value) -> header(name, value) }
         }.build()
         for (attempt in 0..2) {
-            val call = client(context).newCall(request)
+            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+                throw IOException("Выбранная нода VPN отключена или изменена")
+            }
+            val call = subscriptionClient(context, vpnRoute).newCall(request)
             if (callTimeoutMs > 0L) call.timeout().timeout(callTimeoutMs, TimeUnit.MILLISECONDS)
             val response = try {
                 call.execute()
@@ -181,6 +209,9 @@ object PhantomHttp {
                 throw Failure(explainFailure(e, networkState(context)), e)
             }
             response.use {
+                if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+                    throw IOException("Выбранная нода VPN отключена или изменена")
+                }
                 if (!it.isSuccessful) throw IOException("Сервер ответил HTTP " + it.code)
                 if (request.url.isHttps && !it.request.url.isHttps) {
                     throw IOException("Небезопасная переадресация HTTPS отклонена")
