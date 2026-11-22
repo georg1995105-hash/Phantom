@@ -380,7 +380,7 @@ fun HomeScreen(
             }
             refreshFailed = refreshFailed - item.id
             if (!quiet) softTap()
-            if (vpnRoute == null) "Подписка обновлена напрямую · VPN отключён"
+            if (vpnRoute == null) "Подписка обновлена"
             else "Через $nodeLabel · подписка обновлена"
         } catch (e: CancellationException) {
             throw e
