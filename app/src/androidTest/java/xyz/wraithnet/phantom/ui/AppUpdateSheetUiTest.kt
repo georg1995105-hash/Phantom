@@ -46,6 +46,34 @@ class AppUpdateSheetUiTest {
         }
     }
 
+    @Test fun differentSigningKeyDisablesInstallAndOpensRealBackupPath() {
+        val release = PhantomRelease("0.3.18", "", "", 1234,
+            "- Улучшен Android TV\\n- Исправлен размер окна")
+        var installRequested by mutableStateOf(false)
+        var backupRequested by mutableStateOf(false)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    PhantomTheme {
+                        AppUpdateSheet(release, false, 0, 0L, false, null,
+                            onLater = {}, onUpdate = { installRequested = true },
+                            onDownloadInBrowser = {}, onCancelDownload = {},
+                            signingMismatch = true,
+                            onOpenBackup = { backupRequested = true })
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Другая подпись приложения"))
+            compose.awaitVisible(hasText("Недоступно") and isNotEnabled())
+            compose.awaitVisible(hasText("Резервная копия")).performClick()
+            compose.runOnIdle {
+                assertTrue(backupRequested)
+                assertTrue(!installRequested)
+            }
+            compose.onAllNodes(hasText("Скачать через браузер")).assertCountEquals(0)
+        }
+    }
+
     @Test fun primaryAndLaterActionsStayTogetherBelowExpandableReleaseNotes() {
         val release = PhantomRelease("9.0.0", "", "", 0L,
             "- Первый пункт\n- Второй пункт\n- Третий пункт\n- Дополнительный пункт")
