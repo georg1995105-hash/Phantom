@@ -33,6 +33,15 @@ class WideHomeDashboardUiTest {
     @Test fun forestTabletUsesGreenActiveImportAndScannerButtons() {
         var importClicks by mutableStateOf(0)
         var scanClicks by mutableStateOf(0)
+        val tabletServers = listOf(
+            ServerProfile("nl-tablet", "Нидерланды", "vless",
+                raw = "vless://00000000-0000-0000-0000-000000000011@one.example:443#NL"),
+            ServerProfile("pl-tablet", "Польша", "vless",
+                raw = "vless://00000000-0000-0000-0000-000000000012@two.example:443#PL"),
+        )
+        val tabletOwner = Subscription("tablet-owner", "Любой провайдер",
+            "https://example.com/servers", tabletServers,
+            updatedAt = System.currentTimeMillis())
         val palette = themeScheme(PhantomThemeMode.FOREST, true)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -49,7 +58,7 @@ class WideHomeDashboardUiTest {
                             WideHomeDashboard(
                                 status = "disconnected", selected = null,
                                 download = 0L, upload = 0L, seconds = 0L,
-                                subscriptions = emptyList(), pinnedId = null,
+                                subscriptions = listOf(tabletOwner), pinnedId = null,
                                 favorites = emptySet(), latency = emptyMap(),
                                 measuring = emptyMap(), refreshing = emptySet(),
                                 probing = emptySet(), failed = emptySet(),
@@ -66,6 +75,16 @@ class WideHomeDashboardUiTest {
                 }
             }
             val list = compose.onNode(hasScrollAction())
+            list.performScrollToNode(
+                hasContentDescription("Выбрать сервер Нидерланды"))
+            val first = compose.awaitVisible(
+                hasContentDescription("Выбрать сервер Нидерланды")).getUnclippedBoundsInRoot()
+            val second = compose.awaitVisible(
+                hasContentDescription("Выбрать сервер Польша")).getUnclippedBoundsInRoot()
+            assertTrue("Tablet server cards must share one row",
+                kotlin.math.abs(first.top.value - second.top.value) < 4f)
+            assertTrue("Tablet server cards must be two distinct columns",
+                first.right <= second.left)
             list.performScrollToNode(hasContentDescription("Добавить подписку или ключ"))
             val add = compose.awaitVisible(
                 hasContentDescription("Добавить подписку или ключ"))
