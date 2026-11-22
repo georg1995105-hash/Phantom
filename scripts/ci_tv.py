@@ -257,9 +257,12 @@ if not page_size_16k:
     # The Android TV UI has a real D-pad navigation rail, not phone bottom
     # tabs. Test every destination and TV-only About subpage on the actual
     # signed universal APK, with no touch-only controls or dead-end menus.
-    tap("Вкладка Серверы")
+    # All servers are reachable directly on Home in two columns.
+    # The separate Servers rail tab is intentionally absent.
+    assert not any(n.get("content-desc") == "Вкладка Серверы" for n in nodes())
+    wait_label("Серверы")
     wait_label("В избранное")
-    key("BACK")
+    wait_label("Открыть JSON конфигурации " + label)
     wait_label("Подключить VPN")
     tap("Вкладка Подписка")
     wait_label("В магазин")
@@ -292,4 +295,4 @@ if not page_size_16k:
     wait_label("Резервная копия")
     tap("Вкладка Главная")
     wait_label("Подключить VPN")
-    print("Android TV: D-pad, four rail tabs, VPN cores, DNS, About, components, journal and Back passed")
+    print("Android TV: D-pad, unified server grid, three rail tabs, VPN cores, DNS, About, journal and Back passed")
