@@ -228,14 +228,42 @@ for index, (protocol, label) in enumerate((
     wait_label("Отключено")
     print(f"{device} native {protocol}: connected and disconnected", flush=True)
 if not page_size_16k:
-    # Move to the bottom navigation using only directional keys.
-    for _ in range(7):
-        key("DPAD_DOWN")
-    for _ in range(4):
-        key("DPAD_LEFT")
-    key("DPAD_RIGHT")
-    key("DPAD_CENTER")
+    # The Android TV UI has a real D-pad navigation rail, not phone bottom
+    # tabs. Test every destination and TV-only About subpage on the actual
+    # signed universal APK, with no touch-only controls or dead-end menus.
+    tap("Вкладка Серверы")
     wait_label("В избранное")
     key("BACK")
     wait_label("Подключить VPN")
-    print("Android TV launcher, universal x86 runtime, D-pad VPN, server list and Back passed")
+    tap("Вкладка Подписка")
+    wait_label("В магазин")
+    tap("Вкладка Настройки")
+    wait_label("Подключение")
+    tap("Подключение")
+    wait_label("DNS")
+    tap("DNS")
+    wait_label("Сохранить")
+    key("BACK")
+    wait_label("Подключение")
+    # Navigate settings by remote keys; expanding items must be reachable by
+    # D-pad scrolling, not only via touch.
+    for _ in range(24):
+        if any(n.get("text") == "О приложении" for n in nodes()):
+            break
+        key("DPAD_DOWN")
+    tap("О приложении")
+    wait_label("Проверить обновление приложения")
+    wait_label("Автообновление по Wi-Fi")
+    tap("Компоненты и лицензии")
+    wait_label("ВОЗМОЖНОСТИ КЛИЕНТА")
+    key("BACK")
+    wait_label("Журнал VPN")
+    tap("Журнал VPN")
+    wait_label("Журнал VPN")
+    key("BACK")
+    wait_label("К настройкам")
+    tap("К настройкам")
+    wait_label("Резервная копия")
+    tap("Вкладка Главная")
+    wait_label("Подключить VPN")
+    print("Android TV: D-pad, four rail tabs, VPN cores, DNS, About, components, journal and Back passed")
