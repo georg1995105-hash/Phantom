@@ -103,6 +103,7 @@ jobs:
           EOF
           gh release create "$RELEASE_TAG" \
             "release-assets/phantom-universal-release.apk" \
+            --repo "$GITHUB_REPOSITORY" \
             --target "$SOURCE_SHA" \
             --title "PHANTOM VPN $RELEASE_TAG" \
             --notes-file "$RUNNER_TEMP/notes.md" \
