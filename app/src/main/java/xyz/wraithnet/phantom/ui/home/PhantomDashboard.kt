@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -90,7 +92,12 @@ internal fun Panel(selected: Boolean = false, content: @Composable ColumnScope.(
 }
 
 @Composable
-internal fun PageTitle(page: Destination) {
+internal fun PageTitle(
+    page: Destination,
+    exit: ExitNetworkLookup.Info? = null,
+    checkingExit: Boolean = false,
+    openExit: () -> Unit = {},
+) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically) {
         if (page == Destination.HOME) {
@@ -99,7 +106,28 @@ internal fun PageTitle(page: Destination) {
             Spacer(Modifier.width(8.dp))
         }
         Text(if (page == Destination.HOME) "Phantom" else page.title,
+            modifier = Modifier.weight(1f),
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        if (page == Destination.HOME && (exit != null || checkingExit)) {
+            Spacer(Modifier.width(8.dp))
+            Column(
+                Modifier.widthIn(max = 166.dp).clickable(enabled = exit != null, onClick = openExit),
+                horizontalAlignment = Alignment.End
+            ) {
+                if (exit != null) {
+                    Text(exit.flag() + " " + exit.countryName(),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Сеть · " + exit.network,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    Text("Определение сети…", fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
     }
 }
 
@@ -257,6 +285,7 @@ internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription
         else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
@@ -271,6 +300,7 @@ internal fun ServersPage(
         (selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)?.let { this.add(it) }
     }) }
     var details by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var inspectedServer by remember { mutableStateOf<ServerProfile?>(null) }
     val groups = remember(subscriptions, pinnedId, favorites) {
         subscriptions.sortedByDescending { it.id == pinnedId }.map { owner ->
             owner to owner.servers.sortedWith(compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
@@ -344,7 +374,11 @@ internal fun ServersPage(
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (chosen) Spacer(Modifier.width(3.dp).height(24.dp)
                             .background(c.primary, RoundedCornerShape(2.dp)))
-                        Row(Modifier.weight(1f).heightIn(min = 54.dp).tvFocusRing().clickable { choose(owner, server) }
+                        Row(Modifier.weight(1f).heightIn(min = 54.dp).tvFocusRing().combinedClickable(
+                                onClick = { choose(owner, server) },
+                                onLongClickLabel = "Открыть JSON конфигурации",
+                                onLongClick = { inspectedServer = server },
+                            )
                             .semantics { contentDescription = "Выбрать сервер ${displayServerName(server)}" }
                             .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(CountryFlags.flag(server), fontSize = 19.sp)
@@ -359,6 +393,14 @@ internal fun ServersPage(
                             Icon(if (id in favorites) Icons.Default.Star else Icons.Default.StarBorder,
                                 if (id in favorites) "Убрать из избранного" else "В избранное", Modifier.size(19.dp),
                                 tint = if (id in favorites) Color(0xFFCEB36D) else c.onSurfaceVariant)
+                        }
+                        if (isTelevision()) {
+                            IconButton(
+                                onClick = { inspectedServer = server },
+                                modifier = Modifier.tvFocusRing().semantics {
+                                    contentDescription = "Открыть JSON конфигурации ${displayServerName(server)}"
+                                }
+                            ) { Icon(Icons.Default.Code, null, Modifier.size(19.dp)) }
                         }
                         if (single && server.scheme.equals("tuic", ignoreCase = true)) {
                             IconButton(onClick = { onManualPing(owner) },
@@ -381,6 +423,9 @@ internal fun ServersPage(
                 Text("Добавить подписку или ключ")
             }
         }
+    }
+    inspectedServer?.let { selectedServer ->
+        ServerConfigSheet(selectedServer) { inspectedServer = null }
     }
 }
 
