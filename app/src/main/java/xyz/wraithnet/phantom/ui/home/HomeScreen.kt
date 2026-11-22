@@ -6,6 +6,9 @@ import android.content.ClipboardManager
 import android.os.Build
 import android.os.PersistableBundle
 import android.content.Context
+import android.content.res.Configuration
+import android.content.pm.ActivityInfo
+import xyz.wraithnet.phantom.ui.PhantomCaptureActivity
 import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings
@@ -357,6 +360,11 @@ fun HomeScreen(
     }
 
     val qrCameraAvailable = remember(context) { hasQrCamera(context) }
+    // Read from current Compose configuration on EACH composition, not once at
+    // app launch: tablets may rotate between opening Home and tapping Scan.
+    val qrLaunchOrientation = if (LocalConfiguration.current.orientation ==
+        Configuration.ORIENTATION_LANDSCAPE)
+        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         result.contents?.takeIf { it.isNotBlank() }?.let { scanned ->
             if (TvSubscriptionPairing.isPairingCode(scanned)) {
@@ -374,9 +382,12 @@ fun HomeScreen(
         runCatching {
             scanLauncher.launch(
                 ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                    .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                    .setCaptureActivity(PhantomCaptureActivity::class.java)
                     .setPrompt("Наведите камеру на QR-код подписки")
-                    .setOrientationLocked(true)
+                    // Portrait-only manifest and ZXing lock rotated tablets.
+                    // Keep the orientation of the SCREEN that opened the scanner.
+                    .setOrientationLocked(false)
+                    .addExtra(PhantomCaptureActivity.EXTRA_CAPTURE_ORIENTATION, qrLaunchOrientation)
                     .setBeepEnabled(false)
             )
         }.onFailure {
@@ -872,7 +883,7 @@ fun HomeScreen(
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
                         manage = { activeSubMenu = it.id },
                         onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
-                        onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
+                        onManualPing = { sub -> probeSubscription(sub, notify = true) },
                         favorite = { id ->
                             favorites = if (id in favorites) favorites - id else favorites + id
                             prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -1221,13 +1232,6 @@ fun HomeScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
                         sub.source.startsWith("http://", ignoreCase = true)
-                    if (sub.servers.any { ProtocolSupport.isSupported(it.scheme) }) {
-                        funActionRow(if (isRemote || sub.servers.size > 1) "Проверить пинг всех серверов" else "Проверить пинг",
-                            Icons.Default.Speed, enabled = sub.id !in probing) {
-                            activeSubMenu = null
-                            probeSubscription(sub)
-                        }
-                    }
                     if (isRemote) funActionRow("Обновить подписку", Icons.Default.Refresh, enabled = sub.id !in refreshing) {
                         activeSubMenu = null
                         scope.launch { refresh(sub) }

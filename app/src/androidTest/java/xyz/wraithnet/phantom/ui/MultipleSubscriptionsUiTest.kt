@@ -95,6 +95,17 @@ class MultipleSubscriptionsUiTest {
                 compose.awaitVisible(hasText(firstTitle))
                 compose.onNode(hasScrollAction()).performScrollToNode(hasText(secondTitle))
                 compose.awaitVisible(hasText(secondTitle))
+                // Every owner has the SAME visible manual ping control, regardless
+                // of title, chosen provider or underlying VLESS/HY2/TUIC scheme.
+                val pingFirst = hasContentDescription("Проверить пинг $firstTitle")
+                val pingSecond = hasContentDescription("Проверить пинг $secondTitle")
+                compose.onNode(hasScrollAction()).performScrollToNode(pingFirst)
+                // An automatic ping may already be running, so the control
+                // can legitimately be disabled for the duration of that scan.
+                // Its presence for EVERY owner is the invariant here.
+                compose.awaitVisible(pingFirst)
+                compose.onNode(hasScrollAction()).performScrollToNode(pingSecond)
+                compose.awaitVisible(pingSecond)
                 val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
                 compose.onNode(secondServer).assertDoesNotExist()
                 compose.onNode(hasScrollAction()).performScrollToNode(
@@ -165,7 +176,11 @@ class MultipleSubscriptionsUiTest {
                 val secondMenu = hasContentDescription("Управление подпиской $secondTitle")
                 compose.onNode(hasScrollAction()).performScrollToNode(secondMenu)
                 compose.awaitVisible(secondMenu).performClick()
-                for (action in listOf("Проверить пинг всех серверов", "Обновить подписку", "Копировать ссылку",
+                // No duplicate manual ping in the owner action sheet: the
+                // per-owner gauge icon is visible without opening this menu.
+                compose.onNode(hasText("Проверить пинг всех серверов")).assertDoesNotExist()
+                compose.onNode(hasText("Проверить пинг")).assertDoesNotExist()
+                for (action in listOf("Обновить подписку", "Копировать ссылку",
                         "Показать QR-код", "Закрепить", "Поделиться", "Удалить подписку")) {
                     compose.onNode(hasText(action)).assertExists()
                 }

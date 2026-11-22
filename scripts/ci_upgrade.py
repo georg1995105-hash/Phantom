@@ -280,8 +280,9 @@ before, payloads = entry_counts()
 subprocess.run(["adb", "shell", "-T", "toybox", "nc", "-w", "2", "-W", "2", "10.0.2.2", "34304"],
                input=b"via-tun", capture_output=True, timeout=8)
 assert entry_counts()[1] == payloads, "Control UID unexpectedly reached the physical TCP entry"
-tap_in_list("Управление подпиской AndroidCheckA")
-tap("Проверить пинг всех серверов")
+# The per-owner ping control is now visible directly on its card.
+visible_after_scroll("Проверить пинг AndroidCheckA", max_swipes=14)
+tap("Проверить пинг AndroidCheckA")
 # Three TCP peers already worked before this change. TUIC has no TCP listener,
 # so a fourth number must come from its isolated QUIC/HTTPS latency probe.
 # Hysteria2 TCP SYN is intentionally not converted into a synthetic UDP RTT.
@@ -406,7 +407,8 @@ node("Отключено")
 adb("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
 tap("Сканировать QR-код подписки")
 try:
-    node("К серверам", attempts=20)
+    # Scanner returns directly to the unified Home, no second servers page.
+    node("Главная", attempts=20)
 except AssertionError:
     screenshot("qr-failure")
     print(adb("logcat", "-d", "-s", "CameraPreview", "CameraInstance", "CameraManager", "DecoderThread"))

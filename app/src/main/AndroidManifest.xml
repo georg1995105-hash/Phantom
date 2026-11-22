@@ -81,7 +81,7 @@
         </activity>
         <activity
             android:name=".ui.PhantomCaptureActivity"
-            android:screenOrientation="portrait"
+            android:screenOrientation="unspecified"
             android:exported="false"
             android:theme="@style/zxing_CaptureTheme" />
         <provider
