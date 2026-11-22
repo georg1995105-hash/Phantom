@@ -137,6 +137,7 @@ fun HomeScreen(
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
     var showTvPairing by remember { mutableStateOf(false) }
+    var tvPairGeneration by remember { mutableIntStateOf(0) }
     var tvPairCode by remember { mutableStateOf<String?>(null) }
     var tvPairError by remember { mutableStateOf<String?>(null) }
     var tvPairListener by remember { mutableStateOf<TvSubscriptionPairing.Listener?>(null) }
@@ -391,7 +392,7 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(showTvPairing) {
+    LaunchedEffect(showTvPairing, tvPairGeneration) {
         if (!showTvPairing) return@LaunchedEffect
         tvPairCode = null
         tvPairError = null
@@ -1022,7 +1023,7 @@ fun HomeScreen(
                         CircularProgressIndicator(Modifier.size(26.dp))
                         Text("Подготавливаем защищённое соединение…")
                     } else if (tvPairError == null) {
-                        Text("Ожидание подписки с телефона…",
+                        Text("QR действует 2 минуты · Ожидание подписки с телефона…",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodySmall)
                     }
@@ -1032,6 +1033,11 @@ fun HomeScreen(
             confirmButton = {
                 TextButton(onClick = { showTvPairing = false }, modifier = Modifier.tvFocusRing()) {
                     Text("Закрыть")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { tvPairGeneration++ }, modifier = Modifier.tvFocusRing()) {
+                    Text("Обновить QR")
                 }
             }
         )
