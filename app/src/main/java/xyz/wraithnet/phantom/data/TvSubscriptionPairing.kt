@@ -175,7 +175,9 @@ object TvSubscriptionPairing {
         val (_, ip) = physicalLan(context)
         val keys = KeyPairGenerator.getInstance("RSA").apply { initialize(2048, random) }.generateKeyPair()
         val token = ByteArray(24).also(random::nextBytes)
-        val server = ServerSocket(0, 1).apply { soTimeout = TTL_MS.toInt() }
+        // Only the selected private LAN interface can accept the one-time QR transfer.
+        val server = ServerSocket(0, 1, InetAddress.getByName(ip))
+            .apply { soTimeout = TTL_MS.toInt() }
         try {
             val expiresAt = System.currentTimeMillis() + TTL_MS
             val code = Uri.Builder()
