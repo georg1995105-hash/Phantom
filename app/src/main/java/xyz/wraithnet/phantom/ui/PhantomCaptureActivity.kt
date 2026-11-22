@@ -1,6 +1,8 @@
 package xyz.wraithnet.phantom.ui
 
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.util.Log
 import android.os.Bundle
 import android.view.View
 import com.journeyapps.barcodescanner.CaptureActivity
@@ -27,6 +29,17 @@ class PhantomCaptureActivity : CaptureActivity() {
             requestedOrientation = desired
         }
         super.onCreate(savedInstanceState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Device-only diagnostics used to catch unwanted portrait transitions
+        // during tablet landscape scanning. No QR contents are logged.
+        Log.i("PhantomQrCapture",
+            "requested=" + requestedOrientation +
+                " actual=" + resources.configuration.orientation +
+                " landscape=" +
+                (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE))
     }
 
     override fun initializeContent(): DecoratedBarcodeView {
