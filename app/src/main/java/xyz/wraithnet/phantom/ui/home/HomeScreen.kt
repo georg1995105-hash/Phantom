@@ -737,11 +737,11 @@ fun HomeScreen(
     // scan it using Phantom on the phone and choose the subscription to send.
     // Do not auto-open the camera scanner (TV has no camera).
     LaunchedEffect(tv, subscriptions.isEmpty(), importBusy, externalImport) {
-        // A deep link may be importing a profile during cold start. Do not
-        // overlay the pairing QR over the imported server or the TV VPN controls.
-        if (subscriptions.isNotEmpty()) {
-            showTvPairing = false
-        } else if (tv && !importBusy && externalImport.isNullOrBlank()) {
+        // A deep link may be importing a profile during cold start; do not
+        // overlay the pairing QR over it. Importing from the phone also updates
+        // subscriptions BEFORE the encrypted receiver sends its ACK. Never
+        // auto-close the QR on that update: only the receiver closes after ACK.
+        if (tv && subscriptions.isEmpty() && !importBusy && externalImport.isNullOrBlank()) {
             showTvPairing = true
         }
     }
