@@ -80,7 +80,7 @@ internal fun WideHomeDashboard(
     var collapsed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var showDetails by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val sortedGroups = remember(subscriptions, pinnedId, favorites) {
-        subscriptions.sortedByDescending { it.id == pinnedId }.map { owner ->
+        orderedSubscriptions(subscriptions, pinnedId).map { owner ->
             owner to owner.servers.sortedWith(
                 compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                     .thenByDescending { (owner.id + ":" + it.id) in favorites })
