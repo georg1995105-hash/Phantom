@@ -371,14 +371,15 @@ internal fun ServersPage(
             if (!single) item(key = "header:${owner.id}") {
                 Column(Modifier.groupSurface(first = true, last = !show || servers.isEmpty())) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f).heightIn(min = if (tv) 50.dp else 58.dp).tvFocusRing().clickable {
+                        Row(Modifier.weight(1f).heightIn(min = if (tv) 46.dp else 50.dp).tvFocusRing().clickable {
                             expanded = ArrayList(if (show) expanded - owner.id else expanded + owner.id)
                         }.semantics { contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name },
                             verticalAlignment = Alignment.CenterVertically) {
                             Icon(if (show) Icons.Default.ExpandMore else Icons.Default.ChevronRight, null,
                                 Modifier.padding(horizontal = 6.dp).size(18.dp), tint = c.primary)
                             Column {
-                                Text(name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(name, fontWeight = FontWeight.SemiBold, maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
                                 if (remote) {
                                     val time = android.text.format.DateFormat.getTimeFormat(
                                         androidx.compose.ui.platform.LocalContext.current).format(java.util.Date(owner.updatedAt))
@@ -388,13 +389,18 @@ internal fun ServersPage(
                                 if (owner.id in failed) Text("Ошибка обновления · серверы сохранены", color = c.error, fontSize = 11.sp)
                             }
                         }
-                        if (servers.any { it.scheme.equals("tuic", ignoreCase = true) }) {
+                        // Manual ping is a primary OWNER action for every provider,
+                        // not a hidden menu action or a TUIC-only special case.
+                        if (servers.any { ProtocolSupport.isSupported(it.scheme) }) {
                             IconButton(onClick = { onManualPing(owner) },
                                 enabled = owner.id !in probing,
                                 modifier = Modifier.tvFocusRing().semantics {
-                                    contentDescription = "Проверить пинг TUIC и других серверов"
+                                    contentDescription = "Проверить пинг $name"
                                 }) {
-                                Icon(Icons.Default.Speed, null, tint = c.primary)
+                                if (owner.id in probing) CircularProgressIndicator(
+                                    Modifier.size(17.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.Speed, null,
+                                    Modifier.size(20.dp), tint = c.primary)
                             }
                         }
                         if (remote) IconButton(onClick = { onRefresh(owner) }, enabled = owner.id !in refreshing,
@@ -453,13 +459,16 @@ internal fun ServersPage(
                                 }
                             ) { Icon(Icons.Default.Code, null, Modifier.size(19.dp)) }
                         }
-                        if (single && server.scheme.equals("tuic", ignoreCase = true)) {
+                        if (single && ProtocolSupport.isSupported(server.scheme)) {
                             IconButton(onClick = { onManualPing(owner) },
                                 enabled = owner.id !in probing,
                                 modifier = Modifier.tvFocusRing().semantics {
-                                    contentDescription = "Проверить пинг TUIC"
+                                    contentDescription = "Проверить пинг $name"
                                 }) {
-                                Icon(Icons.Default.Speed, null, tint = c.primary)
+                                if (owner.id in probing) CircularProgressIndicator(
+                                    Modifier.size(17.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.Speed, null,
+                                    Modifier.size(20.dp), tint = c.primary)
                             }
                         }
                         if (single) OwnerMenu(name) { manage(owner) }
@@ -467,7 +476,7 @@ internal fun ServersPage(
                     if (single && owner.id !in probing) LaunchedEffect(owner.id, server.raw) { onAutoProbe(owner) }
                 }
             }
-            item(key = "gap:${owner.id}") { Spacer(Modifier.height(10.dp)) }
+            item(key = "gap:${owner.id}") { Spacer(Modifier.height(6.dp)) }
         }
         if (footer != null) item(key = "combined-footer") { footer() }
      }
@@ -525,34 +534,52 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
     val expiry = sub.expiresAt
     val account = SubscriptionHeaders.safeHttpUrl(sub.webPageUrl)
     val support = SubscriptionHeaders.safeHttpUrl(sub.supportUrl)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+    // The same compact two-line metadata for ALL remote subscriptions.
+    // Details/announce remain available without creating a tall empty card.
+    Column(Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 0.dp)) {
         if (listOf(traffic, limit, expiry, account, support).any { it != null }) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (account != null) IconButton(onClick = { openUrl(account) }, modifier = Modifier.tvFocusRing()) {
-                    Icon(Icons.Default.Info, "Кабинет $displayName", Modifier.size(20.dp), tint = c.primary)
+            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                if (account != null) IconButton(
+                    onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
+                ) {
+                    Icon(Icons.Default.Info, "Кабинет $displayName",
+                        Modifier.size(18.dp), tint = c.primary)
                 }
                 if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
                     Caption(if (traffic == null) "Лимит" else "Трафик")
-                    Text(listOfNotNull(traffic, limit).joinToString(" / ") { it.replace(" ", "\u00A0") },
-                        fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2)
+                    Text(listOfNotNull(traffic, limit).joinToString(" / ") {
+                        it.replace(" ", "\\u00A0")
+                    }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 2)
                 } else Spacer(Modifier.weight(1f))
-                if (expiry != null) Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                    Caption("Действует до")
-                    Text(if (expiry == 0L) "Бессрочно" else dateLabel(expiry), fontSize = 14.sp)
+                if (expiry != null) Column(Modifier.weight(1f),
+                    horizontalAlignment = Alignment.End) {
+                    Caption(if (expiry == 0L) "Срок" else
+                        "До · ${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
+                    Text(if (expiry == 0L) "Бессрочно" else dateLabel(expiry),
+                        fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1)
                 }
-                if (support != null) IconButton(onClick = { openUrl(support) }, modifier = Modifier.tvFocusRing()) {
+                if (support != null) IconButton(
+                    onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()
+                ) {
                     val host = android.net.Uri.parse(support).host?.lowercase()
-                    Icon(if (host in setOf("t.me", "telegram.me")) Icons.Default.Send else Icons.Default.SupportAgent,
-                        "Поддержка $displayName", Modifier.size(20.dp), tint = c.primary)
+                    Icon(if (host in setOf("t.me", "telegram.me"))
+                        Icons.Default.Send else Icons.Default.SupportAgent,
+                        "Поддержка $displayName", Modifier.size(18.dp), tint = c.primary)
                 }
             }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (expiry != null && expiry > 0) Caption("${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = toggle, modifier = Modifier.tvFocusRing().semantics { contentDescription = "Подробнее о $displayName" }) {
-                Text("Подробнее")
-                Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, Modifier.size(16.dp))
+        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = toggle,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.height(32.dp).tvFocusRing().semantics {
+                    contentDescription = "Подробнее о $displayName"
+                }) {
+                Text(if (details) "Свернуть" else "Подробнее", fontSize = 11.sp)
+                Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    null, Modifier.size(15.dp))
             }
         }
         if (details) {
