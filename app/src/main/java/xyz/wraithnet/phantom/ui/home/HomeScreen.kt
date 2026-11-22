@@ -88,6 +88,9 @@ import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import xyz.wraithnet.phantom.data.TvSubscriptionPairing
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -133,6 +136,13 @@ fun HomeScreen(
     val scannedWithAutoTuic = remember { mutableMapOf<String, Boolean>() }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
+    var showTvPairing by remember { mutableStateOf(false) }
+    var tvPairCode by remember { mutableStateOf<String?>(null) }
+    var tvPairError by remember { mutableStateOf<String?>(null) }
+    var tvPairListener by remember { mutableStateOf<TvSubscriptionPairing.Listener?>(null) }
+    var incomingPairCode by remember { mutableStateOf<String?>(null) }
+    var pairingSending by remember { mutableStateOf(false) }
+    var pairingSendError by remember { mutableStateOf<String?>(null) }
     val serverPageState = rememberSaveableStateHolder()
     var qrSource by remember { mutableStateOf<String?>(null) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
@@ -248,10 +258,14 @@ fun HomeScreen(
         return clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
     }
 
-    fun add(raw: String, customTitle: String? = null) {
-        if (importBusy) return
+    fun add(raw: String, customTitle: String? = null, completed: ((Boolean) -> Unit)? = null) {
+        if (importBusy) {
+            completed?.invoke(false)
+            return
+        }
         if (raw.isBlank()) {
             scope.launch { snackbar.showSnackbar("Вставьте ссылку подписки") }
+            completed?.invoke(false)
             return
         }
         val source = raw.trim()
@@ -262,11 +276,13 @@ fun HomeScreen(
                 snackbar.currentSnackbarData?.dismiss()
                 snackbar.showSnackbar(warning)
             }
+            completed?.invoke(false)
             return
         }
         importBusy = true
         importError = null
         scope.launch {
+            var added = false
             val message = try {
                 val remote = source.startsWith("https://") || source.startsWith("http://")
                 val downloaded = if (remote) SubscriptionFetcher.download(context, source, store.deviceId()) else null
@@ -301,6 +317,7 @@ fun HomeScreen(
                 softTap()
                 // Import has finished before the success snackbar is shown.
                 // A second tap must be able to report a duplicate immediately.
+                added = true
                 "Подписка добавлена"
             } catch (e: CancellationException) {
                 throw e
@@ -312,6 +329,7 @@ fun HomeScreen(
                 } else failure
             } finally {
                 importBusy = false
+                completed?.invoke(added)
             }
             message?.let {
                 snackbar.currentSnackbarData?.dismiss()
@@ -336,7 +354,12 @@ fun HomeScreen(
 
     val qrCameraAvailable = remember(context) { hasQrCamera(context) }
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
+        result.contents?.takeIf { it.isNotBlank() }?.let { scanned ->
+            if (TvSubscriptionPairing.isPairingCode(scanned)) {
+                incomingPairCode = scanned
+                pairingSendError = null
+            } else add(scanned)
+        }
     }
     fun scanQr() {
         if (!qrCameraAvailable) {
@@ -359,10 +382,51 @@ fun HomeScreen(
     }
 
     LaunchedEffect(externalImport) {
-        externalImport?.takeIf { it.isNotBlank() }?.let {
-            add(it)
+        externalImport?.takeIf { it.isNotBlank() }?.let { text ->
+            if (TvSubscriptionPairing.isPairingCode(text)) {
+                incomingPairCode = text
+                pairingSendError = null
+            } else add(text)
             onExternalImportConsumed()
         }
+    }
+
+    LaunchedEffect(showTvPairing) {
+        if (!showTvPairing) return@LaunchedEffect
+        tvPairCode = null
+        tvPairError = null
+        try {
+            val listener = TvSubscriptionPairing.listen(context)
+            tvPairListener = listener
+            tvPairCode = listener.qrCode
+            val saved = listener.receive { source, name ->
+                withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine<Boolean> { continuation ->
+                        add(source, name) { success ->
+                            if (continuation.isActive) continuation.resume(success)
+                        }
+                    }
+                }
+            }
+            if (saved) {
+                showTvPairing = false
+            } else {
+                tvPairError = "Не удалось сохранить подписку. Закройте окно и попробуйте снова."
+            }
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            tvPairError = if (error is java.net.SocketTimeoutException)
+                "Время ожидания истекло. Откройте QR ещё раз."
+                else error.message ?: "Не удалось принять подписку. Повторите попытку."
+        } finally {
+            tvPairListener?.close()
+            tvPairListener = null
+        }
+    }
+
+    DisposableEffect(showTvPairing) {
+        onDispose { tvPairListener?.close() }
     }
 
     suspend fun refresh(item: Subscription, quiet: Boolean = false) {
@@ -833,6 +897,10 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
+                if (tv) funActionRow("Добавить с телефона", Icons.Default.QrCode) {
+                    showImportMenu = false
+                    showTvPairing = true
                 }
                 funActionRow("Ссылка подписки", Icons.Default.Link) {
                     showImportMenu = false; importMode = "url"
