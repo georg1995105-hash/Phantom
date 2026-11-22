@@ -6,23 +6,21 @@
 
 **[⬇ Скачать Phantom VPN — последняя стабильная версия (универсальный APK)](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk)**
 
-[Страница загрузки](https://app.veor.pro/) · [Лёгкий APK для ARM64](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk) · [История версий](https://github.com/georg1995105-hash/Phantom/releases/latest) · [Все релизы](https://github.com/georg1995105-hash/Phantom/releases)
+[Страница загрузки](https://app.veor.pro/) · [История версий](https://github.com/georg1995105-hash/Phantom/releases/latest) · [Все релизы](https://github.com/georg1995105-hash/Phantom/releases)
 
 > Ссылка «Скачать» **не привязана к номеру версии**. Она ведёт на универсальный APK из последнего официального стабильного GitHub Release. Черновые, тестовые и beta-выпуски не заменяют стабильную версию.
 
 | Устройство | APK |
 | --- | --- |
 | **Телефон / планшет / Android TV** | [Универсальный — все поддерживаемые архитектуры](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-universal-release.apk) |
-| Android ARM64 | [Компактная ARM64-сборка](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-arm64-v8a-release.apk) |
-| Android ARM32 | [Компактная ARM32-сборка](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-armeabi-v7a-release.apk) |
-| Android x86 / x86_64 | [x86](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86-release.apk) · [x86_64](https://github.com/georg1995105-hash/Phantom/releases/latest/download/phantom-x86_64-release.apk) |
+| **ARM64 / ARM32 / x86 / x86_64** | Один универсальный APK для телефона, планшета и Android TV |
 
 ### Установка
 
-1. Скачайте APK для своего устройства. Если не знаете архитектуру, используйте **универсальный APK**.
+1. Скачайте **единственный универсальный APK** — выбирать архитектуру процессора не требуется.
 2. Установите файл через Android. Если система попросит разрешение на установку из браузера, подтвердите его для используемого браузера.
 3. Добавьте ссылку на подписку либо отдельный ключ и выберите сервер.
-4. Новые официальные версии можно устанавливать поверх старых без удаления приложения. Android при необходимости запросит подтверждение установки.
+4. Официальные версии с **той же подписью** устанавливаются поверх текущей без удаления данных. Если сертификат установленной копии отличается, Android запретит обновление: сначала сохраните резервную копию через настройки, затем установите официальную сборку и восстановите настройки.
 
 **Важно:** APK из Pull Requests и тестовых сборок не предназначены для обновления официально подписанного приложения.
 
@@ -30,7 +28,7 @@
 
 - Подписки Remnawave и совместимых сервисов, а также отдельные ключи.
 - VLESS/REALITY/XHTTP, VMess, Trojan, Shadowsocks, Hysteria2; TUIC и AnyTLS используют отдельный процесс sing-box.
-- Четыре вкладки, информация о подписке, список серверов, ручная проверка задержки.
+- Три основные вкладки, информация о подписках и ручная проверка задержки. На телевизорах и планшетах серверы сразу на главном экране в два столбца.
 - DNS-настройки, маршрутизация отдельных приложений, QR-коды, темы оформления.
 - Интерфейс для телефона, планшета и Android TV; обновления через GitHub Releases.
 
