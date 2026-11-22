@@ -736,8 +736,14 @@ fun HomeScreen(
     // On an empty television installation the useful QR is a receiver code:
     // scan it using Phantom on the phone and choose the subscription to send.
     // Do not auto-open the camera scanner (TV has no camera).
-    LaunchedEffect(tv, subscriptions.isEmpty()) {
-        if (tv && subscriptions.isEmpty()) showTvPairing = true
+    LaunchedEffect(tv, subscriptions.isEmpty(), importBusy, externalImport) {
+        // A deep link may be importing a profile during cold start. Do not
+        // overlay the pairing QR over the imported server or the TV VPN controls.
+        if (subscriptions.isNotEmpty()) {
+            showTvPairing = false
+        } else if (tv && !importBusy && externalImport.isNullOrBlank()) {
+            showTvPairing = true
+        }
     }
     Scaffold(
         modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
