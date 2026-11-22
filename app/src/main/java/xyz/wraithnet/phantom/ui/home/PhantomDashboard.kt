@@ -603,7 +603,7 @@ internal fun AppUpdateSheet(
     val downloadInProgress by rememberUpdatedState(downloading)
     val tv = isTelevision()
     val maxHeight = (LocalConfiguration.current.screenHeightDp.dp *
-        if (tv) 0.80f else 0.82f).coerceAtLeast(280.dp)
+        (if (tv) 0.80f else 0.82f)).coerceAtLeast(280.dp)
     val blocked = signingMismatch ||
         error?.startsWith("Подпись обновления не совпадает") == true
     val sheetBody: @Composable () -> Unit = {
@@ -857,8 +857,8 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
             Column {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.WorkspacePremium, null, tint = colors.primary,
-                        modifier = Modifier.size(21.dp))
+                    Icon(Icons.Default.Star, null, tint = colors.primary,
+                        modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(9.dp))
                     Text("Ваш доступ", fontWeight = FontWeight.SemiBold,
                         style = MaterialTheme.typography.titleMedium)
