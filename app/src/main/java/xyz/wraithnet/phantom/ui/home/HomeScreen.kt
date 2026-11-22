@@ -1392,6 +1392,14 @@ private fun PhantomSettings(
 
     var showComponents by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
+    val tv = isTelevision()
+    var group by rememberSaveable { mutableStateOf("") }
+    BackHandler(enabled = tv && group.isNotEmpty()) { group = "" }
+    val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(tv, group) {
+        if (tv && group == "background") settingsScroll.animateScrollToItem(5)
+        if (tv && group == "network") settingsScroll.animateScrollToItem(0)
+    }
     if (showThemeGallery) {
         ThemeGalleryScreen(
             selected = mode,
@@ -1431,9 +1439,25 @@ private fun PhantomSettings(
             context.startActivity(Intent(Settings.ACTION_SETTINGS))
         }
     }
-    var group by rememberSaveable { mutableStateOf("") }
     fun toggle(name: String) { group = if (group == name) "" else name }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+    if (tv && group == "about") {
+        TvAboutSettings(
+            version = version,
+            autoApkUpdates = autoApkUpdates,
+            onToggleAuto = { enabled ->
+                autoApkUpdates = enabled
+                prefs.edit().putBoolean("auto_apk_updates", enabled).apply()
+                PhantomAutoUpdateWorker.schedule(context.applicationContext)
+            },
+            onCheckUpdate = onCheckAppUpdate,
+            onComponents = { showComponents = true },
+            onLog = { showLog = true },
+            onBack = { group = "" },
+        )
+        return
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = settingsScroll,
+        contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Panel {
@@ -1495,7 +1519,7 @@ private fun PhantomSettings(
             }
         }
         item { Panel { SettingsAction("Тема оформления", mode.title, Icons.Default.Palette) { showThemeGallery = true } } }
-        item {
+        if (!tv) item {
             Panel {
                 SettingsAction("Кнопка в шторке Android", "Быстрое подключение VPN", Icons.Default.PowerSettingsNew) {
                     PhantomQuickTileService.offerToAdd(context) { tileMessage = it }
@@ -1506,7 +1530,7 @@ private fun PhantomSettings(
         item {
             Panel {
                     Row(
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().tvFocusRing().clickable {
                             bootConnect = !bootConnect
                             prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, bootConnect).apply()
                         }.padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1533,7 +1557,7 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("Фоновая работа", "Экран, батарея, всегда включённый VPN", Icons.Default.BatteryStd) { toggle("background") }
                 if (group == "background") {
-                    Row(Modifier.fillMaxWidth().clickable {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         keepActive = !keepActive
                         prefs.edit().putBoolean("keep_active", keepActive).apply()
                         if (prefs.getBoolean("vpn_running", false)) {
