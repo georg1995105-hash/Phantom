@@ -1,4 +1,4 @@
-name: Quick signed APK
+name: Quick signed universal APK
 
 on:
   workflow_dispatch:
@@ -67,12 +67,12 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew --no-daemon --max-workers=1 :app:assembleRelease
-          test -s app/build/outputs/apk/release/app-universal-release-unsigned.apk
+          test -s app/build/outputs/apk/release/app-release-unsigned.apk
       - name: Upload unsigned APK to isolated signing job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-quick-unsigned
-          path: app/build/outputs/apk/release/app-universal-release-unsigned.apk
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 1
           compression-level: 0
@@ -105,7 +105,7 @@ jobs:
           set -euo pipefail
           test -n "$KEYSTORE_B64" && test -n "$KEYSTORE_PASSWORD"
           test -n "$KEYSTORE_ALIAS" && test -n "$KEY_PASSWORD"
-          apk=unsigned/app-universal-release-unsigned.apk
+          apk=unsigned/app-release-unsigned.apk
           test -s "$apk"
           aapt="$ANDROID_HOME/build-tools/35.0.0/aapt"
           zipalign="$ANDROID_HOME/build-tools/35.0.0/zipalign"
