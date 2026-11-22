@@ -232,6 +232,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
 internal fun ConnectionImportActions(
     onQuickImport: () -> Unit,
     onScanQr: (() -> Unit)?,
+    onTvPair: (() -> Unit)? = null,
     hasSubscriptions: Boolean,
     importing: Boolean,
 ) {
@@ -239,7 +240,9 @@ internal fun ConnectionImportActions(
     Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         if (!hasSubscriptions) {
-            Text("Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
+            Text(if (onTvPair != null)
+                "Отсканируйте QR-код телевизора в Phantom на телефоне или введите ссылку."
+                else "Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
                 modifier = Modifier.padding(bottom = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center, color = c.onSurfaceVariant)
@@ -257,6 +260,19 @@ internal fun ConnectionImportActions(
                 Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Добавить подписку", fontSize = 13.sp)
+            }
+            if (onTvPair != null) {
+                FilledTonalButton(
+                    onClick = onTvPair,
+                    enabled = !importing,
+                    modifier = Modifier.heightIn(min = 48.dp).tvFocusRing()
+                        .semantics { contentDescription = "Показать QR-код для передачи с телефона" },
+                    shape = RoundedCornerShape(15.dp),
+                ) {
+                    Icon(Icons.Default.QrCode, null, Modifier.size(20.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text("QR с телефона", fontSize = 13.sp)
+                }
             }
             if (onScanQr != null) {
                 OutlinedIconButton(
