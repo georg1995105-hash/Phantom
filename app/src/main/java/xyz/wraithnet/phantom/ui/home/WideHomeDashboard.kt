@@ -68,6 +68,7 @@ internal fun WideHomeDashboard(
     onPairQr: (() -> Unit)?,
     onScanQr: (() -> Unit)?,
     onShowError: (() -> Unit)?,
+    onOpenUrl: (String) -> Unit,
 ) {
     val tv = isTelevision()
     val scheme = MaterialTheme.colorScheme
@@ -327,7 +328,7 @@ internal fun WideHomeDashboard(
                         if (owner.id in showDetails && remote) {
                             ProviderInfo(owner, title, true, {
                                 showDetails = ArrayList(showDetails - owner.id)
-                            }, { })
+                            }, onOpenUrl)
                         }
                     }
                 }
@@ -343,7 +344,7 @@ internal fun WideHomeDashboard(
                             pair.forEach { server ->
                                 val id = owner.id + ":" + server.id
                                 val active = selected?.first?.id == owner.id &&
-                                    selected.second.id == server.id
+                                    selected?.second?.id == server.id
                                 val shape = RoundedCornerShape(13.dp)
                                 Surface(
                                     shape = shape,
