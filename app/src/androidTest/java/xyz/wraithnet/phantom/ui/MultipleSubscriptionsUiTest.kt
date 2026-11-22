@@ -123,14 +123,14 @@ class MultipleSubscriptionsUiTest {
                 compose.onNode(hasContentDescription("Выбрать сервер Автовыбор"))
                     .assertDoesNotExist()
                 compose.onNode(hasScrollAction()).performScrollToNode(
-                    hasContentDescription("Кабинет ${first.title}"))
-                compose.awaitVisible(hasContentDescription("Кабинет ${first.title}"))
+                    hasContentDescription("Кабинет $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Кабинет $firstTitle"))
                 compose.onAllNodes(hasText("Трафик"))[0].assertExists()
                 compose.onNode(hasScrollAction()).performScrollToNode(secondServer)
                 compose.awaitVisible(secondServer)
                 compose.onNode(hasScrollAction()).performScrollToNode(
-                    hasContentDescription("Подробнее о ${first.title}"))
-                compose.awaitVisible(hasContentDescription("Подробнее о ${first.title}"))
+                    hasContentDescription("Подробнее о $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Подробнее о $firstTitle"))
                     .performTouchInput { click() }
                 compose.awaitVisible(hasText("Условия провайдера"))
                 compose.onNode(hasContentDescription("Выбрать сервер Автовыбор"))
@@ -142,7 +142,11 @@ class MultipleSubscriptionsUiTest {
 
                 val refreshFirst = hasContentDescription("Обновить подписку $firstTitle")
                 val refreshSecond = hasContentDescription("Обновить подписку $secondTitle")
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Управление подпиской $firstTitle"))
                 compose.awaitVisible(hasContentDescription("Управление подпиской $firstTitle"))
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Управление подпиской $secondTitle"))
                 compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
                 compose.onNode(hasScrollAction()).performScrollToNode(refreshFirst)
                 compose.awaitVisible(refreshFirst and isEnabled()).performTouchInput { click() }
