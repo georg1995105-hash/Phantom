@@ -1,13 +1,14 @@
 package xyz.wraithnet.phantom.ui.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.tvFocusRing().clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import xyz.wraithnet.phantom.ui.home.tvFocusRing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -27,7 +28,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
         topBar = {
             Row(Modifier.statusBarsPadding().fillMaxWidth().padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Назад") }
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) { Icon(Icons.Default.ArrowBack, "Назад") }
                 Text("Пинг серверов", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold)
             }
