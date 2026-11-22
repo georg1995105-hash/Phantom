@@ -637,6 +637,7 @@ fun HomeScreen(
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
     var showOtaSheet by remember { mutableStateOf(false) }
+    var openBackupFromOta by remember { mutableStateOf(false) }
     // Only an explicit check from Settings may open the update sheet over Settings.
     var otaManuallyRequested by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
@@ -896,6 +897,8 @@ fun HomeScreen(
                 }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
+                    openBackupRequest = openBackupFromOta,
+                    onBackupRequestHandled = { openBackupFromOta = false },
                     onCheckAppUpdate = ::checkAppUpdateNow,
                     onBackupRestored = {
                         applySubscriptions(store.read())
@@ -954,6 +957,13 @@ fun HomeScreen(
             onLater = { showOtaSheet = false; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
             onDownloadInBrowser = { availableUpdate?.downloadUrl?.let(::openUrl) },
+            signingMismatch = PhantomUpdates.hasOfficialSigningCertificate(context) == false,
+            onOpenBackup = {
+                showOtaSheet = false
+                otaDismissed = true
+                openBackupFromOta = true
+                tab = Destination.SETTINGS
+            },
             onCancelDownload = {
                 otaDownloadJob?.cancel()
                 otaDownload = false
@@ -1425,7 +1435,9 @@ internal fun dateLabel(seconds: Long): String =
 private fun PhantomSettings(
     onThemeChange: (PhantomThemeMode) -> Unit,
     onCheckAppUpdate: () -> Unit,
-    onBackupRestored: () -> Unit
+    onBackupRestored: () -> Unit,
+    openBackupRequest: Boolean = false,
+    onBackupRequestHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
@@ -1449,6 +1461,12 @@ private fun PhantomSettings(
 
     var showComponents by remember { mutableStateOf(false) }
     var showBackup by remember { mutableStateOf(false) }
+    LaunchedEffect(openBackupRequest) {
+        if (openBackupRequest) {
+            showBackup = true
+            onBackupRequestHandled()
+        }
+    }
     val tv = isTelevision()
     var group by rememberSaveable { mutableStateOf("") }
     BackHandler(enabled = tv && group.isNotEmpty()) { group = "" }
