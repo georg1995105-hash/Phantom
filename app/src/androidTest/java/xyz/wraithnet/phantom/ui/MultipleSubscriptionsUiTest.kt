@@ -108,18 +108,30 @@ class MultipleSubscriptionsUiTest {
                 }
                 // Server groups start with the first owner's group open. The
                 // second group must be opened before choosing its server.
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Раскрыть подписку $secondTitle"))
                 compose.awaitVisible(hasContentDescription("Раскрыть подписку $secondTitle"))
                     .performTouchInput { click() }
+                compose.onNode(hasScrollAction()).performScrollToNode(secondServer)
                 compose.awaitVisible(secondServer).performTouchInput { click() }
                 compose.onNode(hasScrollAction()).performScrollToNode(
                     hasContentDescription("Выбрать сервер Автовыбор"))
-                compose.awaitVisible(hasContentDescription("Свернуть подписку $firstTitle")).performTouchInput { click() }
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Свернуть подписку $firstTitle"))
+                compose.awaitVisible(hasContentDescription("Свернуть подписку $firstTitle"))
+                    .performTouchInput { click() }
                 compose.onNode(hasContentDescription("Выбрать сервер Автовыбор"))
                     .assertDoesNotExist()
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Кабинет ${first.title}"))
                 compose.awaitVisible(hasContentDescription("Кабинет ${first.title}"))
-                compose.awaitVisible(hasText("Трафик"))
+                compose.onAllNodes(hasText("Трафик"))[0].assertExists()
+                compose.onNode(hasScrollAction()).performScrollToNode(secondServer)
                 compose.awaitVisible(secondServer)
-                compose.onAllNodes(hasText("Подробнее"))[0].performTouchInput { click() }
+                compose.onNode(hasScrollAction()).performScrollToNode(
+                    hasContentDescription("Подробнее о ${first.title}"))
+                compose.awaitVisible(hasContentDescription("Подробнее о ${first.title}"))
+                    .performTouchInput { click() }
                 compose.awaitVisible(hasText("Условия провайдера"))
                 compose.onNode(hasContentDescription("Выбрать сервер Автовыбор"))
                     .assertDoesNotExist()
@@ -132,9 +144,11 @@ class MultipleSubscriptionsUiTest {
                 val refreshSecond = hasContentDescription("Обновить подписку $secondTitle")
                 compose.awaitVisible(hasContentDescription("Управление подпиской $firstTitle"))
                 compose.awaitVisible(hasContentDescription("Управление подпиской $secondTitle"))
+                compose.onNode(hasScrollAction()).performScrollToNode(refreshFirst)
                 compose.awaitVisible(refreshFirst and isEnabled()).performTouchInput { click() }
                 assertEquals("/first", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 compose.awaitVisible(refreshFirst and isNotEnabled())
+                compose.onNode(hasScrollAction()).performScrollToNode(refreshSecond)
                 compose.awaitVisible(refreshSecond and isEnabled()).performTouchInput { click() }
                 assertEquals("/second", server.takeRequest(8, TimeUnit.SECONDS)?.path)
                 releaseResponses.countDown()
@@ -145,6 +159,7 @@ class MultipleSubscriptionsUiTest {
                 assertEquals(refreshedLink, subscriptions.first().servers.single().raw)
                 assertEquals(second.copy(selectedServerId = "same-server-id"), subscriptions.last())
                 val secondMenu = hasContentDescription("Управление подпиской $secondTitle")
+                compose.onNode(hasScrollAction()).performScrollToNode(secondMenu)
                 compose.awaitVisible(secondMenu).performClick()
                 for (action in listOf("Проверить пинг всех серверов", "Обновить подписку", "Копировать ссылку",
                         "Показать QR-код", "Закрепить", "Поделиться", "Удалить подписку")) {
