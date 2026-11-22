@@ -91,16 +91,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
-          Phantom VPN 0.3.17
-
-          - Главная страница: подключение, статистика и полный список серверов с единой прокруткой.
-          - Сохранены карточки всех подписок, отдельные обновления, сроки, трафик, пинги и ключи.
-          - Компактнее раздел «Подписка», без удаления сведений.
-          - Телевизионная навигация, QR-передача с телефона и обновление приложения остаются доступны.
-
-          Сборка подписана официальным ключом Phantom. Приложение можно обновить поверх установленной версии без удаления данных. Полная проверка Android/TV в отдельном CI для этого интерфейса ещё не завершилась успешно; выпуск предоставляется для проверки владельцем.
-          EOF
+          # Release notes come from the exact source commit that was signed,
+          # not from a hardcoded previous version or from the default branch.
+          gh api "repos/$GITHUB_REPOSITORY/contents/RELEASE_NOTES.md?ref=$SOURCE_SHA" \
+            --jq .content | base64 -d > "$RUNNER_TEMP/notes.md"
+          grep -Fxq "# PHANTOM VPN ${RELEASE_TAG#v}" "$RUNNER_TEMP/notes.md"
+          printf '\\nБыстрая официальная сборка для проверки владельцем. Полные Android/TV-тесты проверяются отдельно.\\n' >> "$RUNNER_TEMP/notes.md"
           gh release create "$RELEASE_TAG" \
             "release-assets/phantom-universal-release.apk" \
             --repo "$GITHUB_REPOSITORY" \
