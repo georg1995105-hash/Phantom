@@ -179,7 +179,7 @@ if not page_size_16k:
     wait_label("Добавить конфигурацию")
     key("BACK")
     tap("Вкладка Главная")
-    tap("Добавить подписку")
+    tap("Добавить подписку или ключ")
     wait_label("Ссылка подписки")
     key("BACK")
     adb("shell", "am", "force-stop", PACKAGE)
