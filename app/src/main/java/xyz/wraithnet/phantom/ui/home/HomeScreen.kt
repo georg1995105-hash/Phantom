@@ -88,6 +88,9 @@ import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import xyz.wraithnet.phantom.data.TvSubscriptionPairing
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -133,6 +136,13 @@ fun HomeScreen(
     val scannedWithAutoTuic = remember { mutableMapOf<String, Boolean>() }
     val latencies = remember { mutableStateMapOf<String, Long>() }
     var showImportMenu by remember { mutableStateOf(false) }
+    var showTvPairing by remember { mutableStateOf(false) }
+    var tvPairCode by remember { mutableStateOf<String?>(null) }
+    var tvPairError by remember { mutableStateOf<String?>(null) }
+    var tvPairListener by remember { mutableStateOf<TvSubscriptionPairing.Listener?>(null) }
+    var incomingPairCode by remember { mutableStateOf<String?>(null) }
+    var pairingSending by remember { mutableStateOf(false) }
+    var pairingSendError by remember { mutableStateOf<String?>(null) }
     val serverPageState = rememberSaveableStateHolder()
     var qrSource by remember { mutableStateOf<String?>(null) }
     var activeSubMenu by remember { mutableStateOf<String?>(null) }
@@ -248,10 +258,14 @@ fun HomeScreen(
         return clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
     }
 
-    fun add(raw: String, customTitle: String? = null) {
-        if (importBusy) return
+    fun add(raw: String, customTitle: String? = null, completed: ((Boolean) -> Unit)? = null) {
+        if (importBusy) {
+            completed?.invoke(false)
+            return
+        }
         if (raw.isBlank()) {
             scope.launch { snackbar.showSnackbar("Вставьте ссылку подписки") }
+            completed?.invoke(false)
             return
         }
         val source = raw.trim()
@@ -262,11 +276,13 @@ fun HomeScreen(
                 snackbar.currentSnackbarData?.dismiss()
                 snackbar.showSnackbar(warning)
             }
+            completed?.invoke(false)
             return
         }
         importBusy = true
         importError = null
         scope.launch {
+            var added = false
             val message = try {
                 val remote = source.startsWith("https://") || source.startsWith("http://")
                 val downloaded = if (remote) SubscriptionFetcher.download(context, source, store.deviceId()) else null
@@ -301,6 +317,7 @@ fun HomeScreen(
                 softTap()
                 // Import has finished before the success snackbar is shown.
                 // A second tap must be able to report a duplicate immediately.
+                added = true
                 "Подписка добавлена"
             } catch (e: CancellationException) {
                 throw e
@@ -312,6 +329,7 @@ fun HomeScreen(
                 } else failure
             } finally {
                 importBusy = false
+                completed?.invoke(added)
             }
             message?.let {
                 snackbar.currentSnackbarData?.dismiss()
@@ -334,24 +352,81 @@ fun HomeScreen(
         }
     }
 
+    val qrCameraAvailable = remember(context) { hasQrCamera(context) }
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.takeIf { it.isNotBlank() }?.let { add(it) }
+        result.contents?.takeIf { it.isNotBlank() }?.let { scanned ->
+            if (TvSubscriptionPairing.isPairingCode(scanned)) {
+                incomingPairCode = scanned
+                pairingSendError = null
+            } else add(scanned)
+        }
     }
     fun scanQr() {
-        scanLauncher.launch(
-            ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
-                .setPrompt("Наведите камеру на QR-код подписки")
-                .setOrientationLocked(true)
-                .setBeepEnabled(false)
-        )
+        if (!qrCameraAvailable) {
+            importMode = "url"
+            importError = "Камера недоступна. Введите ссылку подписки."
+            return
+        }
+        runCatching {
+            scanLauncher.launch(
+                ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setCaptureActivity(xyz.wraithnet.phantom.ui.PhantomCaptureActivity::class.java)
+                    .setPrompt("Наведите камеру на QR-код подписки")
+                    .setOrientationLocked(true)
+                    .setBeepEnabled(false)
+            )
+        }.onFailure {
+            importMode = "url"
+            importError = "Не удалось открыть камеру. Введите ссылку подписки."
+        }
     }
 
     LaunchedEffect(externalImport) {
-        externalImport?.takeIf { it.isNotBlank() }?.let {
-            add(it)
+        externalImport?.takeIf { it.isNotBlank() }?.let { text ->
+            if (TvSubscriptionPairing.isPairingCode(text)) {
+                incomingPairCode = text
+                pairingSendError = null
+            } else add(text)
             onExternalImportConsumed()
         }
+    }
+
+    LaunchedEffect(showTvPairing) {
+        if (!showTvPairing) return@LaunchedEffect
+        tvPairCode = null
+        tvPairError = null
+        try {
+            val listener = TvSubscriptionPairing.listen(context)
+            tvPairListener = listener
+            tvPairCode = listener.qrCode
+            val saved = listener.receive { source, name ->
+                withContext(Dispatchers.Main) {
+                    suspendCancellableCoroutine<Boolean> { continuation ->
+                        add(source, name) { success ->
+                            if (continuation.isActive) continuation.resume(success)
+                        }
+                    }
+                }
+            }
+            if (saved) {
+                showTvPairing = false
+            } else {
+                tvPairError = "Не удалось сохранить подписку. Закройте окно и попробуйте снова."
+            }
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            tvPairError = if (error is java.net.SocketTimeoutException)
+                "Время ожидания истекло. Откройте QR ещё раз."
+                else error.message ?: "Не удалось принять подписку. Повторите попытку."
+        } finally {
+            tvPairListener?.close()
+            tvPairListener = null
+        }
+    }
+
+    DisposableEffect(showTvPairing) {
+        onDispose { tvPairListener?.close() }
     }
 
     suspend fun refresh(item: Subscription, quiet: Boolean = false) {
@@ -658,6 +733,18 @@ fun HomeScreen(
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
     val tv = isTelevision()
+    // On an empty television installation the useful QR is a receiver code:
+    // scan it using Phantom on the phone and choose the subscription to send.
+    // Do not auto-open the camera scanner (TV has no camera).
+    LaunchedEffect(tv, subscriptions.isEmpty(), importBusy, externalImport) {
+        // A deep link may be importing a profile during cold start; do not
+        // overlay the pairing QR over it. Importing from the phone also updates
+        // subscriptions BEFORE the encrypted receiver sends its ACK. Never
+        // auto-close the QR on that update: only the receiver closes after ACK.
+        if (tv && subscriptions.isEmpty() && !importBusy && externalImport.isNullOrBlank()) {
+            showTvPairing = true
+        }
+    }
     Scaffold(
         modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
         topBar = {
@@ -675,8 +762,8 @@ fun HomeScreen(
                 if (tab == Destination.HOME) {
                     ConnectionImportActions(
                         onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
-                        onScanQr = if (tv || !context.packageManager.hasSystemFeature(
-                                android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) null else ::scanQr,
+                        onScanQr = if (tv || !qrCameraAvailable) null else ::scanQr,
+                        onTvPair = if (tv && subscriptions.isEmpty()) ({ showTvPairing = true }) else null,
                         hasSubscriptions = subscriptions.isNotEmpty(),
                         importing = importBusy,
                     )
@@ -817,13 +904,24 @@ fun HomeScreen(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
+                if (tv) {
+                    Text("На телевизоре выберите «Ссылка подписки» и введите адрес " +
+                        "пультом или через клавиатуру телефона. Передача с телефона по QR пока недоступна.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
+                if (tv) funActionRow("Добавить с телефона", Icons.Default.QrCode) {
+                    showImportMenu = false
+                    showTvPairing = true
+                }
                 funActionRow("Ссылка подписки", Icons.Default.Link) {
                     showImportMenu = false; importMode = "url"
                 }
                 funActionRow("Из буфера обмена", Icons.Default.ContentPaste) {
                     showImportMenu = false; quickImportFromClipboard()
                 }
-                if (!tv || context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_CAMERA_ANY)) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
+                if (!tv && qrCameraAvailable) funActionRow("Сканировать QR", Icons.Default.QrCodeScanner) {
                     showImportMenu = false
                     scanQr()
                 }
@@ -862,6 +960,128 @@ fun HomeScreen(
             title = { Text("Ошибка подключения") },
             text = { Text(vpnError, fontSize = 13.sp) },
             confirmButton = { TextButton(onClick = { showErrorDetails = false }) { Text("Закрыть") } }
+        )
+    }
+
+    if (showTvPairing) {
+        AlertDialog(
+            onDismissRequest = { showTvPairing = false },
+            title = { Text("Добавить с телефона") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.widthIn(max = 380.dp),
+                ) {
+                    Text("Телевизор и телефон должны быть в одной локальной сети. " +
+                        "В Phantom на телефоне нажмите QR, отсканируйте код на ТВ " +
+                        "и выберите подписку для отправки.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    tvPairCode?.let { code ->
+                        val image = remember(code) {
+                            runCatching {
+                                val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+                                    code, com.google.zxing.BarcodeFormat.QR_CODE, 540, 540,
+                                    mapOf(com.google.zxing.EncodeHintType.CHARACTER_SET to "UTF-8"))
+                                com.journeyapps.barcodescanner.BarcodeEncoder()
+                                    .createBitmap(matrix).asImageBitmap()
+                            }.getOrNull()
+                        }
+                        if (image != null) {
+                            Surface(color = androidx.compose.ui.graphics.Color.White) {
+                                Image(image, "QR-код передачи подписки",
+                                    Modifier.size(284.dp).padding(8.dp))
+                            }
+                        } else Text("Не удалось сформировать QR",
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                    if (tvPairCode == null && tvPairError == null) {
+                        CircularProgressIndicator(Modifier.size(26.dp))
+                        Text("Подготавливаем защищённое соединение…")
+                    } else if (tvPairError == null) {
+                        Text("Ожидание подписки с телефона…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    tvPairError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTvPairing = false }, modifier = Modifier.tvFocusRing()) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+
+    incomingPairCode?.let { code ->
+        AlertDialog(
+            onDismissRequest = { if (!pairingSending) incomingPairCode = null },
+            title = { Text("Передать подписку на ТВ") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Выберите подписку для передачи. Адрес и ключи будут " +
+                        "зашифрованы; одноразовый QR не содержит ваших секретов.",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (subscriptions.isEmpty()) {
+                        Text("На телефоне пока нет подписок. Сначала добавьте подписку в Phantom.")
+                    } else {
+                        Column(
+                            Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            subscriptions.forEach { subscription ->
+                                OutlinedButton(
+                                    enabled = !pairingSending,
+                                    onClick = {
+                                        pairingSending = true
+                                        pairingSendError = null
+                                        scope.launch {
+                                            try {
+                                                val sent = TvSubscriptionPairing.send(context,
+                                                    code, subscription.source,
+                                                    subscription.customTitle ?: subscription.title)
+                                                if (sent) {
+                                                    incomingPairCode = null
+                                                    snackbar.showSnackbar("Подписка передана и сохранена на телевизоре")
+                                                } else {
+                                                    pairingSendError = "Телевизор не смог сохранить подписку."
+                                                }
+                                            } catch (cancel: CancellationException) {
+                                                throw cancel
+                                            } catch (error: Exception) {
+                                                pairingSendError = error.message
+                                                    ?: "Не удалось связаться с телевизором"
+                                            } finally {
+                                                pairingSending = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(subscriptionDisplayName(subscription, subscriptions),
+                                        maxLines = 2)
+                                }
+                            }
+                        }
+                    }
+                    if (pairingSending) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Отправка и проверка сохранения…",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    pairingSendError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { incomingPairCode = null; pairingSendError = null },
+                    enabled = !pairingSending
+                ) { Text("Закрыть") }
+            }
         )
     }
 

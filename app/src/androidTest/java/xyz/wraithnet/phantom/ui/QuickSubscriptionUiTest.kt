@@ -4,7 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
+import xyz.wraithnet.phantom.ui.home.hasQrCamera
 import android.os.ParcelFileDescriptor
 import android.os.PersistableBundle
 import android.view.accessibility.AccessibilityNodeInfo
@@ -55,11 +55,14 @@ class AQuickSubscriptionUiTest {
                     .getUnclippedBoundsInRoot()
                 assertTrue(add.bottom <= tabs.top)
                 compose.onNode(hasText("PING")).assertDoesNotExist()
-                if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+                if (hasQrCamera(context)) {
                     val qr = compose.awaitVisible(hasContentDescription("Сканировать QR-код подписки"))
                         .getUnclippedBoundsInRoot()
                     assertTrue(add.right <= qr.left)
                     assertTrue(qr.top < add.bottom && add.top < qr.bottom)
+                } else {
+                    compose.onNode(hasContentDescription("Сканировать QR-код подписки"))
+                        .assertDoesNotExist()
                 }
                 try {
                     compose.waitUntil(10_000) {
