@@ -135,7 +135,8 @@ internal fun PageTitle(
 internal fun ConnectionPage(status: String, server: ServerProfile?, download: Long, upload: Long,
     seconds: Long, toggle: () -> Unit, choose: () -> Unit, error: (() -> Unit)?,
     onRefreshSubscription: () -> Unit, subscriptionRefreshing: Boolean,
-    subscriptionAvailable: Boolean, hasSubscriptions: Boolean) {
+    subscriptionAvailable: Boolean, hasSubscriptions: Boolean,
+    tvFocusEpoch: Int = 0, tvModalVisible: Boolean = false) {
     val c = MaterialTheme.colorScheme
     val tv = isTelevision()
     val initialFocus = remember { FocusRequester() }
@@ -165,7 +166,17 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 },
                     Modifier.size(62.dp), tint = c.onSurface)
             }
-            LaunchedEffect(tv) { if (tv && !starting) initialFocus.requestFocus() }
+            // QR pairing and subscription dialogs remove D-pad focus. Restore
+            // the main power control after each modal closes and on Activity
+            // resume, not only at the first composition of the TV screen.
+            LaunchedEffect(tv, tvFocusEpoch, tvModalVisible, starting) {
+                if (tv && !tvModalVisible && !starting) {
+                    // Wait for the button's focus target to attach before
+                    // requesting focus on Android TV emulators and set-top boxes.
+                    withFrameNanos { }
+                    initialFocus.requestFocus()
+                }
+            }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center) {
