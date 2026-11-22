@@ -525,7 +525,7 @@ internal fun intervalLabel(seconds: Long): String {
 }
 
 @Composable
-private fun ProviderInfo(sub: Subscription, displayName: String, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
+internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
     val c = MaterialTheme.colorScheme
     val upload = sub.uploadBytes
     val download = sub.downloadBytes
