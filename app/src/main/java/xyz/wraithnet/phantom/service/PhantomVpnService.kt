@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.withLock
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
+import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
@@ -257,11 +258,15 @@ class PhantomVpnService : VpnService() {
             XrayEnvironment.initialize(applicationContext)
             val active = Libv2ray.newCoreController(callback)
             controller = active
-            val checkPort = if (scheme == "xray")
-                ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort } else null
+            // Provide an authenticated loopback HTTP inbound on every transport,
+            // including TUIC/AnyTLS. Phantom's UID remains outside Android's TUN;
+            // only explicit manual subscription requests use this proxy.
+            val subscriptionProxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+                .use { it.localPort }
+            val checkPort = subscriptionProxyPort.takeIf { scheme == "xray" }
             val password = UUID.randomUUID().toString()
-            val runningConfig = if (checkPort == null) config else
-                XrayConfigBuilder.withConnectivityCheck(providerDns ?: config, checkPort, password)
+            val runningConfig = XrayConfigBuilder.withConnectivityCheck(
+                providerDns ?: config, subscriptionProxyPort, password)
             active.startLoop(runningConfig, tun.fd)
 
             // Core startup alone is not proof of Internet access.
@@ -312,6 +317,7 @@ class PhantomVpnService : VpnService() {
             }
             sessionBytes = TrafficBytes()
             running = true
+            ActiveVpnSubscriptionProxy.publish(subscriptionProxyPort, password, raw)
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
@@ -333,6 +339,7 @@ class PhantomVpnService : VpnService() {
      * The next profile must not begin until the former Go worker has exited.
      */
     private fun stopLocked(report: Boolean = true): Boolean {
+        ActiveVpnSubscriptionProxy.clear()
         running = false
         trafficJob?.cancel()
         trafficJob = null
@@ -472,6 +479,7 @@ class PhantomVpnService : VpnService() {
         commandEpoch.incrementAndGet()
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
+        ActiveVpnSubscriptionProxy.clear()
         running = false
         prefs.edit().putBoolean("vpn_running", false)
             .putLong("vpn_connected_since_elapsed", 0L).apply()
@@ -480,6 +488,7 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        ActiveVpnSubscriptionProxy.clear()
         if (::prefs.isInitialized) {
             running = false
             prefs.edit().putBoolean("vpn_running", false)
