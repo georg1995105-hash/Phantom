@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -148,6 +149,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     val tv = isTelevision()
     val initialFocus = remember { FocusRequester() }
     val ownerView = LocalView.current
+    var powerFocused by remember { mutableStateOf(false) }
     val connected = status == "connected"
     val starting = status == "starting"
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
@@ -165,7 +167,8 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
                 .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
                     if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
-                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus).tvFocusRing(CircleShape)
+                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus)
+                .onFocusChanged { powerFocused = it.isFocused }.tvFocusRing(CircleShape)
                 // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
                 .clickable(enabled = tv || !starting) { if (!starting) toggle() },
                 contentAlignment = Alignment.Center) {
@@ -186,8 +189,10 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     // a Compose Dialog. Request only when the power target is attached.
                     repeat(12) {
                         withFrameNanos { }
-                        if (ownerView.hasWindowFocus() && initialFocus.requestFocus()) {
-                            return@LaunchedEffect
+                        if (ownerView.hasWindowFocus()) {
+                            initialFocus.requestFocus()
+                            withFrameNanos { }
+                            if (powerFocused) return@LaunchedEffect
                         }
                         kotlinx.coroutines.delay(90)
                     }
