@@ -12,8 +12,8 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 43
-        versionName = "0.3.16"
+        versionCode = 44
+        versionName = "0.3.17"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
         buildConfigField("String", "UPDATE_CHANNEL", "\"stable\"")
@@ -78,8 +78,8 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("beta")) { variant ->
-        val betaVersion = providers.gradleProperty("phantomBetaVersion").orElse("0.3.16-beta.1")
-        val betaCode = providers.gradleProperty("phantomBetaCode").map { it.toInt() }.orElse(43001)
+        val betaVersion = providers.gradleProperty("phantomBetaVersion").orElse("0.3.17-beta.1")
+        val betaCode = providers.gradleProperty("phantomBetaCode").map { it.toInt() }.orElse(44001)
         variant.outputs.forEach { output ->
             output.versionName.set(betaVersion)
             output.versionCode.set(betaCode)
