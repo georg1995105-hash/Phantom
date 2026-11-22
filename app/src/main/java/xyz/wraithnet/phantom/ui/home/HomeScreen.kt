@@ -335,7 +335,6 @@ fun HomeScreen(
         // The subscription can belong to ANY provider. The country being tested
         // is the selected, actually running VPN profile, not the subscription owner.
         val activeNode = selected
-        val nodeLabel = activeNode?.let { "${CountryFlags.flag(it)} ${it.name}" } ?: "выбранную ноду"
         val checkingNode = !quiet && vpnStatus == PhantomVpnService.STATUS_CONNECTED
         val message = try {
             if (!quiet && vpnStatus == PhantomVpnService.STATUS_STARTING) {
@@ -380,8 +379,7 @@ fun HomeScreen(
             }
             refreshFailed = refreshFailed - item.id
             if (!quiet) softTap()
-            if (vpnRoute == null) "Подписка обновлена"
-            else "Через $nodeLabel · подписка обновлена"
+            "Подписка обновлена"
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -389,9 +387,7 @@ fun HomeScreen(
             when {
                 !quiet && vpnStatus == PhantomVpnService.STATUS_STARTING ->
                     "Дождитесь подключения VPN и повторите проверку"
-                checkingNode ->
-                    "Через $nodeLabel обновить не удалось (до 15 с) · без обхода VPN"
-                else -> "Не удалось обновить подписку. Сохранённые серверы доступны."
+                else -> "Не удалось обновить подписку"
             }
         } finally {
             refreshing = refreshing - item.id
