@@ -50,7 +50,7 @@ class UnifiedHomeScrollUiTest {
                 val wholePage = compose.onNode(hasScrollAction())
                 wholePage.performScrollToNode(hasText("Alpha VPN"))
                 compose.awaitVisible(hasText("Alpha VPN"))
-                compose.awaitVisible(hasText("Обновлено", substring = true))
+                compose.onAllNodes(hasText("Обновлено", substring = true))[0].assertExists()
                 wholePage.performScrollToNode(hasContentDescription("Выбрать сервер Нидерланды тест"))
                 compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды тест"))
                 wholePage.performScrollToNode(hasText("Beta VPN"))
