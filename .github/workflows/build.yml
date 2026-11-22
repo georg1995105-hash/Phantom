@@ -304,21 +304,8 @@ jobs:
           path: upgrade-screens/
           retention-days: 7
 
-      - name: Stage universal PR test APK
-        if: github.event_name == 'pull_request'
-        run: |
-          mkdir -p pr-artifact
-          cp app/build/outputs/apk/release/phantom-universal-release.apk pr-artifact/Phantom.apk
-
-      - name: Upload PR test APK
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: phantom-pr-universal-ci-signed
-          path: pr-artifact/Phantom.apk
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 2
+      # PR tests use an ephemeral CI key only within this runner.
+      # Never distribute those APKs: they cannot update official installs.
 
       - name: Upload one universal release APK
         if: github.event_name == 'workflow_dispatch'
