@@ -1397,7 +1397,7 @@ private fun PhantomSettings(
     BackHandler(enabled = tv && group.isNotEmpty()) { group = "" }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(tv, group) {
-        if (tv && group == "background") settingsScroll.animateScrollToItem(5)
+        if (tv && group == "background") settingsScroll.animateScrollToItem(4)
         if (tv && group == "network") settingsScroll.animateScrollToItem(0)
     }
     if (showThemeGallery) {
