@@ -42,7 +42,7 @@ jobs:
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           upstream=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUICK_RUN_ID")
           printf '%s' "$upstream" | jq -e '
-            .name == "Quick signed APK" and
+            (.name == "Quick signed universal APK" or .name == "Quick signed APK") and
             .event == "workflow_dispatch" and
             .status == "completed" and
             .conclusion == "success" and
@@ -65,8 +65,11 @@ jobs:
         shell: bash
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
+          test -f release-assets/source-commit.txt
+          test "$(cat release-assets/source-commit.txt)" = "$SOURCE_SHA"
           apk=release-assets/Phantom.apk
           test -s "$apk"
           target=release-assets/phantom-universal-release.apk
