@@ -63,8 +63,8 @@ internal fun Modifier.tvFocusRing(shape: Shape = RoundedCornerShape(12.dp)): Mod
 
 /**
  * A dedicated TV rail replaces the touch-centric bottom NavigationBar on TV.
- * Four stable 56dp focus targets can be reached with the D-pad and expose the
- * same four destinations and features as the phone. The phone UI is unchanged.
+ * Three stable D-pad targets. Servers are now on Home without an extra tab.
+ * Full owner actions, ping, favorites and JSON remain accessible in the grid.
  */
 @Composable
 internal fun TvSideNavigation(
@@ -73,22 +73,22 @@ internal fun TvSideNavigation(
 ) {
     val c = MaterialTheme.colorScheme
     Column(
-        Modifier.width(182.dp).fillMaxHeight()
-            .padding(start = 10.dp, end = 10.dp, bottom = 12.dp)
+        Modifier.width(142.dp).fillMaxHeight()
+            .padding(start = 6.dp, end = 6.dp, bottom = 8.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(c.surface)
-            .padding(horizontal = 10.dp, vertical = 16.dp),
+            .padding(horizontal = 8.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("PHANTOM", fontSize = 20.sp, fontWeight = FontWeight.Bold,
+        Text("PHANTOM", fontSize = 17.sp, fontWeight = FontWeight.Bold,
             color = c.onSurface, modifier = Modifier.padding(start = 12.dp))
-        Text("VPN · Android TV", fontSize = 11.sp, color = c.onSurfaceVariant,
+        Text("VPN · Android TV", fontSize = 10.sp, color = c.onSurfaceVariant,
             modifier = Modifier.padding(start = 12.dp, bottom = 8.dp))
-        Destination.entries.forEach { destination ->
+        Destination.entries.filter { it != Destination.SERVERS }.forEach { destination ->
             val active = current == destination
             val shape = RoundedCornerShape(13.dp)
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                Modifier.fillMaxWidth().heightIn(min = 50.dp)
                     .clip(shape)
                     .background(if (active) c.primaryContainer else Color.Transparent)
                     .tvFocusRing(shape)
@@ -96,13 +96,13 @@ internal fun TvSideNavigation(
                     .semantics { contentDescription = "Вкладка ${destination.title}" }
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Icon(destination.icon, contentDescription = null,
-                    modifier = Modifier.size(23.dp),
+                    modifier = Modifier.size(20.dp),
                     tint = if (active) c.primary else c.onSurfaceVariant)
                 Text(destination.title,
-                    fontSize = 16.sp,
+                    fontSize = 13.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                     color = if (active) c.onSurface else c.onSurfaceVariant,
                     maxLines = 1)
