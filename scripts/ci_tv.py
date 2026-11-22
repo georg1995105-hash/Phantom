@@ -220,6 +220,12 @@ for index, (protocol, label) in enumerate((
     assert "Status: ok" in opened, opened
     wait_label(label)
     adb("shell", "am", "force-stop", PACKAGE)
+    if not page_size_16k:
+        # Setup uses adb input tap for import/QR checks. That switches even
+        # the TV emulator to touch mode, where Android deliberately does not
+        # assign initial D-pad focus. Return to remote mode BEFORE cold start;
+        # the next assertion still requires the power button to own focus.
+        key("DPAD_UP")
     launch = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
                  "-c", CATEGORY, "-n", component)
     assert "Status: ok" in launch, launch
