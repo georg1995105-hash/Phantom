@@ -81,10 +81,12 @@ class WideHomeDashboardUiTest {
                 hasContentDescription("Выбрать сервер Нидерланды")).getUnclippedBoundsInRoot()
             val second = compose.awaitVisible(
                 hasContentDescription("Выбрать сервер Польша")).getUnclippedBoundsInRoot()
-            assertTrue("Tablet server cards must share one row",
-                kotlin.math.abs(first.top.value - second.top.value) < 4f)
-            assertTrue("Tablet server cards must be two distinct columns",
-                first.right <= second.left)
+            assertTrue("Tablet must have ONE server per row",
+                second.top > first.bottom)
+            assertTrue("Tablet servers must use the same full-width column",
+                kotlin.math.abs(first.left.value - second.left.value) < 4f)
+            assertTrue("Tablet server cards must stay aligned at the right edge",
+                kotlin.math.abs(first.right.value - second.right.value) < 4f)
             list.performScrollToNode(hasContentDescription("Добавить подписку или ключ"))
             val add = compose.awaitVisible(
                 hasContentDescription("Добавить подписку или ключ"))
