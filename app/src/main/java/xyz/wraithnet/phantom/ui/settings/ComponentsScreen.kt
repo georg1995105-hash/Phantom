@@ -4,7 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.tvFocusRing().clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import xyz.wraithnet.phantom.ui.home.tvFocusRing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -66,7 +67,7 @@ fun ComponentsScreen(onBack: () -> Unit) {
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
                     Icon(Icons.Default.ArrowBack, "Назад")
                 }
                 Spacer(Modifier.width(8.dp))
@@ -130,7 +131,7 @@ fun ComponentsScreen(onBack: () -> Unit) {
                     Column(Modifier.fillMaxWidth()) {
                         componentLicenses.forEachIndexed { index, item ->
                             Row(
-                                Modifier.fillMaxWidth().clickable {
+                                Modifier.fillMaxWidth().tvFocusRing().clickable {
                                     runCatching {
                                         context.startActivity(Intent(Intent.ACTION_VIEW,
                                             Uri.parse(item.url)))
