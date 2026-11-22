@@ -1,0 +1,76 @@
+name: Tablet QR landscape proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact Phantom source SHA to test'
+        type: string
+        required: true
+      quick_run_id:
+        description: 'Successful official signed universal APK quick run ID'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  tablet:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check exact source identity
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          QUICK_RUN_ID: ${{ inputs.quick_run_id }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$QUICK_RUN_ID" =~ ^[0-9]+$ ]]
+      - name: Checkout matching source without a credential
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Download officially signed APK, not a CI-key test package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: ${{ inputs.quick_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          name: phantom-quick-official-signed
+          path: signed/
+      - name: Authenticate APK source, identity and official signing key
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(cat signed/source-commit.txt)" = "$SOURCE_SHA"
+          test -s signed/Phantom.apk
+          SDKMGR=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -1)
+          "$SDKMGR" --install "build-tools;35.0.0" "platform-tools"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs signed/Phantom.apk | grep -Fx \
+            'Signer #1 certificate SHA-256 digest: 86bc0b32349dec451d94ed402a1addc1ad3ec6084439cb8dc05aee88e5d8a4ca'
+          mkdir -p app/build/outputs/apk/release
+          cp signed/Phantom.apk app/build/outputs/apk/release/phantom-universal-release.apk
+      - name: Android landscape tablet with REAL camera imagefile
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_c
+          avd-name: phantom-tablet-qr-proof
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back imagefile:${{ runner.temp }}/phantom-subscription.png
+          pre-emulator-launch-script: bash scripts/ci_qr_camera.sh
+          disable-animations: true
+          script: python3 scripts/ci_tablet.py
+      - name: Keep tablet landscape screenshots even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tablet-landscape-qr-proof
+          path: upgrade-screens/tablet-*.png
+          if-no-files-found: ignore
+          retention-days: 7
