@@ -133,7 +133,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-quick-official-signed
-          path: signed/Phantom.apk
+          path: |
+            signed/Phantom.apk
+            signed/source-commit.txt
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
