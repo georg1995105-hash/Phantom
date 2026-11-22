@@ -234,7 +234,9 @@ for index, (protocol, label) in enumerate((
         wait_power_focus()
         key("DPAD_CENTER")
     try:
-        wait_label("Подключено")
+        # On wide TV the state is inside the clickable power control. Its
+        # semantics action changes from "Подключить" to "Отключить".
+        wait_label("Подключено" if page_size_16k else "Отключить VPN")
     except AssertionError as ex:
         raise AssertionError(f"{device} {protocol} tunnel did not connect: {ex}") from ex
     processes = [PACKAGE]
@@ -251,7 +253,7 @@ for index, (protocol, label) in enumerate((
         tap("Отключить VPN")
     else:
         key("DPAD_CENTER")
-    wait_label("Отключено")
+    wait_label("Отключено" if page_size_16k else "Подключить VPN")
     print(f"{device} native {protocol}: connected and disconnected", flush=True)
 if not page_size_16k:
     # The Android TV UI has a real D-pad navigation rail, not phone bottom
