@@ -759,9 +759,18 @@ fun HomeScreen(
             }
         },
         bottomBar = {
-            // Subscription and single-key import live in Servers; Home is for VPN control.
-            // Keep the TV receiver QR on the TV Home screen, not in the phone bottom bar.
-            if (!tv) TabBar(tab) { tab = it }
+            if (!tv) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (tab == Destination.HOME) {
+                    ConnectionImportActions(
+                        onOpenImport = { showImportMenu = true },
+                        onScanQr = if (qrCameraAvailable) ::scanQr else null,
+                        onTvPair = null,
+                        hasSubscriptions = subscriptions.isNotEmpty(),
+                        importing = importBusy,
+                    )
+                }
+                TabBar(tab) { tab = it }
+            }
         }
     ) { inner ->
         val colors = MaterialTheme.colorScheme
@@ -873,7 +882,7 @@ fun HomeScreen(
                 }
                 if (tv && tab == Destination.HOME) {
                     ConnectionImportActions(
-                        onQuickImport = { showImportMenu = true },
+                        onOpenImport = { showImportMenu = true },
                         onScanQr = null,
                         onTvPair = if (subscriptions.isEmpty()) ({ showTvPairing = true }) else null,
                         hasSubscriptions = subscriptions.isNotEmpty(),
