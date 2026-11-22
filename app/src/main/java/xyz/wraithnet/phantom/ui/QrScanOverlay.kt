@@ -49,7 +49,11 @@ class QrScanOverlay @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val side = minOf(width * .78f, height * .40f)
+        // Landscape tablets have less height than width. Size the quiet QR
+        // guide for the actual viewport rather than forcing portrait geometry.
+        val side = if (width > height)
+            minOf(width * .54f, height * .56f)
+        else minOf(width * .78f, height * .42f)
         val left = (width - side) / 2f
         val top = (height - side) / 2f - (8f * density)
         val right = left + side
