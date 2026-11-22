@@ -129,6 +129,23 @@ def tap(label):
     adb("shell", "input", "tap", str((left + right) // 2), str((top + bottom) // 2))
 
 
+def wait_power_focus():
+    """Confirm that the TV power button, not the navigation rail, owns OK."""
+    button = wait_label("Подключить VPN")
+    box = list(map(int, re.findall(r"\d+", button.get("bounds", ""))))
+    assert len(box) == 4, f"Missing power button bounds: {button.attrib}"
+    x, y = (box[0] + box[2]) // 2, (box[1] + box[3]) // 2
+    for _ in range(32):
+        focused = [n for n in nodes() if n.get("focused") == "true"]
+        if any((lambda r: len(r) == 4 and r[0] <= x <= r[2] and r[1] <= y <= r[3])(
+                list(map(int, re.findall(r"\d+", n.get("bounds", "")))))) for n in focused):
+            return
+        time.sleep(.15)
+    snapshot = [(n.get("text", ""), n.get("content-desc", ""),
+                 n.get("bounds", "")) for n in nodes() if n.get("focused") == "true"]
+    raise AssertionError("Power did not receive TV focus on cold start: " + repr(snapshot))
+
+
 page_size_16k = sys.argv[1:] == ["--16k"]
 if page_size_16k:
     assert adb("shell", "getconf", "PAGE_SIZE") == "16384"
@@ -211,7 +228,9 @@ for index, (protocol, label) in enumerate((
     if page_size_16k:
         tap("Подключить VPN")
     else:
-        wait_label("Подключить VPN")
+        # Compose may display text before its D-pad focus target is attached.
+        # Pressing OK too early can activate the navigation rail instead.
+        wait_power_focus()
         key("DPAD_CENTER")
     try:
         wait_label("Подключено")
