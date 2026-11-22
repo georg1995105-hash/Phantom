@@ -12,8 +12,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -40,8 +38,6 @@ internal fun ServerConfigSheet(server: ServerProfile, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var document by remember(server.raw) { mutableStateOf<ClientConfigInspector.Document?>(null) }
     var failed by remember(server.raw) { mutableStateOf(false) }
-    var revealed by remember(server.raw) { mutableStateOf(false) }
-    var requestReveal by remember(server.raw) { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -88,7 +84,7 @@ internal fun ServerConfigSheet(server: ServerProfile, onDismiss: () -> Unit) {
             } else if (document == null) {
                 CircularProgressIndicator(Modifier.size(24.dp))
             } else {
-                val visible = if (revealed) document!!.full else document!!.masked
+                val visible = document!!.masked
                 val preview = visible.take(ClientConfigInspector.PREVIEW_CHARS)
                 Surface(
                     shape = MaterialTheme.shapes.medium,
@@ -109,14 +105,6 @@ internal fun ServerConfigSheet(server: ServerProfile, onDismiss: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                 }
                 Spacer(Modifier.height(8.dp))
-                TextButton(onClick = {
-                    if (revealed) revealed = false else requestReveal = true
-                }) {
-                    Icon(if (revealed) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (revealed) "Скрыть секреты" else "Показать секреты")
-                }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(
                         onClick = {
@@ -151,20 +139,5 @@ internal fun ServerConfigSheet(server: ServerProfile, onDismiss: () -> Unit) {
                 Text(it, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
             }
         }
-    }
-    if (requestReveal) {
-        AlertDialog(
-            onDismissRequest = { requestReveal = false },
-            title = { Text("Показать секреты?") },
-            text = { Text("UUID, пароли и другие ключи станут видны. При копировании или сохранении полного JSON они также будут включены.") },
-            confirmButton = {
-                TextButton(onClick = { revealed = true; requestReveal = false }) {
-                    Text("Показать")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { requestReveal = false }) { Text("Отмена") }
-            }
-        )
     }
 }
