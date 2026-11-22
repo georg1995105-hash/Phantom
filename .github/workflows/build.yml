@@ -383,9 +383,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: phantom-release
-          # Keep ABI-named APK assets while older installed clients still select
-          # architecture-specific assets from the latest GitHub Release.
-          path: app/build/outputs/apk/release/phantom-*-release.apk
+          # The universal APK contains arm64/arm32/x86/x86_64. Every channel
+          # must present one installable APK; old clients already fall back to it.
+          path: app/build/outputs/apk/release/phantom-universal-release.apk
           compression-level: 0
           retention-days: 2
 
@@ -429,22 +429,18 @@ jobs:
           version=$(awk -F '"' '/versionName =/ { print $2; exit }' app/build.gradle.kts)
           test "$RELEASE_TAG" = "v$version"
           test -s "release-assets/phantom-universal-release.apk"
-          # All prior ABI-specific OTA clients must retain a matching asset even
-          # when a later release becomes the latest stable version.
-          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
-            test -s "release-assets/phantom-$abi-release.apk"
-          done
-          sha256sum release-assets/phantom-*-release.apk
+          # Legacy clients look for their ABI first and then fall back to universal.
+          sha256sum release-assets/phantom-universal-release.apk
 
-      - name: Stage official universal and legacy architecture APKs
+      - name: Stage single official universal APK
         if: inputs.release_channel == 'stable'
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           mkdir -p publish-assets
-          cp release-assets/phantom-*-release.apk publish-assets/
-          sha256sum publish-assets/phantom-*-release.apk
+          cp release-assets/phantom-universal-release.apk publish-assets/
+          sha256sum publish-assets/phantom-universal-release.apk
 
       - name: Publish official release
         if: inputs.release_channel == 'stable'
@@ -453,7 +449,7 @@ jobs:
           tag_name: ${{ inputs.release_tag }}
           target_commitish: ${{ github.sha }}
           name: PHANTOM VPN ${{ inputs.release_tag }}
-          files: publish-assets/phantom-*-release.apk
+          files: publish-assets/phantom-universal-release.apk
           prerelease: false
           body_path: RELEASE_NOTES.md
 
