@@ -247,7 +247,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
 
 @Composable
 internal fun ConnectionImportActions(
-    onQuickImport: () -> Unit,
+    onOpenImport: () -> Unit,
     onScanQr: (() -> Unit)?,
     onTvPair: (() -> Unit)? = null,
     hasSubscriptions: Boolean,
@@ -267,7 +267,7 @@ internal fun ConnectionImportActions(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilledTonalButton(
-                onClick = onQuickImport, enabled = !importing,
+                onClick = onOpenImport, enabled = !importing,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
                     .semantics { contentDescription = "Добавить подписку или ключ" },
                 shape = RoundedCornerShape(15.dp),
