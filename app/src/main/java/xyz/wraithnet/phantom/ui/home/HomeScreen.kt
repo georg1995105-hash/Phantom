@@ -55,6 +55,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
+import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.VpnEventLog
@@ -331,10 +332,29 @@ fun HomeScreen(
         if (item.id in refreshing) return
         lastAttempt[item.id] = System.currentTimeMillis()
         refreshing = refreshing + item.id
+        // The subscription can belong to ANY provider. The country being tested
+        // is the selected, actually running VPN profile, not the subscription owner.
+        val activeNode = selected
+        val nodeLabel = activeNode?.let { "${CountryFlags.flag(it)} ${it.name}" } ?: "выбранную ноду"
+        val checkingNode = !quiet && vpnStatus == PhantomVpnService.STATUS_CONNECTED
         val message = try {
-            val remote = SubscriptionFetcher.download(context, item.source, store.deviceId(), item)
+            if (!quiet && vpnStatus == PhantomVpnService.STATUS_STARTING) {
+                error("Подключение VPN ещё не завершено")
+            }
+            val vpnRoute = if (checkingNode) {
+                ActiveVpnSubscriptionProxy.forProfile(activeNode?.raw.orEmpty())
+                    ?: error("Запущенная нода не соответствует выбранной")
+            } else null
+            // Never silently use the physical network when an active-node
+            // refresh fails. Background refreshes intentionally stay direct.
+            val remote = SubscriptionFetcher.download(
+                context, item.source, store.deviceId(), item, vpnRoute = vpnRoute,
+                manual = !quiet)
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
+            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+                error("VPN сменился во время обновления")
+            }
             val updated = parsed.copy(
                 id = item.id,
                 source = item.source,
@@ -360,12 +380,19 @@ fun HomeScreen(
             }
             refreshFailed = refreshFailed - item.id
             if (!quiet) softTap()
-            "Подписка обновлена"
+            if (vpnRoute == null) "Подписка обновлена"
+            else "Через $nodeLabel · подписка обновлена"
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             refreshFailed = refreshFailed + item.id
-            "Не удалось обновить подписку. Сохранённые серверы доступны."
+            when {
+                !quiet && vpnStatus == PhantomVpnService.STATUS_STARTING ->
+                    "Дождитесь подключения VPN и повторите проверку"
+                checkingNode ->
+                    "Через $nodeLabel обновить не удалось (до 15 с) · без обхода VPN"
+                else -> "Не удалось обновить подписку. Сохранённые серверы доступны."
+            }
         } finally {
             refreshing = refreshing - item.id
         }

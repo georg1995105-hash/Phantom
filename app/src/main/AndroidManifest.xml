@@ -25,6 +25,7 @@
         </intent>
     </queries>
     <application
+        android:networkSecurityConfig="@xml/phantom_loopback_network"
         android:allowBackup="false"
         android:banner="@drawable/tv_banner"
         android:icon="@mipmap/ic_launcher"

@@ -44,11 +44,13 @@ object SubscriptionFetcher {
         return url.newBuilder().encodedPath("/${url.pathSegments.first()}/json").build().toString()
     }
 
-    suspend fun download(
+    internal suspend fun download(
         context: Context,
         url: String,
         hwid: String,
         previous: Subscription? = null,
+        vpnRoute: ActiveVpnSubscriptionProxy.Route? = null,
+        manual: Boolean = false,
     ): DownloadedSubscription = PhantomHttp.get(
         context = context,
         url = requestUrl(url),
@@ -60,7 +62,9 @@ object SubscriptionFetcher {
             "x-ver-os" to (Build.VERSION.RELEASE ?: "unknown"),
             "Accept" to "text/plain, application/json, */*",
         ),
-        callTimeoutMs = 60_000L,
+        callTimeoutMs = if (manual) 15_000L else 60_000L,
+        vpnRoute = vpnRoute,
+        manual = manual,
     ) { response ->
         val bytes = response.body?.byteStream() ?: error("Пустой ответ сервера подписки")
         val body = bytes.use { PhantomHttp.readUtf8Limited(it, 3 * 1024 * 1024) }
