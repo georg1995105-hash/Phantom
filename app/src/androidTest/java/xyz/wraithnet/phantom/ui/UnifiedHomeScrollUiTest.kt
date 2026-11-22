@@ -14,10 +14,20 @@ import xyz.wraithnet.phantom.MainActivity
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionStore
+import xyz.wraithnet.phantom.ui.home.orderedSubscriptions
 
 @RunWith(AndroidJUnit4::class)
 class UnifiedHomeScrollUiTest {
     @get:Rule val compose = createEmptyComposeRule()
+
+    @Test fun remoteSubscriptionsComeBeforeAllSingleKeysEvenWhenKeyIsPinned() {
+        val remoteA = Subscription("remote-a", "Phantom", "https://vpn.example/sub", emptyList())
+        val keyA = Subscription("solo-a", "DE TUIC", "tuic://secret@host.example:443", emptyList())
+        val remoteB = Subscription("remote-b", "Backup", "http://vpn2.example/sub", emptyList())
+        val keyB = Subscription("solo-b", "PL VLESS", "vless://id@host.example:443", emptyList())
+        val result = orderedSubscriptions(listOf(keyA, remoteA, keyB, remoteB), keyA.id)
+        assertEquals(listOf(remoteA.id, remoteB.id, keyA.id, keyB.id), result.map { it.id })
+    }
 
     @Test fun phoneHasOneScrollingPageWithCompleteIndependentServerGroups() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -46,6 +56,9 @@ class UnifiedHomeScrollUiTest {
                 compose.awaitVisible(hasContentDescription("Вкладка Настройки"))
                 compose.onAllNodes(hasContentDescription("Обновить выбранную подписку"))
                     .assertCountEquals(0)
+                // No duplicate current-country panel or decorative section heading.
+                compose.onAllNodes(hasContentDescription("К серверам")).assertCountEquals(0)
+                compose.onAllNodes(hasText("Серверы")).assertCountEquals(0)
                 compose.onAllNodes(hasText("Время")).assertCountEquals(0)
                 compose.waitUntil(15_000) {
                     compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size == 1
