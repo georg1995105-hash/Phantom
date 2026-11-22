@@ -129,7 +129,7 @@ internal fun PageTitle(
                     Text(exit.flag() + " " + exit.countryName(),
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Сеть · " + exit.network,
+                    Text("Сеть · " + exit.network.split(" trading as ", ignoreCase = true).first(),
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                         fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
@@ -157,7 +157,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
     val starting = status == "starting"
     val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
     BoxWithConstraints(if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
-        val gap = if (embedded) 9.dp else if (!hasSubscriptions) 12.dp
+        val gap = if (embedded) 5.dp else if (!hasSubscriptions) 12.dp
             else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
         Column((if (embedded) Modifier.fillMaxWidth()
                 else Modifier.fillMaxWidth().verticalScroll(rememberScrollState()))
@@ -167,7 +167,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
             val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
                 c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
                 ring.copy(alpha = .35f)))
-            Box(Modifier.size(if (tv) 104.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
+            Box(Modifier.size(if (tv) 104.dp else if (embedded) 122.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
                 .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
                     if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
                 .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus)
@@ -205,7 +205,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(if (embedded) 10.dp else 16.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center) {
                 if (connected) {
@@ -235,7 +235,7 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                 Text("Обновить", fontSize = 13.sp)
             }
             if (error != null) TextButton(onClick = error) { Text("Причина ошибки") }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (embedded) 7.dp else 12.dp))
             Panel {
                 Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = choose).padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -249,9 +249,9 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     Icon(Icons.Default.ChevronRight, "К серверам")
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (embedded) 7.dp else 12.dp))
             Panel {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 16.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = if (embedded) 11.dp else 16.dp)) {
                     val time = String.format(Locale.ROOT, "%02d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
                     listOf((if (download < 0) "—" else sizeLabel(download)) to "Входящий", (if (upload < 0) "—" else sizeLabel(upload)) to "Исходящий",
                         time to "Время").forEach { (value, label) ->
@@ -351,6 +351,7 @@ internal fun ServersPage(
     favorite: (String) -> Unit,
     choose: (Subscription, ServerProfile) -> Unit, openUrl: (String) -> Unit,
     header: (@Composable () -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
     listState: LazyListState? = null,
 ) {
     var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
@@ -482,6 +483,7 @@ internal fun ServersPage(
             }
             item(key = "gap:${owner.id}") { Spacer(Modifier.height(10.dp)) }
         }
+        if (footer != null) item(key = "combined-footer") { footer() }
      }
     inspectedServer?.let { selectedServer ->
         ServerConfigSheet(selectedServer) { inspectedServer = null }
@@ -545,7 +547,8 @@ private fun ProviderInfo(sub: Subscription, displayName: String, details: Boolea
                 }
                 if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
                     Caption(if (traffic == null) "Лимит" else "Трафик")
-                    Text(listOfNotNull(traffic, limit).joinToString(" / "), fontSize = 14.sp)
+                    Text(listOfNotNull(traffic, limit).joinToString(" / ") { it.replace(" ", "\u00A0") },
+                        fontSize = 12.sp, lineHeight = 16.sp, maxLines = 2)
                 } else Spacer(Modifier.weight(1f))
                 if (expiry != null) Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
                     Caption("Действует до")
@@ -786,7 +789,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
                 Column(Modifier.weight(1f)) {
                     Caption("ТРАФИК")
                     Spacer(Modifier.height(4.dp))
-                    Text(access.usedBytes?.let(::sizeLabel) ?: "—",
+                    Text(access.usedBytes?.let(::sizeLabel)?.replace(" ", "\u00A0") ?: "—",
                         fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     Caption("Лимит: $limit")
                 }
@@ -852,24 +855,13 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
             border = BorderStroke(1.dp, colors.primary.copy(alpha = .30f))
         ) {
             Column {
-                Box(Modifier.fillMaxWidth().background(Brush.linearGradient(
-                    listOf(Color(0xFF1A4035), Color(0xFF0D2924))))) {
-                    // Low-contrast decorative rings: never compete with the actual account data.
-                    Box(Modifier.align(Alignment.TopEnd).offset(x = 36.dp, y = (-42).dp)
-                        .size(126.dp).border(1.dp, Color(0x263BB68F), CircleShape))
-                    Box(Modifier.align(Alignment.TopEnd).offset(x = 21.dp, y = (-26).dp)
-                        .size(96.dp).border(1.dp, Color(0x1E73CBA6), CircleShape))
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                        Text("PHANTOM VPN", color = Color(0xFF90B8A7),
-                            fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                        Spacer(Modifier.height(5.dp))
-                        Text("ВАШ ДОСТУП.", color = Color(0xFFE3F2E9),
-                            fontSize = 24.sp, lineHeight = 28.sp,
-                            fontWeight = FontWeight.Bold, letterSpacing = (-0.6).sp)
-                        Spacer(Modifier.height(4.dp))
-                        Text("ОФИЦИАЛЬНЫЙ МАГАЗИН", color = Color(0xFFA1CDB7),
-                            fontSize = 9.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp)
-                    }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.WorkspacePremium, null, tint = colors.primary,
+                        modifier = Modifier.size(21.dp))
+                    Spacer(Modifier.width(9.dp))
+                    Text("Ваш доступ", fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleMedium)
                 }
                 Column(Modifier.padding(11.dp)) {
                     if (currentSubscription != null) {
@@ -886,10 +878,7 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                             }
                         }
                     }
-                    Spacer(Modifier.height(9.dp))
-                    Text("Управление доступом",
-                        fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(7.dp))
+                    Spacer(Modifier.height(11.dp))
                     Button(onClick = openShop,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).tvFocusRing(),
                         shape = RoundedCornerShape(13.dp),
