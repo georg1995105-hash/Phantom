@@ -19,8 +19,11 @@ internal object ClientConfigInspector {
         "id", "uuid", "password", "passwd", "pass", "privatekey",
         "private_key", "secret", "token", "authorization", "proxyauthorization",
         "psk", "apikey", "api_key", "user", "username", "subscriptionurl",
-        "subscription_url", "cookie"
+        "subscription_url", "cookie", "auth", "authstr", "obfs-password",
+        "obfs_password", "secretkey", "clientkey", "key", "path"
     )
+
+    private val normalizedSensitive = sensitive.map { it.replace("_", "").replace("-", "") }.toSet()
 
     fun inspect(profile: ServerProfile): Document {
         require(profile.raw.length <= MAX_PROFILE_CHARS) { "Слишком большая конфигурация" }
@@ -48,7 +51,7 @@ internal object ClientConfigInspector {
                 keys.forEach { key ->
                     val value = node.opt(key)
                     val normalized = key.lowercase(Locale.ROOT).replace("-", "").replace("_", "")
-                    if (normalized in sensitive.map { it.replace("_", "") }) {
+                    if (normalized in normalizedSensitive) {
                         if (value != null && value != JSONObject.NULL) node.put(key, "••••••")
                     } else if (value is JSONObject || value is JSONArray) {
                         mask(value)
