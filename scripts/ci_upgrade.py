@@ -200,15 +200,19 @@ print(f"Full-file upgrade: {previous_name} ({previous_code}) → {current_name} 
 adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 visible_after_scroll("UpgradeCheck")
 node("Отключено")
-node("Обновить выбранную подписку")
-tap("Обновить выбранную подписку")
+# A standalone key cannot be refreshed as a subscription. The redundant
+# global refresh CTA was removed; per-owner refresh remains on owner cards.
+adb("shell", "uiautomator", "dump", "/sdcard/phantom-ui.xml")
+ui = adb("shell", "cat", "/sdcard/phantom-ui.xml")
+assert "Обновить выбранную подписку" not in ui
+assert 'text="Время"' not in ui
 visible_after_scroll("UpgradeCheck")
 screenshot("home")
 show_servers()
 visible_after_scroll("UpgradeCheck")
 visible_after_scroll("Убрать из избранного")
 screenshot("servers")
-node("Добавить подписку или ключ")
+visible_after_scroll("Добавить подписку или ключ", max_swipes=18)
 tap("Подписка")
 node("В магазин")
 screenshot("subscriptions")
@@ -411,7 +415,8 @@ node("OfflineSubscriptionCheck", attempts=20)
 print("Camera QR imported a subscription without a second confirmation", flush=True)
 tap_in_list("Выбрать сервер OfflineSubscriptionCheck")
 tap("Главная")
-tap("Обновить выбранную подписку")
+visible_after_scroll("Обновить подписку OfflineSubscriptionCheck", max_swipes=18)
+tap("Обновить подписку OfflineSubscriptionCheck")
 node("Подписка обновлена")
 show_servers()
 visible_after_scroll("Управление подпиской OfflineSubscriptionCheck")
@@ -448,7 +453,8 @@ for action in ("В магазин",):
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 tap("Главная")
-tap("Обновить выбранную подписку")
+visible_after_scroll("Обновить подписку OfflineSubscriptionCheck", max_swipes=18)
+tap("Обновить подписку OfflineSubscriptionCheck")
 show_servers()
 # After failed offline refresh the new card shows an explicit owner-scoped
 # error while preserving servers. Check the current UI contract, not text
