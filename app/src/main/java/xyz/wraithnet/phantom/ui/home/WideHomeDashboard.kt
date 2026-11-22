@@ -412,26 +412,51 @@ internal fun WideHomeDashboard(
                 Text("Добавление конфигурации",
                     fontSize = 13.sp, color = scheme.onSurfaceVariant,
                     modifier = Modifier.padding(start = 4.dp, bottom = 7.dp))
+                val actionShape = RoundedCornerShape(13.dp)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth()) {
-                    FilledTonalButton(
+                    // Material3's default FilledTonalButton uses neutral
+                    // secondaryContainer: it looks DISABLED in Forest mode.
+                    // Use the actual chosen theme palette for both tablet/TV CTAs.
+                    Button(
                         onClick = onImport,
                         enabled = !importing,
-                        modifier = Modifier.weight(1f).heightIn(min = 49.dp).tvFocusRing()
+                        shape = actionShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = scheme.primary,
+                            contentColor = scheme.onPrimary,
+                            disabledContainerColor = scheme.surfaceVariant,
+                            disabledContentColor = scheme.onSurfaceVariant),
+                        modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            .tvFocusRing(actionShape)
+                            .semantics { contentDescription = "Добавить подписку или ключ" }
                     ) {
                         Icon(Icons.Default.Add, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text("Добавить подписку или ключ", maxLines = 1)
+                        Text("Добавить подписку или ключ", maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
                     }
                     val qrAction = onPairQr ?: onScanQr
                     if (qrAction != null) FilledTonalButton(
                         onClick = qrAction,
                         enabled = !importing,
-                        modifier = Modifier.weight(1f).heightIn(min = 49.dp).tvFocusRing()
+                        shape = actionShape,
+                        border = BorderStroke(1.dp, scheme.primary.copy(alpha = .55f)),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = scheme.primaryContainer,
+                            contentColor = scheme.onPrimaryContainer,
+                            disabledContainerColor = scheme.surfaceVariant,
+                            disabledContentColor = scheme.onSurfaceVariant),
+                        modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            .tvFocusRing(actionShape)
+                            .semantics {
+                                contentDescription = if (tv) "QR с телефона" else "Сканировать QR"
+                            }
                     ) {
                         Icon(Icons.Default.QrCode, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text(if (tv) "QR с телефона" else "Сканировать QR")
+                        Text(if (tv) "QR с телефона" else "Сканировать QR",
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
