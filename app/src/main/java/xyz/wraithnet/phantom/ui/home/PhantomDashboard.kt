@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -284,6 +285,7 @@ internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription
         else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun ServersPage(
     subscriptions: List<Subscription>, selected: Pair<Subscription, ServerProfile>?,
