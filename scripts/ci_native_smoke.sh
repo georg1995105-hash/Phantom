@@ -7,8 +7,21 @@ set -uo pipefail
 adb shell svc power stayon true || exit $?
 adb shell input keyevent KEYCODE_WAKEUP || exit $?
 adb shell wm dismiss-keyguard || exit $?
-timeout --signal=TERM --kill-after=15s 480s ./gradlew --no-daemon -PnativeSmoke :app:connectedDebugAndroidTest
-rc=$?
+# Run UI clipboard/focus preflight in a fresh emulator session BEFORE
+# memory-heavy two-runtime JNI integration tests. AndroidJUnitRunner supports
+# 'class' and 'notClass'; neither test is skipped and both commands must pass.
+preflight="xyz.wraithnet.phantom.aaa.AQuickSubscriptionUiTest"
+timeout --signal=TERM --kill-after=15s 240s ./gradlew --no-daemon --max-workers=1 -PnativeSmoke \
+    "-Pandroid.testInstrumentationRunnerArguments.class=$preflight" :app:connectedDebugAndroidTest
+preflight_rc=$?
+if [ "$preflight_rc" -eq 0 ]; then
+    timeout --signal=TERM --kill-after=15s 480s ./gradlew --no-daemon --max-workers=1 -PnativeSmoke \
+        "-Pandroid.testInstrumentationRunnerArguments.notClass=$preflight" :app:connectedDebugAndroidTest
+    rc=$?
+else
+    rc=$preflight_rc
+fi
+echo "Android isolated UI preflight: $preflight_rc; all remaining instrumentation: $rc"
 adb logcat -d -s PhantomUserAgent:I PhantomLatencyTest:I PhantomLatency:D
 if [ "$rc" -ne 0 ]; then
     echo "Android smoke test failed or exceeded the 480-second hard limit (exit=$rc)"
