@@ -733,6 +733,12 @@ fun HomeScreen(
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
     val tv = isTelevision()
+    // On an empty television installation the useful QR is a receiver code:
+    // scan it using Phantom on the phone and choose the subscription to send.
+    // Do not auto-open the camera scanner (TV has no camera).
+    LaunchedEffect(tv, subscriptions.isEmpty()) {
+        if (tv && subscriptions.isEmpty()) showTvPairing = true
+    }
     Scaffold(
         modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
         topBar = {
@@ -751,6 +757,7 @@ fun HomeScreen(
                     ConnectionImportActions(
                         onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
                         onScanQr = if (tv || !qrCameraAvailable) null else ::scanQr,
+                        onTvPair = if (tv && subscriptions.isEmpty()) ({ showTvPairing = true }) else null,
                         hasSubscriptions = subscriptions.isNotEmpty(),
                         importing = importBusy,
                     )
@@ -960,8 +967,9 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.widthIn(max = 380.dp),
                 ) {
-                    Text("Телевизор и телефон должны быть в одной сети Wi-Fi или Ethernet. " +
-                        "В Phantom на телефоне нажмите QR и отсканируйте этот код.",
+                    Text("Телевизор и телефон должны быть в одной локальной сети. " +
+                        "В Phantom на телефоне нажмите QR, отсканируйте код на ТВ " +
+                        "и выберите подписку для отправки.",
                         style = MaterialTheme.typography.bodyMedium)
                     tvPairCode?.let { code ->
                         val image = remember(code) {
