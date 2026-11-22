@@ -178,6 +178,10 @@ tap("Светлая")
 adb("shell", "input", "keyevent", "4")
 node("Светлая")
 tap("Главная")
+# The previous signed baseline (0.3.13) has a separate Servers tab.
+# Only the NEW version places server groups directly on Home. Verify
+# favorites on the legacy screen before updating, then on new Home after.
+tap("Вкладка Серверы")
 visible_after_scroll("В избранное", max_swipes=10)
 tap("В избранное")
 tap("Главная")
