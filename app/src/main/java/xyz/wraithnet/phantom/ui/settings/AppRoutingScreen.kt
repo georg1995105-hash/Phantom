@@ -153,7 +153,7 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                 Text("Приложения и VPN", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                 Box {
-                    IconButton(onClick = { menuOpen = true }) {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.tvFocusRing()) {
                         Icon(Icons.Default.MoreVert, "Импорт, экспорт и выбор приложений")
                     }
                     DropdownMenu(
