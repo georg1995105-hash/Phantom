@@ -534,52 +534,63 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
     val expiry = sub.expiresAt
     val account = SubscriptionHeaders.safeHttpUrl(sub.webPageUrl)
     val support = SubscriptionHeaders.safeHttpUrl(sub.supportUrl)
-    // The same compact two-line metadata for ALL remote subscriptions.
-    // Details/announce remain available without creating a tall empty card.
+    // Keep the entire owner summary and its detail action in ONE metadata row.
+    // All remote providers use the same layout; no provider-specific shortcut.
     Column(Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 0.dp)) {
-        if (listOf(traffic, limit, expiry, account, support).any { it != null }) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                if (account != null) IconButton(
-                    onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
+        Row(Modifier.fillMaxWidth().heightIn(min = 50.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            if (account != null) IconButton(
+                onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
+            ) {
+                Icon(Icons.Default.Info, "Кабинет $displayName",
+                    Modifier.size(18.dp), tint = c.primary)
+            }
+            if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
+                Caption(if (traffic == null) "Лимит" else "Трафик")
+                Text(listOfNotNull(traffic, limit).joinToString(" / ") {
+                    it.replace(" ", "\u00A0")
+                }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 2)
+            } else Spacer(Modifier.weight(1f))
+            if (expiry != null) {
+                // The whole date/details column is a 48+ dp touch target.
+                // No redundant third row just to show "Подробнее".
+                Column(
+                    Modifier.weight(1f).heightIn(min = 48.dp)
+                        .tvFocusRing()
+                        .clickable(onClick = toggle)
+                        .semantics { contentDescription = "Подробнее о $displayName" },
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(Icons.Default.Info, "Кабинет $displayName",
-                        Modifier.size(18.dp), tint = c.primary)
-                }
-                if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
-                    Caption(if (traffic == null) "Лимит" else "Трафик")
-                    Text(listOfNotNull(traffic, limit).joinToString(" / ") {
-                        it.replace(" ", "\u00A0")
-                    }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 2)
-                } else Spacer(Modifier.weight(1f))
-                if (expiry != null) Column(Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End) {
                     Caption(if (expiry == 0L) "Срок" else
                         "До · ${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
                     Text(if (expiry == 0L) "Бессрочно" else dateLabel(expiry),
                         fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (details) "Меньше" else "Подробнее",
+                            fontSize = 11.sp, color = c.primary, maxLines = 1)
+                        Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null, Modifier.size(14.dp), tint = c.primary)
+                    }
                 }
-                if (support != null) IconButton(
-                    onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()
-                ) {
-                    val host = android.net.Uri.parse(support).host?.lowercase()
-                    Icon(if (host in setOf("t.me", "telegram.me"))
-                        Icons.Default.Send else Icons.Default.SupportAgent,
-                        "Поддержка $displayName", Modifier.size(18.dp), tint = c.primary)
+            } else {
+                TextButton(onClick = toggle,
+                    contentPadding = PaddingValues(horizontal = 5.dp),
+                    modifier = Modifier.weight(1f).tvFocusRing().semantics {
+                        contentDescription = "Подробнее о $displayName"
+                    }) {
+                    Text(if (details) "Меньше" else "Подробнее", fontSize = 11.sp)
+                    Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        null, Modifier.size(15.dp))
                 }
             }
-        }
-        Row(Modifier.fillMaxWidth().heightIn(min = 28.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = toggle,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier.height(32.dp).tvFocusRing().semantics {
-                    contentDescription = "Подробнее о $displayName"
-                }) {
-                Text(if (details) "Свернуть" else "Подробнее", fontSize = 11.sp)
-                Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    null, Modifier.size(15.dp))
+            if (support != null) IconButton(
+                onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()
+            ) {
+                val host = android.net.Uri.parse(support).host?.lowercase()
+                Icon(if (host in setOf("t.me", "telegram.me"))
+                    Icons.Default.Send else Icons.Default.SupportAgent,
+                    "Поддержка $displayName", Modifier.size(18.dp), tint = c.primary)
             }
         }
         if (details) {
