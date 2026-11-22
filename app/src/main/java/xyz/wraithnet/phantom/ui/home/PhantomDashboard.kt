@@ -190,6 +190,10 @@ internal fun ConnectionPage(status: String, server: ServerProfile?, download: Lo
                     repeat(12) {
                         withFrameNanos { }
                         if (ownerView.hasWindowFocus()) {
+                            // Restoring the host View first also handles a Dialog
+                            // closed through a remote Back key after the Activity
+                            // briefly had no focusable Compose target.
+                            ownerView.requestFocus()
                             initialFocus.requestFocus()
                             withFrameNanos { }
                             if (powerFocused) return@LaunchedEffect
