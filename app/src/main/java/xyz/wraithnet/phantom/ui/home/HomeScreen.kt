@@ -876,17 +876,26 @@ fun HomeScreen(
                                                     tvModalVisible = showTvPairing || showImportMenu ||
                                                         importMode != null || qrSource != null || activeSubMenu != null,
                                     embedded = true)
-                                ConnectionImportActions(
-                                    onOpenImport = { showImportMenu = true },
-                                    onScanQr = if (qrCameraAvailable) ::scanQr else null,
-                                    hasSubscriptions = subscriptions.isNotEmpty(),
-                                    importing = importBusy)
+                                if (subscriptions.isEmpty()) {
+                                    ConnectionImportActions(
+                                        onOpenImport = { showImportMenu = true },
+                                        onScanQr = if (qrCameraAvailable) ::scanQr else null,
+                                        hasSubscriptions = false,
+                                        importing = importBusy)
+                                }
                                 Text("Серверы",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(start = 16.dp, top = 12.dp,
                                         bottom = 9.dp))
                             }
+                        }),
+                        footer = if (tv || subscriptions.isEmpty()) null else ({
+                            ConnectionImportActions(
+                                onOpenImport = { showImportMenu = true },
+                                onScanQr = if (qrCameraAvailable) ::scanQr else null,
+                                hasSubscriptions = true,
+                                importing = importBusy)
                         }),
                         listState = if (tv) null else unifiedHomeListState)
                         }
