@@ -44,12 +44,20 @@ class UnifiedHomeScrollUiTest {
                 compose.onAllNodes(hasContentDescription("Вкладка Серверы")).assertCountEquals(0)
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                 compose.awaitVisible(hasContentDescription("Вкладка Настройки"))
+                compose.onAllNodes(hasContentDescription("Обновить выбранную подписку"))
+                    .assertCountEquals(0)
+                compose.onAllNodes(hasText("Время")).assertCountEquals(0)
                 compose.waitUntil(15_000) {
                     compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size == 1
                 }
                 val wholePage = compose.onNode(hasScrollAction())
                 wholePage.performScrollToNode(hasText("Alpha VPN"))
                 compose.awaitVisible(hasText("Alpha VPN"))
+                // Each owner retains its own refresh button; no duplicate
+                // global refresh lives above the country/server list.
+                wholePage.performScrollToNode(
+                    hasContentDescription("Обновить подписку Alpha VPN"))
+                compose.awaitVisible(hasContentDescription("Обновить подписку Alpha VPN"))
                 compose.onAllNodes(hasText("Обновлено", substring = true))[0].assertExists()
                 wholePage.performScrollToNode(hasContentDescription("Выбрать сервер Нидерланды тест"))
                 compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды тест"))
