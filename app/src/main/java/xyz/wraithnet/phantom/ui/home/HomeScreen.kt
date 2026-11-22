@@ -746,9 +746,9 @@ fun HomeScreen(
         }
     }
     Scaffold(
-        modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
+        modifier = if (tv) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier,
         topBar = {
-            Box(Modifier.statusBarsPadding()) {
+            if (!tv) Box(Modifier.statusBarsPadding()) {
                 PageTitle(
                     tab,
                     exit = if (vpnStatus == "connected") exitNetwork else null,
@@ -758,7 +758,7 @@ fun HomeScreen(
             }
         },
         bottomBar = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (!tv) Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 if (tab == Destination.HOME) {
                     ConnectionImportActions(
                         onQuickImport = { if (tv) showImportMenu = true else quickImportFromClipboard() },
@@ -773,10 +773,19 @@ fun HomeScreen(
         }
     ) { inner ->
         val colors = MaterialTheme.colorScheme
-        Box(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
+        Row(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
             .background(Brush.linearGradient(listOf(colors.background,
                 colors.surface, colors.background)))) {
-            when (tab) {
+            if (tv) TvSideNavigation(tab) { tab = it }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (tv) PageTitle(
+                    tab,
+                    exit = if (vpnStatus == "connected") exitNetwork else null,
+                    checkingExit = vpnStatus == "connected" && exitLoading,
+                    openExit = { exitDetails = true },
+                )
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (tab) {
                 Destination.HOME -> ConnectionPage(vpnStatus, selected, downloadBytes, uploadBytes, connectedSeconds,
                     toggle = {
                         softTap()
@@ -869,6 +878,17 @@ fun HomeScreen(
                     }
                 }
             )
+                }
+                if (tv && tab == Destination.HOME) {
+                    ConnectionImportActions(
+                        onQuickImport = { showImportMenu = true },
+                        onScanQr = null,
+                        onTvPair = if (subscriptions.isEmpty()) ({ showTvPairing = true }) else null,
+                        hasSubscriptions = subscriptions.isNotEmpty(),
+                        importing = importBusy,
+                    )
+                }
+            }
         }
     }
     if (showOtaSheet && availableUpdate != null &&
