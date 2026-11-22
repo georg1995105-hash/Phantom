@@ -58,4 +58,25 @@ class SubscriptionPresentationTest {
         assertEquals(0L, hugeAccess.daysRemaining)
     }
 
+    @Test fun customProviderTitleIsDisplayedWithoutAnyBrandOverride() {
+        val original = Subscription(id = "provider-1", title = "Phantom VPN",
+            customTitle = "Мой выбранный провайдер",
+            source = "https://example.org/1", servers = emptyList())
+        val other = Subscription(id = "provider-2", title = "VpnKavkaz",
+            source = "https://example.org/2", servers = emptyList())
+        assertEquals("Мой выбранный провайдер", subscriptionDisplayName(original, listOf(original, other)))
+        assertEquals("VpnKavkaz", subscriptionDisplayName(other, listOf(original, other)))
+        assertEquals("Phantom VPN", subscriptionDisplayName(original.copy(customTitle = null),
+            listOf(original.copy(customTitle = null), other)))
+    }
+
+    @Test fun duplicateCustomLabelsRemainDistinguishable() {
+        val first = Subscription(id = "one", title = "Provider 1", customTitle = "Общий",
+            source = "https://example.org/a", servers = emptyList())
+        val second = Subscription(id = "two", title = "Provider 2", customTitle = "Общий",
+            source = "https://example.org/b", servers = emptyList())
+        assertEquals("Общий · 1", subscriptionDisplayName(first, listOf(first, second)))
+        assertEquals("Общий · 2", subscriptionDisplayName(second, listOf(first, second)))
+    }
+
 }

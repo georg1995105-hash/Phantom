@@ -104,8 +104,24 @@ class MultipleSubscriptionsUiTest {
                 // can legitimately be disabled for the duration of that scan.
                 // Its presence for EVERY owner is the invariant here.
                 compose.awaitVisible(pingFirst)
+                // Phone must match tablet/TV: refresh BEFORE manual ping, both
+                // in the top action row. Their bounds must never overlap.
+                val refreshFirstHeader = hasContentDescription("Обновить подписку $firstTitle")
+                val refreshFirstBounds = compose.awaitVisible(refreshFirstHeader)
+                    .fetchSemanticsNode().boundsInRoot
+                val pingFirstBounds = compose.awaitVisible(pingFirst)
+                    .fetchSemanticsNode().boundsInRoot
+                assertTrue("Refresh must precede ping, without overlap",
+                    refreshFirstBounds.right <= pingFirstBounds.left)
                 compose.onNode(hasScrollAction()).performScrollToNode(pingSecond)
                 compose.awaitVisible(pingSecond)
+                val refreshSecondHeader = hasContentDescription("Обновить подписку $secondTitle")
+                val refreshSecondBounds = compose.awaitVisible(refreshSecondHeader)
+                    .fetchSemanticsNode().boundsInRoot
+                val pingSecondBounds = compose.awaitVisible(pingSecond)
+                    .fetchSemanticsNode().boundsInRoot
+                assertTrue("All providers must keep the same action order",
+                    refreshSecondBounds.right <= pingSecondBounds.left)
                 val secondServer = hasContentDescription("Выбрать сервер Швейцария тест")
                 compose.onNode(secondServer).assertDoesNotExist()
                 compose.onNode(hasScrollAction()).performScrollToNode(

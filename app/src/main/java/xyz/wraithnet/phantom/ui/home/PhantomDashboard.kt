@@ -321,9 +321,15 @@ internal fun orderedSubscriptions(
 
 /** Identical subscription titles are distinguished without exposing private URLs. */
 internal fun subscriptionDisplayName(owner: Subscription, all: List<Subscription>): String {
-    val duplicates = all.filter { it.title.trim().equals(owner.title.trim(), ignoreCase = true) }
-    return if (duplicates.size <= 1) owner.title
-        else "${owner.title} · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
+    // A user-given name wins over the provider's Profile-Title. Do not give
+    // Phantom or any other provider a special label or presentation.
+    fun label(subscription: Subscription): String =
+        subscription.customTitle?.trim()?.takeIf(String::isNotEmpty)
+            ?: subscription.title.trim()
+    val title = label(owner)
+    val duplicates = all.filter { label(it).equals(title, ignoreCase = true) }
+    return if (duplicates.size <= 1) title
+        else "$title · ${duplicates.indexOfFirst { it.id == owner.id } + 1}"
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -370,49 +376,64 @@ internal fun ServersPage(
             val name = subscriptionDisplayName(owner, subscriptions)
             if (!single) item(key = "header:${owner.id}") {
                 Column(Modifier.groupSurface(first = true, last = !show || servers.isEmpty())) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f).heightIn(min = if (tv) 46.dp else 50.dp).tvFocusRing().clickable {
-                            expanded = ArrayList(if (show) expanded - owner.id else expanded + owner.id)
-                        }.semantics { contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name },
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (show) Icons.Default.ExpandMore else Icons.Default.ChevronRight, null,
-                                Modifier.padding(horizontal = 6.dp).size(18.dp), tint = c.primary)
-                            Column {
-                                Text(name, fontWeight = FontWeight.SemiBold, maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis, fontSize = 14.sp, lineHeight = 17.sp)
-                                if (remote) {
-                                    val time = android.text.format.DateFormat.getTimeFormat(
-                                        androidx.compose.ui.platform.LocalContext.current).format(java.util.Date(owner.updatedAt))
-                                    val interval = intervalLabel(owner.customIntervalSeconds ?: owner.updateIntervalSeconds)
-                                    Caption(if (owner.updatedAt > 0) "Обновлено $time · $interval" else interval)
-                                }
-                                if (owner.id in failed) Text("Ошибка обновления · серверы сохранены", color = c.error, fontSize = 11.sp)
-                            }
+                    // Title and actions share ONLY the top row. The update
+                    // timestamp gets its own full-width line instead of wrapping
+                    // into the ping/refresh touch targets on narrow phones.
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).heightIn(min = if (tv) 46.dp else 48.dp)
+                            .tvFocusRing().clickable {
+                                expanded = ArrayList(if (show) expanded - owner.id else expanded + owner.id)
+                            }.semantics {
+                                contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name
+                            }, verticalAlignment = Alignment.CenterVertically) {
+                            Icon(if (show) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                                null, Modifier.padding(horizontal = 6.dp).size(18.dp), tint = c.primary)
+                            Text(name, modifier = Modifier.weight(1f),
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                fontSize = 14.sp, lineHeight = 17.sp)
                         }
-                        // Manual ping is a primary OWNER action for every provider,
-                        // not a hidden menu action or a TUIC-only special case.
+                        // Keep identical action order on phone, tablet and TV.
+                        if (remote) IconButton(onClick = { onRefresh(owner) },
+                            enabled = owner.id !in refreshing,
+                            modifier = Modifier.tvFocusRing().semantics {
+                                contentDescription = "Обновить подписку $name"
+                            }) {
+                            if (owner.id in refreshing)
+                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Refresh, null, tint = c.primary)
+                        }
                         if (servers.any { ProtocolSupport.isSupported(it.scheme) }) {
                             IconButton(onClick = { onManualPing(owner) },
                                 enabled = owner.id !in probing,
                                 modifier = Modifier.tvFocusRing().semantics {
                                     contentDescription = "Проверить пинг $name"
                                 }) {
-                                if (owner.id in probing) CircularProgressIndicator(
-                                    Modifier.size(17.dp), strokeWidth = 2.dp)
+                                if (owner.id in probing)
+                                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                                 else Icon(Icons.Default.Speed, null,
                                     Modifier.size(20.dp), tint = c.primary)
                             }
                         }
-                        if (remote) IconButton(onClick = { onRefresh(owner) }, enabled = owner.id !in refreshing,
-                            modifier = Modifier.tvFocusRing().semantics { contentDescription = "Обновить подписку $name" }) {
-                            if (owner.id in refreshing) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Default.Refresh, null, tint = c.primary)
-                        }
                         OwnerMenu(name) { manage(owner) }
                     }
-                    if (remote) ProviderInfo(owner, name, owner.id in details, {
-                        details = ArrayList(if (owner.id in details) details - owner.id else details + owner.id)
-                    }, openUrl)
+                    if (remote) {
+                        val time = android.text.format.DateFormat.getTimeFormat(
+                            androidx.compose.ui.platform.LocalContext.current).format(java.util.Date(owner.updatedAt))
+                        val interval = intervalLabel(owner.customIntervalSeconds ?: owner.updateIntervalSeconds)
+                        Text(if (owner.updatedAt > 0) "Обновлено $time · $interval" else interval,
+                            modifier = Modifier.fillMaxWidth()
+                                .padding(start = 35.dp, end = 12.dp, bottom = 4.dp),
+                            color = c.onSurfaceVariant, fontSize = 11.sp, lineHeight = 15.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (owner.id in failed) Text("Ошибка обновления · серверы сохранены",
+                            modifier = Modifier.padding(start = 35.dp, bottom = 3.dp),
+                            color = c.error, fontSize = 11.sp)
+                        ProviderInfo(owner, name, owner.id in details, {
+                            details = ArrayList(if (owner.id in details) details - owner.id else details + owner.id)
+                        }, openUrl)
+                    }
                     if (show && owner.id !in probing) LaunchedEffect(owner.id, owner.servers) { onAutoProbe(owner) }
                 }
             }
