@@ -872,7 +872,7 @@ fun HomeScreen(
                         onRefresh = { sub -> scope.launch { refresh(sub) } },
                         manage = { activeSubMenu = it.id },
                         onAutoProbe = { sub -> probeSubscription(sub, notify = false) },
-                        onManualPing = { sub -> probeSubscription(sub, notify = true, tuicOnly = true) },
+                        onManualPing = { sub -> probeSubscription(sub, notify = true) },
                         favorite = { id ->
                             favorites = if (id in favorites) favorites - id else favorites + id
                             prefs.edit().putStringSet("favorite_servers", favorites).apply()
@@ -1221,13 +1221,6 @@ fun HomeScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                     val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
                         sub.source.startsWith("http://", ignoreCase = true)
-                    if (sub.servers.any { ProtocolSupport.isSupported(it.scheme) }) {
-                        funActionRow(if (isRemote || sub.servers.size > 1) "Проверить пинг всех серверов" else "Проверить пинг",
-                            Icons.Default.Speed, enabled = sub.id !in probing) {
-                            activeSubMenu = null
-                            probeSubscription(sub)
-                        }
-                    }
                     if (isRemote) funActionRow("Обновить подписку", Icons.Default.Refresh, enabled = sub.id !in refreshing) {
                         activeSubMenu = null
                         scope.launch { refresh(sub) }
