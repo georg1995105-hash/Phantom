@@ -162,14 +162,21 @@ if not page_size_16k:
     launched = adb("shell", "am", "start", "-W", "-a", "android.intent.action.MAIN",
                    "-c", CATEGORY, "-n", component)
     assert "Status: ok" in launched, launched
-    tap("Добавить подписку")
-    wait_label("Ссылка подписки")
+    # A fresh TV has no subscriptions: it must DISPLAY its own receiver QR,
+    # never try to launch a camera. The legacy QR for an existing subscription
+    # remains a separate feature tested by Android UI tests.
+    wait_label("Добавить с телефона")
+    wait_label("QR-код передачи подписки")
     assert not any(n.get("text") == "Сканировать QR" or
                    n.get("content-desc") == "Сканировать QR-код подписки"
                    for n in nodes()), "Camera QR import must be absent on Android TV"
+    tap("Закрыть")
+    wait_label("QR с телефона")
+    tap("Добавить подписку")
+    wait_label("Ссылка подписки")
     key("BACK")
     adb("shell", "am", "force-stop", PACKAGE)
-    print("Android TV subscription URL entry and no-camera QR guard passed", flush=True)
+    print("Android TV receiver QR, manual subscription URL and no-camera scanner passed", flush=True)
 cases = json.loads(Path("app/src/androidTest/assets/peers.json").read_text())
 for index, (protocol, label) in enumerate((
     ("hysteria2", "TVCheckXray"), ("tuic", "TVCheckTUIC")
