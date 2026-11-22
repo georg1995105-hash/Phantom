@@ -410,7 +410,7 @@ internal fun ServersPage(
                         }
                         OwnerMenu(name) { manage(owner) }
                     }
-                    if (remote) ProviderInfo(owner, owner.id in details, {
+                    if (remote) ProviderInfo(owner, name, owner.id in details, {
                         details = ArrayList(if (owner.id in details) details - owner.id else details + owner.id)
                     }, openUrl)
                     if (show && owner.id !in probing) LaunchedEffect(owner.id, owner.servers) { onAutoProbe(owner) }
@@ -516,7 +516,7 @@ internal fun intervalLabel(seconds: Long): String {
 }
 
 @Composable
-private fun ProviderInfo(sub: Subscription, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
+private fun ProviderInfo(sub: Subscription, displayName: String, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
     val c = MaterialTheme.colorScheme
     val upload = sub.uploadBytes
     val download = sub.downloadBytes
@@ -534,7 +534,7 @@ private fun ProviderInfo(sub: Subscription, details: Boolean, toggle: () -> Unit
         if (listOf(traffic, limit, expiry, account, support).any { it != null }) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (account != null) IconButton(onClick = { openUrl(account) }, modifier = Modifier.tvFocusRing()) {
-                    Icon(Icons.Default.Info, "Кабинет ${sub.title}", Modifier.size(20.dp), tint = c.primary)
+                    Icon(Icons.Default.Info, "Кабинет $displayName", Modifier.size(20.dp), tint = c.primary)
                 }
                 if (traffic != null || limit != null) Column(Modifier.weight(1f)) {
                     Caption(if (traffic == null) "Лимит" else "Трафик")
@@ -547,14 +547,14 @@ private fun ProviderInfo(sub: Subscription, details: Boolean, toggle: () -> Unit
                 if (support != null) IconButton(onClick = { openUrl(support) }, modifier = Modifier.tvFocusRing()) {
                     val host = android.net.Uri.parse(support).host?.lowercase()
                     Icon(if (host in setOf("t.me", "telegram.me")) Icons.Default.Send else Icons.Default.SupportAgent,
-                        "Поддержка ${sub.title}", Modifier.size(20.dp), tint = c.primary)
+                        "Поддержка $displayName", Modifier.size(20.dp), tint = c.primary)
                 }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (expiry != null && expiry > 0) Caption("${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = toggle, modifier = Modifier.tvFocusRing().semantics { contentDescription = "Подробнее о ${sub.title}" }) {
+            TextButton(onClick = toggle, modifier = Modifier.tvFocusRing().semantics { contentDescription = "Подробнее о $displayName" }) {
                 Text("Подробнее")
                 Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, Modifier.size(16.dp))
             }
