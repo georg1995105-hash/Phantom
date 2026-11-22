@@ -453,9 +453,13 @@ show_servers()
 # After failed offline refresh the new card shows an explicit owner-scoped
 # error while preserving servers. Check the current UI contract, not text
 # removed with the old duplicate subscription summary.
-node("Ошибка обновления · серверы сохранены", attempts=36)
+# The failed owner can be far below the viewport in the ONE unified
+# scrolling page. Navigate to that owner; never replace the error assertion.
+visible_after_scroll("Управление подпиской OfflineSubscriptionCheck", max_swipes=18)
+visible_after_scroll("Ошибка обновления · серверы сохранены", max_swipes=18)
+node("Управление подпиской OfflineSubscriptionCheck")
 show_servers()
-visible_after_scroll("OfflineSubscriptionCheck")
+visible_after_scroll("OfflineSubscriptionCheck", max_swipes=18)
 
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
