@@ -101,6 +101,7 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.APP_KEYSTORE_PASSWORD }}
           KEYSTORE_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
           KEY_PASSWORD: ${{ secrets.APP_KEY_PASSWORD }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           test -n "$KEYSTORE_B64" && test -n "$KEYSTORE_PASSWORD"
@@ -124,6 +125,9 @@ jobs:
           "$zipalign" -c -P 16 4 signed/Phantom.apk
           "$aapt" dump badging signed/Phantom.apk | grep -F "package: name='xyz.wraithnet.phantom'"
           sha256sum signed/Phantom.apk
+          # Bind the signed binary to its reviewed source commit for releases.
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          printf '%s\n' "$SOURCE_SHA" > signed/source-commit.txt
           rm -f "$RUNNER_TEMP/phantom-keystore.jks" "$RUNNER_TEMP/aligned.apk"
       - name: Upload official-signature APK for manual testing
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
