@@ -1640,3 +1640,64 @@ private fun SettingsAction(title: String, summary: String, icon: androidx.compos
         Icon(Icons.Default.ChevronRight, null)
     }
 }
+
+/**
+ * Dedicated television About screen. On the phone the original inline
+ * expandable section is retained; on TV hiding actions below the fold made
+ * "About" appear empty when using a D-pad.
+ */
+@Composable
+private fun TvAboutSettings(
+    version: String,
+    autoApkUpdates: Boolean,
+    onToggleAuto: (Boolean) -> Unit,
+    onCheckUpdate: () -> Unit,
+    onComponents: () -> Unit,
+    onLog: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        TextButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
+            Icon(Icons.Default.ArrowBack, null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("К настройкам")
+        }
+        Text("О приложении", style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.SemiBold)
+        Panel {
+            Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                Text("PHANTOM VPN", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text("Версия ${version} · " +
+                    if (xyz.wraithnet.phantom.BuildConfig.UPDATE_CHANNEL == "beta")
+                        "Бета" else "Стабильная",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
+            Row(
+                Modifier.fillMaxWidth().tvFocusRing().clickable {
+                    onToggleAuto(!autoApkUpdates)
+                }.padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Автообновление по Wi-Fi", fontWeight = FontWeight.Medium)
+                    Text("Установка поверх Phantom с сохранением подписок и настроек.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = autoApkUpdates, onCheckedChange = null)
+            }
+            funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt,
+                onClick = onCheckUpdate)
+            funActionRow("Компоненты и лицензии", Icons.Default.Layers,
+                onClick = onComponents)
+            funActionRow("Журнал VPN", Icons.Default.List, onClick = onLog)
+        }
+    }
+}
