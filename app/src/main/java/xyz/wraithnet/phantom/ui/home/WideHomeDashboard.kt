@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
@@ -77,6 +78,8 @@ internal fun WideHomeDashboard(
     val gridColumns = if (tv) 2 else 1
     val scroll = rememberLazyListState()
     val powerFocus = remember { FocusRequester() }
+    val hostView = androidx.compose.ui.platform.LocalView.current
+    var powerFocused by remember { mutableStateOf(false) }
     var selectedForJson by remember { mutableStateOf<ServerProfile?>(null) }
     var collapsed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var showDetails by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -90,10 +93,19 @@ internal fun WideHomeDashboard(
     // After returning from pairing or import restore a real remote focus target.
     LaunchedEffect(tv, focusEpoch, modalVisible) {
         if (tv && !modalVisible) {
-            repeat(6) {
+            // Cold Android TV startup and dialog dismissal can attach the
+            // Compose focus target before the Activity window gains focus.
+            // Keep trying until the power target actually owns DPAD_CENTER,
+            // instead of stopping after a fixed 450 ms regardless of focus.
+            repeat(36) {
                 withFrameNanos { }
-                runCatching { powerFocus.requestFocus() }
-                delay(75)
+                if (hostView.hasWindowFocus()) {
+                    hostView.requestFocus()
+                    runCatching { powerFocus.requestFocus() }
+                    withFrameNanos { }
+                    if (powerFocused) return@LaunchedEffect
+                }
+                delay(125)
             }
         }
     }
@@ -125,6 +137,7 @@ internal fun WideHomeDashboard(
                     Box(
                         modifier = Modifier.size(if (tv) 112.dp else 106.dp)
                             .focusRequester(powerFocus)
+                            .onFocusChanged { powerFocused = it.isFocused }
                             .tvFocusRing(CircleShape)
                             .clip(CircleShape)
                             .background(if (active) scheme.primaryContainer.copy(alpha = .48f)
