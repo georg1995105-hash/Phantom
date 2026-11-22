@@ -950,6 +950,127 @@ fun HomeScreen(
         )
     }
 
+    if (showTvPairing) {
+        AlertDialog(
+            onDismissRequest = { showTvPairing = false },
+            title = { Text("Добавить с телефона") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.widthIn(max = 380.dp),
+                ) {
+                    Text("Телевизор и телефон должны быть в одной сети Wi-Fi или Ethernet. " +
+                        "В Phantom на телефоне нажмите QR и отсканируйте этот код.",
+                        style = MaterialTheme.typography.bodyMedium)
+                    tvPairCode?.let { code ->
+                        val image = remember(code) {
+                            runCatching {
+                                val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(
+                                    code, com.google.zxing.BarcodeFormat.QR_CODE, 540, 540,
+                                    mapOf(com.google.zxing.EncodeHintType.CHARACTER_SET to "UTF-8"))
+                                com.journeyapps.barcodescanner.BarcodeEncoder()
+                                    .createBitmap(matrix).asImageBitmap()
+                            }.getOrNull()
+                        }
+                        if (image != null) {
+                            Surface(color = androidx.compose.ui.graphics.Color.White) {
+                                Image(image, "QR-код передачи подписки",
+                                    Modifier.size(284.dp).padding(8.dp))
+                            }
+                        } else Text("Не удалось сформировать QR",
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                    if (tvPairCode == null && tvPairError == null) {
+                        CircularProgressIndicator(Modifier.size(26.dp))
+                        Text("Подготавливаем защищённое соединение…")
+                    } else if (tvPairError == null) {
+                        Text("Ожидание подписки с телефона…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    tvPairError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTvPairing = false }, modifier = Modifier.tvFocusRing()) {
+                    Text("Закрыть")
+                }
+            }
+        )
+    }
+
+    incomingPairCode?.let { code ->
+        AlertDialog(
+            onDismissRequest = { if (!pairingSending) incomingPairCode = null },
+            title = { Text("Передать подписку на ТВ") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Выберите подписку для передачи. Адрес и ключи будут " +
+                        "зашифрованы; одноразовый QR не содержит ваших секретов.",
+                        style = MaterialTheme.typography.bodySmall)
+                    if (subscriptions.isEmpty()) {
+                        Text("На телефоне пока нет подписок. Сначала добавьте подписку в Phantom.")
+                    } else {
+                        Column(
+                            Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            subscriptions.forEach { subscription ->
+                                OutlinedButton(
+                                    enabled = !pairingSending,
+                                    onClick = {
+                                        pairingSending = true
+                                        pairingSendError = null
+                                        scope.launch {
+                                            try {
+                                                val sent = TvSubscriptionPairing.send(context,
+                                                    code, subscription.source,
+                                                    subscription.customTitle ?: subscription.title)
+                                                if (sent) {
+                                                    incomingPairCode = null
+                                                    snackbar.showSnackbar("Подписка передана и сохранена на телевизоре")
+                                                } else {
+                                                    pairingSendError = "Телевизор не смог сохранить подписку."
+                                                }
+                                            } catch (cancel: CancellationException) {
+                                                throw cancel
+                                            } catch (error: Exception) {
+                                                pairingSendError = error.message
+                                                    ?: "Не удалось связаться с телевизором"
+                                            } finally {
+                                                pairingSending = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(subscriptionDisplayName(subscription, subscriptions),
+                                        maxLines = 2)
+                                }
+                            }
+                        }
+                    }
+                    if (pairingSending) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Отправка и проверка сохранения…",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    pairingSendError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { incomingPairCode = null; pairingSendError = null },
+                    enabled = !pairingSending
+                ) { Text("Закрыть") }
+            }
+        )
+    }
+
     qrSource?.let { source ->
         val bitmap = remember(source) {
             val matrix = com.google.zxing.qrcode.QRCodeWriter().encode(source,
