@@ -259,7 +259,7 @@ internal fun ConnectionImportActions(
         if (!hasSubscriptions) {
             Text(if (onTvPair != null)
                 "Отсканируйте QR-код телевизора в Phantom на телефоне или введите ссылку."
-                else "Скопируйте ссылку на подписку и нажмите «Добавить подписку»",
+                else "Добавьте подписку или ключ через меню.",
                 modifier = Modifier.padding(bottom = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center, color = c.onSurfaceVariant)
@@ -269,14 +269,14 @@ internal fun ConnectionImportActions(
             FilledTonalButton(
                 onClick = onQuickImport, enabled = !importing,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
-                    .semantics { contentDescription = "Добавить подписку" },
+                    .semantics { contentDescription = "Добавить подписку или ключ" },
                 shape = RoundedCornerShape(15.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(
                     containerColor = c.primaryContainer, contentColor = c.onPrimaryContainer),
             ) {
                 Icon(Icons.Default.ContentPaste, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Добавить подписку", fontSize = 13.sp)
+                Text("Добавить подписку или ключ", fontSize = 13.sp)
             }
             if (onTvPair != null) {
                 FilledTonalButton(
@@ -452,12 +452,7 @@ internal fun ServersPage(
             }
             item(key = "gap:${owner.id}") { Spacer(Modifier.height(10.dp)) }
         }
-        item {
-            OutlinedButton(onClick = add, modifier = Modifier.fillMaxWidth().tvFocusRing().heightIn(min = 48.dp)) {
-                Text("Добавить подписку или ключ")
-            }
-        }
-    }
+     }
     inspectedServer?.let { selectedServer ->
         ServerConfigSheet(selectedServer) { inspectedServer = null }
     }
