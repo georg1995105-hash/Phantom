@@ -178,6 +178,7 @@ if not page_size_16k:
     key("DPAD_CENTER")
     wait_label("Добавить конфигурацию")
     key("BACK")
+    tap("Вкладка Главная")
     tap("Добавить подписку")
     wait_label("Ссылка подписки")
     key("BACK")
