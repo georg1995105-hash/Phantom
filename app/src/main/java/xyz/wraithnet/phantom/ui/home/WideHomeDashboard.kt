@@ -28,7 +28,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.ServerProfile
@@ -76,7 +75,6 @@ internal fun WideHomeDashboard(
     val config = LocalConfiguration.current
     val gridColumns = if (!tv && config.screenWidthDp >= 1100) 3 else 2
     val scroll = rememberLazyListState()
-    val scope = rememberCoroutineScope()
     val powerFocus = remember { FocusRequester() }
     var selectedForJson by remember { mutableStateOf<ServerProfile?>(null) }
     var collapsed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -198,13 +196,6 @@ internal fun WideHomeDashboard(
                             TextButton(onClick = onShowError, modifier = Modifier.tvFocusRing()) {
                                 Text("Причина ошибки")
                             }
-                    }
-                    IconButton(
-                        onClick = { scope.launch { scroll.animateScrollToItem(1) } },
-                        modifier = Modifier.tvFocusRing()
-                            .semantics { contentDescription = "Перейти к списку серверов" }
-                    ) {
-                        Icon(Icons.Default.KeyboardArrowDown, null)
                     }
                 }
             }
