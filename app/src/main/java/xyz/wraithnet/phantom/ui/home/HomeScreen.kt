@@ -67,6 +67,7 @@ import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.PhantomUpdates
 import xyz.wraithnet.phantom.data.PhantomRelease
 import xyz.wraithnet.phantom.data.CountryFlags
+import xyz.wraithnet.phantom.data.ExitNetworkLookup
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import java.io.File
 import xyz.wraithnet.phantom.ui.settings.ComponentsScreen
@@ -139,6 +140,35 @@ fun HomeScreen(
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf(Destination.HOME) }
+    var exitNetwork by remember { mutableStateOf<ExitNetworkLookup.Info?>(null) }
+    var exitLoading by remember { mutableStateOf(false) }
+    var exitDetails by remember { mutableStateOf(false) }
+    var checkedExitKey by remember { mutableStateOf<String?>(null) }
+    var checkedExitAt by remember { mutableLongStateOf(0L) }
+    // The app UID is outside Android TUN. Never request network identity without
+    // the active authenticated proxy: it would show the mobile/Wi-Fi provider.
+    LaunchedEffect(tab, vpnStatus, selected?.raw, connectedSinceElapsed) {
+        val profile = selected?.raw
+        if (vpnStatus != "connected" || profile.isNullOrBlank() || connectedSinceElapsed <= 0L) {
+            exitNetwork = null
+            exitLoading = false
+            checkedExitKey = null
+        } else if (tab == Destination.HOME) {
+            val key = profile + ":" + connectedSinceElapsed
+            val now = SystemClock.elapsedRealtime()
+            if (key != checkedExitKey || now - checkedExitAt > 10 * 60_000L) {
+                exitNetwork = null
+                exitLoading = true
+                checkedExitKey = key
+                checkedExitAt = now
+                try {
+                    exitNetwork = ExitNetworkLookup.query(context, profile)
+                } finally {
+                    exitLoading = false
+                }
+            }
+        }
+    }
     var favorites by remember { mutableStateOf(prefs.getStringSet("favorite_servers", emptySet()).orEmpty().toSet()) }
     var refreshFailed by remember { mutableStateOf(emptySet<String>()) }
     var deleteId by remember { mutableStateOf<String?>(null) }
@@ -631,7 +661,14 @@ fun HomeScreen(
     Scaffold(
         modifier = if (tv) Modifier.padding(horizontal = 32.dp, vertical = 14.dp) else Modifier,
         topBar = {
-            Box(Modifier.statusBarsPadding()) { PageTitle(tab) }
+            Box(Modifier.statusBarsPadding()) {
+                PageTitle(
+                    tab,
+                    exit = if (vpnStatus == "connected") exitNetwork else null,
+                    checkingExit = vpnStatus == "connected" && exitLoading,
+                    openExit = { exitDetails = true },
+                )
+            }
         },
         bottomBar = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -798,6 +835,24 @@ fun HomeScreen(
         }
     }
 
+    if (exitDetails && vpnStatus == "connected" && exitNetwork != null) {
+        val identity = exitNetwork!!
+        AlertDialog(
+            onDismissRequest = { exitDetails = false },
+            title = { Text("Сеть выхода VPN") },
+            text = {
+                Text(identity.flag() + " " + identity.countryName() +
+                    "\nОрганизация: " + identity.network +
+                    (if (identity.asn.isNotBlank()) "\n" + identity.asn else "") +
+                    "\nIP: " + identity.ip +
+                    "\nИсточник: ipwho.is" +
+                    "\n\nЭто оператор IP-сети выхода, а не обязательно название продавца VPS.")
+            },
+            confirmButton = {
+                TextButton(onClick = { exitDetails = false }) { Text("Закрыть") }
+            }
+        )
+    }
     if (showErrorDetails && vpnError.isNotBlank()) {
         AlertDialog(
             containerColor = MaterialTheme.colorScheme.surface,
