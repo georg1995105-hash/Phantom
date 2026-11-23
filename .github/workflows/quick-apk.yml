@@ -184,10 +184,14 @@ jobs:
           test "$(cat signed/source-commit.txt)" = "$SOURCE_SHA"
           mkdir -p delta previous
           stable=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          stable_date=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$stable" --jq .published_at)
+          # An ancient beta (for example v0.3.7) is not worth 184 MB of
+          # extra downloading when a newer stable already superseded it.
           beta=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
-            jq -r '[.[] | select(.prerelease == true and .draft == false and
-              (.tag_name | contains("-beta.")))] | sort_by(.published_at) |
-              last | .tag_name // empty')
+            jq -r --arg after "$stable_date" '[.[] | select(
+              .prerelease == true and .draft == false and
+              .published_at > $after and (.tag_name | contains("-beta.")))] |
+              sort_by(.published_at) | last | .tag_name // empty')
           while read -r tag; do
             [[ -n "$tag" ]] || continue
             echo "Generate verified patch from $tag"
