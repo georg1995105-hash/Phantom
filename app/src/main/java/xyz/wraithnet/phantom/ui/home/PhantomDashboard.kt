@@ -545,6 +545,7 @@ internal fun intervalLabel(seconds: Long): String {
 @Composable
 internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
     val c = MaterialTheme.colorScheme
+    val tv = isTelevision()
     val upload = sub.uploadBytes
     val download = sub.downloadBytes
     val traffic = when {
@@ -572,7 +573,7 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
                 Caption(if (traffic == null) "Лимит" else "Трафик")
                 Text(listOfNotNull(traffic, limit).joinToString(" / ") {
                     it.replace(" ", "\u00A0")
-                }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 2)
+                }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = if (tv) 6 else 2)
             } else Spacer(Modifier.weight(1f))
             if (expiry != null) {
                 // The whole date/details column is a 48+ dp touch target.
@@ -588,10 +589,10 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
                     Caption(if (expiry == 0L) "Срок" else
                         "До · ${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
                     Text(if (expiry == 0L) "Бессрочно" else dateLabel(expiry),
-                        fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1)
+                        fontSize = 12.sp, lineHeight = 14.sp, maxLines = if (tv) 3 else 1)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (details) "Меньше" else "Подробнее",
-                            fontSize = 11.sp, color = c.primary, maxLines = 1)
+                            fontSize = 11.sp, color = c.primary, maxLines = if (tv) 2 else 1)
                         Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             null, Modifier.size(14.dp), tint = c.primary)
                     }
