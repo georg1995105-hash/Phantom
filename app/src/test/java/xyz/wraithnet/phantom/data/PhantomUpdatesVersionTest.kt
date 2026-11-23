@@ -76,4 +76,77 @@ class PhantomUpdatesVersionTest {
     @Test fun preReleaseTagsAreNotAccidentallyInstalled() {
         assertFalse(PhantomUpdates.isNewer("0.3.0-beta", "0.2.3"))
     }
+
+    @Test fun betaVersionsRespectStableSemverAndDoNotDowngrade() {
+        assertTrue(PhantomUpdates.isNewer("0.3.25-beta.1", "0.3.24"))
+        assertTrue(PhantomUpdates.isNewer("0.3.25-beta.2", "0.3.25-beta.1"))
+        assertTrue(PhantomUpdates.isNewer("0.3.25", "0.3.25-beta.17"))
+        assertFalse(PhantomUpdates.isNewer("0.3.24", "0.3.25-beta.1"))
+        assertFalse(PhantomUpdates.isNewer("0.3.25-beta.2", "0.3.25"))
+        assertFalse(PhantomUpdates.isNewer("0.3.25-beta.1", "0.3.25-beta.1"))
+        assertFalse(PhantomUpdates.isNewer("0.3.25-beta.0", "0.3.24"))
+        assertFalse(PhantomUpdates.isNewer("0.3.26-rc.1", "0.3.24"))
+        assertFalse(PhantomUpdates.isNewer("invalid", "0.3.24"))
+    }
+
+    private fun releaseJson(version: String, isBeta: Boolean,
+                            draft: Boolean = false, brokenAsset: Boolean = false) =
+        org.json.JSONObject()
+            .put("tag_name", "v$version")
+            .put("draft", draft)
+            .put("prerelease", isBeta)
+            .put("body", "- Изменения")
+            .put("assets", org.json.JSONArray().put(org.json.JSONObject()
+                .put("name", PhantomUpdates.UNIVERSAL_APK)
+                .put("state", "uploaded")
+                .put("digest", "sha256:" + "a".repeat(64))
+                .put("size", 183_000_000L)
+                .put("browser_download_url",
+                    "https://github.com/georg1995105-hash/Phantom/releases/download/" +
+                        (if (brokenAsset) "v0.3.18" else "v$version") +
+                        "/" + PhantomUpdates.UNIVERSAL_APK)))
+
+    @Test fun stableIgnoresBetasWhileBetaCanChooseTheLatestCorrectRelease() {
+        val releases = org.json.JSONArray()
+            .put(releaseJson("0.3.25-beta.1", true))
+            .put(releaseJson("0.3.24", false))
+            .put(releaseJson("0.3.25-beta.2", true))
+            .put(releaseJson("0.3.26-beta.1", true, draft = true))
+            .put(releaseJson("0.3.27-beta.1", true, brokenAsset = true))
+        val universal = PhantomUpdates.assetCandidates(listOf("arm64-v8a"))
+        val stable = PhantomUpdates.findAvailableRelease(
+            releases, "0.3.23", UpdateChannel.STABLE, universal)
+        assertEquals("0.3.24", stable?.version)
+        assertEquals(false, stable?.isBeta)
+        val beta = PhantomUpdates.findAvailableRelease(
+            releases, "0.3.23", UpdateChannel.BETA, universal)
+        assertEquals("0.3.25-beta.2", beta?.version)
+        assertEquals(true, beta?.isBeta)
+        assertNull(PhantomUpdates.findAvailableRelease(
+            releases, "0.3.25-beta.2", UpdateChannel.STABLE, universal))
+        assertNull(PhantomUpdates.findAvailableRelease(
+            releases, "0.3.25-beta.2", UpdateChannel.BETA, universal))
+    }
+
+    @Test fun betaOptOutDisallowsStaleBetaButAllowsStable() {
+        val stable = PhantomRelease("0.3.26", "", "", 0, "", false)
+        val beta = PhantomRelease("0.3.27-beta.1", "", "", 0, "", true)
+        assertTrue(PhantomUpdates.channelAllows(stable, UpdateChannel.STABLE))
+        assertTrue(PhantomUpdates.channelAllows(stable, UpdateChannel.BETA))
+        assertTrue(PhantomUpdates.channelAllows(beta, UpdateChannel.BETA))
+        assertFalse(PhantomUpdates.channelAllows(beta, UpdateChannel.STABLE))
+        assertFalse(PhantomUpdates.eligibleForChannel(
+            draft = false, prerelease = true,
+            version = "0.3.27-beta.1", channel = UpdateChannel.STABLE))
+        assertTrue(PhantomUpdates.eligibleForChannel(
+            draft = false, prerelease = true,
+            version = "0.3.27-beta.1", channel = UpdateChannel.BETA))
+        assertFalse(PhantomUpdates.eligibleForChannel(
+            draft = false, prerelease = true,
+            version = "0.3.27-rc.1", channel = UpdateChannel.BETA))
+        assertFalse(PhantomUpdates.eligibleForChannel(
+            draft = false, prerelease = false,
+            version = "0.3.27-beta.1", channel = UpdateChannel.BETA))
+    }
+
 }

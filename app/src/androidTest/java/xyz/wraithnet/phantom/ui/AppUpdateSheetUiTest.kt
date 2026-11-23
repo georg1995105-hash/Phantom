@@ -30,6 +30,24 @@ import xyz.wraithnet.phantom.ui.theme.PhantomTheme
 class AppUpdateSheetUiTest {
     @get:Rule val compose = createEmptyComposeRule()
 
+    @Test fun betaReleaseIsClearlyLabeledBeforeUserConfirmsInstall() {
+        val release = PhantomRelease("0.3.25-beta.1", "", "", 1234,
+            "- Тест новых функций", isBeta = true)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    PhantomTheme {
+                        AppUpdateSheet(release, false, 0, 0L, false, null,
+                            onLater = {}, onUpdate = {},
+                            onDownloadInBrowser = {}, onCancelDownload = {})
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Бета-версия 0.3.25-beta.1"))
+            compose.awaitVisible(hasText("Обновить"))
+        }
+    }
+
     @Test fun failureShowsBrowserFallbackWithoutBlockingWorkingUpdateButtons() {
         val release = PhantomRelease("9.0.0", "", "", 1234,
             "- Исправление загрузки через Wi-Fi")

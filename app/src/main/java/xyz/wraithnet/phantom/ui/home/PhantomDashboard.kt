@@ -665,7 +665,8 @@ internal fun AppUpdateSheet(
                     Text("Обновление Phantom",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold)
-                    Caption("Версия " + release.version)
+                    Caption((if (release.isBeta) "Бета-версия " else "Версия ") +
+                        release.version)
                 }
             }
             if (brief.isNotBlank()) {

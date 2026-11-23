@@ -38,7 +38,8 @@ fun PhantomUpdateSection() {
             try {
                 release = PhantomUpdates.check(context)
                 status = if (release == null) "Установлена актуальная версия"
-                    else "Доступна версия " + release?.version
+                    else (if (release?.isBeta == true) "Доступна бета-версия "
+                        else "Доступна версия ") + release?.version
             } catch (e: Exception) {
                 status = e.message ?: "Не удалось проверить обновления"
             } finally {

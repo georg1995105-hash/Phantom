@@ -12,8 +12,8 @@ android {
         applicationId = "xyz.wraithnet.phantom"
         minSdk = 26
         targetSdk = 35
-        versionCode = 50
-        versionName = "0.3.23"
+        versionCode = 51
+        versionName = "0.3.24"
         // Must track the pinned AndroidLibXrayLite release in build.yml.
         buildConfigField("String", "XRAY_CORE_VERSION", "\"26.11.9\"")
 
@@ -26,7 +26,7 @@ android {
     }
 
     // The only produced distribution APK contains all four supported ABIs.
-    // No ABI splits, no independent beta package and no second updater channel.
+    // No ABI splits, no separate beta application: both release channels use one package.
     splits {
         abi { isEnable = false }
     }
