@@ -141,6 +141,12 @@ class MultipleSubscriptionsUiTest {
                     .performTouchInput { click() }
                 compose.onNode(hasScrollAction()).performScrollToNode(secondServer)
                 compose.awaitVisible(secondServer).performTouchInput { click() }
+                // Since 0.3.26 the default open group follows the selected owner.
+                // The previously selected group is collapsed unless the USER explicitly
+                // expands it. Prove user-chosen expansion remains independently editable.
+                val expandFirst = hasContentDescription("Раскрыть подписку $firstTitle")
+                compose.onNode(hasScrollAction()).performScrollToNode(expandFirst)
+                compose.awaitVisible(expandFirst).performTouchInput { click() }
                 compose.onNode(hasScrollAction()).performScrollToNode(
                     hasContentDescription("Выбрать сервер Автовыбор"))
                 compose.onNode(hasScrollAction()).performScrollToNode(
