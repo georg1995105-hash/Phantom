@@ -68,8 +68,8 @@ internal object PhantomDelta {
                     require(actualMagic.contentEquals(magic)) { "Неизвестный формат пакета изменений" }
                     val baseLength = patch.readLong()
                     val targetLength = patch.readLong()
-                    val baseHash = ByteArray(32).also(patch::readFully)
-                    val targetHash = ByteArray(32).also(patch::readFully)
+                    val baseHash = ByteArray(32).also { patch.readFully(it) }
+                    val targetHash = ByteArray(32).also { patch.readFully(it) }
                     val operationCount = patch.readInt()
                     require(baseLength == base.length() &&
                         targetLength == expectedTargetLength &&
