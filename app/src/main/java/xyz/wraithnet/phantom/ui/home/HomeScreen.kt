@@ -65,6 +65,7 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
+import xyz.wraithnet.phantom.data.SubscriptionRefreshErrors
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.service.physicalNetwork
@@ -505,11 +506,12 @@ fun HomeScreen(
             "Подписка обновлена"
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             refreshFailed = refreshFailed + item.id
             when {
                 !quiet && vpnStatus == PhantomVpnService.STATUS_STARTING ->
                     "Дождитесь подключения VPN и повторите проверку"
+                !quiet -> SubscriptionRefreshErrors.describe(e, checkingNode)
                 else -> "Не удалось обновить подписку"
             }
         } finally {
