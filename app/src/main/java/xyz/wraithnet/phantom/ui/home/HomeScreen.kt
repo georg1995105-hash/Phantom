@@ -1716,20 +1716,24 @@ private fun PhantomSettings(
                     funActionRow("Пинг серверов", Icons.Default.Speed,
                         modifier = Modifier.focusRequester(pingFocus)
                             .onFocusChanged { pingHasFocus = it.hasFocus }) { showPing = true }
+                    // Keep the existing touch-only Switch behavior on phones/tablets.
+                    // A remote can toggle the entire row on Android TV.
+                    val onFragmentToggle: (Boolean) -> Unit = { enabled ->
+                        val next = fragment.copy(enabled = enabled)
+                        if (next.isValid()) {
+                            fragment = next
+                            FragmentationOptions.save(context, next)
+                            fragmentMessage = "При следующем подключении изменения вступят в силу"
+                        } else {
+                            fragmentMessage = "Исправьте значения фрагментации"
+                        }
+                    }
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = if (tv) 66.dp else 48.dp)
+                        (if (tv) Modifier.fillMaxWidth().heightIn(min = 66.dp)
                             .tvFocusRing()
                             .toggleable(value = fragment.enabled, role = Role.Switch,
-                                onValueChange = { enabled ->
-                                    val next = fragment.copy(enabled = enabled)
-                                    if (next.isValid()) {
-                                        fragment = next
-                                        FragmentationOptions.save(context, next)
-                                        fragmentMessage = "При следующем подключении изменения вступят в силу"
-                                    } else {
-                                        fragmentMessage = "Исправьте значения фрагментации"
-                                    }
-                                })
+                                onValueChange = onFragmentToggle)
+                        else Modifier.fillMaxWidth())
                             .padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1739,7 +1743,8 @@ private fun PhantomSettings(
                             Text("Для TCP-соединений с TLS/REALITY. На Hysteria2 не действует.",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = fragment.enabled, onCheckedChange = null)
+                        Switch(checked = fragment.enabled,
+                            onCheckedChange = if (tv) null else onFragmentToggle)
                     }
                     if (fragment.enabled) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
