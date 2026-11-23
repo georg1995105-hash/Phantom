@@ -654,15 +654,18 @@ fun HomeScreen(
     var otaManuallyRequested by remember { mutableStateOf(false) }
     var lastOtaCheck by remember { mutableLongStateOf(0L) }
     var lastOtaAttempt by remember { mutableLongStateOf(0L) }
+    var otaChannelEpoch by remember { mutableIntStateOf(0) }
 
     // Retry after network failures on a later foreground, instead of suppressing OTA for six hours.
-    LaunchedEffect(refreshVersion) {
+    LaunchedEffect(refreshVersion, otaChannelEpoch) {
+        val requestEpoch = otaChannelEpoch
         val now = System.currentTimeMillis()
         if (now - lastOtaCheck >= 6L * 60 * 60 * 1000L &&
             now - lastOtaAttempt >= 2L * 60 * 1000L) {
             lastOtaAttempt = now
             try {
                 val result = PhantomUpdates.check(context)
+                if (requestEpoch != otaChannelEpoch) return@LaunchedEffect
                 lastOtaCheck = System.currentTimeMillis()
                 if (result?.version != availableUpdate?.version) {
                     otaFile = null
@@ -683,9 +686,11 @@ fun HomeScreen(
     fun checkAppUpdateNow() {
         if (otaChecking || otaDownload) return
         otaChecking = true
+        val requestEpoch = otaChannelEpoch
         scope.launch {
             try {
                 val result = PhantomUpdates.check(context)
+                if (requestEpoch != otaChannelEpoch) return@launch
                 lastOtaCheck = System.currentTimeMillis()
                 lastOtaAttempt = lastOtaCheck
                 if (result?.version != availableUpdate?.version) otaFile = null
@@ -710,6 +715,12 @@ fun HomeScreen(
     fun startOtaInstall() {
         if (otaDownload || otaDownloadJob?.isActive == true) return
         val release = availableUpdate ?: return
+        // Do not allow a previously shown beta to install after switching back to Stable.
+        if (!PhantomUpdates.channelAllows(release, PhantomUpdates.selectedChannel(context))) {
+            availableUpdate = null
+            showOtaSheet = false
+            return
+        }
         otaError = null
         otaDownloadJob = scope.launch {
             try {
@@ -721,6 +732,12 @@ fun HomeScreen(
                         onProgress = { otaProgress = it },
                         onSpeed = { otaSpeed = it })
                         .also { otaFile = it }
+                }
+                // Protect against a channel change during the download.
+                if (!PhantomUpdates.channelAllows(release,
+                        PhantomUpdates.selectedChannel(context))) {
+                    otaError = "Канал обновлений изменён. Проверьте новую версию."
+                    return@launch
                 }
                 val launched = PhantomUpdates.openInstaller(context, file)
                 if (!launched) {
@@ -939,6 +956,17 @@ fun HomeScreen(
                     openBackupRequest = openBackupFromOta,
                     onBackupRequestHandled = { openBackupFromOta = false },
                     onCheckAppUpdate = ::checkAppUpdateNow,
+                    onUpdateChannelChanged = {
+                        otaDownloadJob?.cancel()
+                        availableUpdate = null
+                        otaFile = null
+                        showOtaSheet = false
+                        otaDismissed = false
+                        otaManuallyRequested = false
+                        lastOtaCheck = 0L
+                        lastOtaAttempt = 0L
+                        otaChannelEpoch++ // Fresh check; ignore the six-hour cache.
+                    },
                     onBackupRestored = {
                         applySubscriptions(store.read())
                         selectedId = prefs.getString("selected_server_id", null)
@@ -1459,6 +1487,7 @@ internal fun dateLabel(seconds: Long): String =
 private fun PhantomSettings(
     onThemeChange: (PhantomThemeMode) -> Unit,
     onCheckAppUpdate: () -> Unit,
+    onUpdateChannelChanged: () -> Unit,
     onBackupRestored: () -> Unit,
     openBackupRequest: Boolean = false,
     onBackupRequestHandled: () -> Unit = {}
@@ -1473,6 +1502,8 @@ private fun PhantomSettings(
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var bootConnect by remember { mutableStateOf(prefs.getBoolean(VpnBootPolicy.PREF_KEY, false)) }
     var autoApkUpdates by remember { mutableStateOf(prefs.getBoolean("auto_apk_updates", true)) }
+    var betaApkUpdates by remember { mutableStateOf(
+        prefs.getBoolean(PhantomUpdates.BETA_UPDATES_PREF, false)) }
 
     var showThemeGallery by remember { mutableStateOf(false) }
     var tileMessage by remember { mutableStateOf<String?>(null) }
@@ -1543,6 +1574,12 @@ private fun PhantomSettings(
         TvAboutSettings(
             version = version,
             autoApkUpdates = autoApkUpdates,
+            betaApkUpdates = betaApkUpdates,
+            onToggleBeta = { enabled ->
+                betaApkUpdates = enabled
+                PhantomUpdates.setBetaEnabled(context, enabled)
+                onUpdateChannelChanged()
+            },
             onToggleAuto = { enabled ->
                 autoApkUpdates = enabled
                 prefs.edit().putBoolean("auto_apk_updates", enabled).apply()
@@ -1710,6 +1747,20 @@ private fun PhantomSettings(
                             PhantomAutoUpdateWorker.schedule(context.applicationContext)
                         })
                     }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Получать бета-обновления", fontSize = 15.sp)
+                            Text("Ранние тестовые версии. Возврат на стабильную — при следующем подходящем обновлении.",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = betaApkUpdates, onCheckedChange = { enabled ->
+                            betaApkUpdates = enabled
+                            PhantomUpdates.setBetaEnabled(context, enabled)
+                            onUpdateChannelChanged()
+                        })
+                    }
                     funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt) {
                         onCheckAppUpdate()
                     }
@@ -1748,6 +1799,8 @@ private fun SettingsAction(title: String, summary: String, icon: androidx.compos
 private fun TvAboutSettings(
     version: String,
     autoApkUpdates: Boolean,
+    betaApkUpdates: Boolean,
+    onToggleBeta: (Boolean) -> Unit,
     onToggleAuto: (Boolean) -> Unit,
     onCheckUpdate: () -> Unit,
     onComponents: () -> Unit,
@@ -1788,6 +1841,21 @@ private fun TvAboutSettings(
                         style = MaterialTheme.typography.bodySmall)
                 }
                 Switch(checked = autoApkUpdates, onCheckedChange = null)
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
+            Row(
+                Modifier.fillMaxWidth().tvFocusRing().clickable {
+                    onToggleBeta(!betaApkUpdates)
+                }.padding(horizontal = 18.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Получать бета-обновления", fontWeight = FontWeight.Medium)
+                    Text("Ранние тестовые версии. На стабильную — при следующем обновлении.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = betaApkUpdates, onCheckedChange = null)
             }
             funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt,
                 onClick = onCheckUpdate)
