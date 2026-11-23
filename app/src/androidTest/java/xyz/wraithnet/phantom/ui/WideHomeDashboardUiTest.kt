@@ -74,6 +74,7 @@ class WideHomeDashboardUiTest {
                     }
                 }
             }
+            compose.onAllNodes(hasText("Серверы")).assertCountEquals(0)
             val list = compose.onNode(hasScrollAction())
             list.performScrollToNode(
                 hasContentDescription("Выбрать сервер Нидерланды"))
@@ -160,7 +161,9 @@ class WideHomeDashboardUiTest {
                     }
                 }
             }
-            compose.awaitVisible(hasText("Серверы"))
+            compose.onAllNodes(hasText("Серверы")).assertCountEquals(0)
+            // Wide TV now starts with the power/selected connection and
+            // immediately follows with the subscription, without a counter.
             val one = compose.awaitVisible(
                 hasContentDescription("Выбрать сервер Германия")).getUnclippedBoundsInRoot()
             val two = compose.awaitVisible(
