@@ -346,9 +346,7 @@ internal fun ServersPage(
     footer: (@Composable () -> Unit)? = null,
     listState: LazyListState? = null,
 ) {
-    var expanded by rememberSaveable { mutableStateOf(arrayListOf<String>().apply {
-        (selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id)?.let { this.add(it) }
-    }) }
+    val expansion = rememberSubscriptionExpansionStore()
     var details by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var inspectedServer by remember { mutableStateOf<ServerProfile?>(null) }
     val groups = remember(subscriptions, pinnedId, favorites) {
@@ -372,7 +370,10 @@ internal fun ServersPage(
         groups.forEach { (owner, servers) ->
             val remote = owner.source.startsWith("https://", true) || owner.source.startsWith("http://", true)
             val single = !remote && servers.size == 1
-            val show = owner.id in expanded
+            val defaultExpanded = owner.id == (
+                selected?.first?.id ?: pinnedId ?: subscriptions.firstOrNull()?.id
+            )
+            val show = expansion.isExpanded(owner.id, defaultExpanded)
             val name = subscriptionDisplayName(owner, subscriptions)
             if (!single) item(key = "header:${owner.id}") {
                 Column(Modifier.groupSurface(first = true, last = !show || servers.isEmpty())) {
@@ -383,7 +384,7 @@ internal fun ServersPage(
                         verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.weight(1f).heightIn(min = if (tv) 46.dp else 48.dp)
                             .tvFocusRing().clickable {
-                                expanded = ArrayList(if (show) expanded - owner.id else expanded + owner.id)
+                                expansion.setExpanded(owner.id, !show)
                             }.semantics {
                                 contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name
                             }, verticalAlignment = Alignment.CenterVertically) {
