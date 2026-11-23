@@ -1691,8 +1691,11 @@ private fun PhantomSettings(
                     "ping" -> pingFocus.requestFocus()
                     "backup" -> backupFocus.requestFocus()
                     "about" -> aboutFocus.requestFocus()
-                    else -> false
                 }
+                // Compose FocusRequester.requestFocus() returns Unit on the
+                // pinned version; success means no exception, while the
+                // onFocusChanged state below proves focus was actually restored.
+                true
             }.getOrDefault(false)
             withFrameNanos { }
             val restored = when (destination) {
