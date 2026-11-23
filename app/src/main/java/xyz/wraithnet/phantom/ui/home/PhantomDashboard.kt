@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
@@ -544,6 +545,7 @@ internal fun intervalLabel(seconds: Long): String {
 @Composable
 internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boolean, toggle: () -> Unit, openUrl: (String) -> Unit) {
     val c = MaterialTheme.colorScheme
+    val tv = isTelevision()
     val upload = sub.uploadBytes
     val download = sub.downloadBytes
     val traffic = when {
@@ -571,7 +573,7 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
                 Caption(if (traffic == null) "Лимит" else "Трафик")
                 Text(listOfNotNull(traffic, limit).joinToString(" / ") {
                     it.replace(" ", "\u00A0")
-                }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = 2)
+                }, fontSize = 12.sp, lineHeight = 14.sp, maxLines = if (tv) 6 else 2)
             } else Spacer(Modifier.weight(1f))
             if (expiry != null) {
                 // The whole date/details column is a 48+ dp touch target.
@@ -587,10 +589,10 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
                     Caption(if (expiry == 0L) "Срок" else
                         "До · ${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн.")
                     Text(if (expiry == 0L) "Бессрочно" else dateLabel(expiry),
-                        fontSize = 12.sp, lineHeight = 14.sp, maxLines = 1)
+                        fontSize = 12.sp, lineHeight = 14.sp, maxLines = if (tv) 3 else 1)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if (details) "Меньше" else "Подробнее",
-                            fontSize = 11.sp, color = c.primary, maxLines = 1)
+                            fontSize = 11.sp, color = c.primary, maxLines = if (tv) 2 else 1)
                         Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                             null, Modifier.size(14.dp), tint = c.primary)
                     }
@@ -805,6 +807,7 @@ internal fun subscriptionAccessSnapshot(sub: Subscription, nowSeconds: Long): Su
 @Composable
 private fun SubscriptionAccessSummary(sub: Subscription) {
     val colors = MaterialTheme.colorScheme
+    val tv = isTelevision()
     val access = subscriptionAccessSnapshot(sub, System.currentTimeMillis() / 1000L)
     val status = when (access.daysRemaining) {
         null -> "Срок не указан"
@@ -820,9 +823,13 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
         0L -> "Без лимита"
         else -> access.limitBytes?.let(::sizeLabel) ?: "Не указан"
     }
-    Surface(color = colors.surfaceVariant.copy(alpha = .37f),
+    Surface(
+        modifier = if (tv) Modifier.tvFocusRing(RoundedCornerShape(16.dp))
+            .focusable() else Modifier,
+        color = colors.surfaceVariant.copy(alpha = .37f),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))) {
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))
+    ) {
         Column(Modifier.fillMaxWidth().padding(11.dp)) {
             Text("ВЫБРАННАЯ ПОДПИСКА", fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
@@ -830,7 +837,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
             Spacer(Modifier.height(5.dp))
             Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                maxLines = if (tv) 8 else 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = colors.outline.copy(alpha = .2f))
             Spacer(Modifier.height(8.dp))
@@ -875,8 +882,6 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("PHANTOM VPN", color = colors.primary,
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text("Ваш доступ", style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold)
                     if (currentSubscription != null) {

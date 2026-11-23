@@ -132,7 +132,7 @@ class AppUpdateSheetUiTest {
 
     @Test fun televisionUpdateDialogKeepsActionsVisibleWithLongNotes() {
         val release = PhantomRelease("0.3.18", "", "", 1234L,
-            (1..22).joinToString("\\n") { "- Изменение номер " + it + ": подробности исправления" })
+            (1..22).joinToString("\n") { "- Изменение номер " + it + ": подробности исправления" })
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 val tvConfiguration = Configuration(activity.resources.configuration).apply {
@@ -188,7 +188,7 @@ class AppUpdateSheetUiTest {
             compose.awaitVisible(hasText("Меньше")).performClick()
             compose.onNode(hasText("Дополнительный пункт", substring = true)).assertDoesNotExist()
             compose.awaitVisible(update).performClick()
-            compose.awaitVisible(hasText("Загрузка 40% · 128 КБ/с"))
+            compose.awaitVisible(hasText("Загрузка обновления · 40% · 128 КБ/с"))
             compose.awaitVisible(hasText("Остановить") and isEnabled()).performClick()
             compose.runOnIdle { assertTrue(stopped) }
             compose.awaitVisible(later and isEnabled()).performClick()

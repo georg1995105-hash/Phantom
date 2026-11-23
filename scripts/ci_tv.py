@@ -1,5 +1,6 @@
 """Exercise both native VPN cores on x86 TV and the x86_64 16 KiB image."""
 import json
+import os
 import re
 from pathlib import Path
 import shlex
@@ -32,6 +33,56 @@ def nodes():
     result.check_returncode()
     assert "UI hierchary dumped to" in result.stdout or "UI hierarchy dumped to" in result.stdout, result
     return list(ET.fromstring(adb("shell", "cat", "/sdcard/tv-ui.xml")).iter("node"))
+
+
+def screenshot(name):
+    """Real pixels from the running Android TV emulator, never a design mock."""
+    os.makedirs("tv-screens", exist_ok=True)
+    with open("tv-screens/" + name + ".png", "wb") as output:
+        subprocess.run(["adb", "exec-out", "screencap", "-p"],
+                       stdout=output, check=True)
+    assert Path("tv-screens/" + name + ".png").stat().st_size > 2000
+
+
+def is_focused(label):
+    """One consistent UI snapshot avoids focus/text races during D-pad checks."""
+    snapshot = nodes()
+    matches = [n for n in snapshot
+               if label in (n.get("text", ""), n.get("content-desc", ""))]
+    focused = [n for n in snapshot if n.get("focused") == "true"]
+    for focus in focused:
+        rect = list(map(int, re.findall(r"\d+", focus.get("bounds", ""))))
+        if len(rect) != 4:
+            continue
+        for item in matches:
+            bounds = list(map(int, re.findall(r"\d+", item.get("bounds", ""))))
+            if len(bounds) == 4 and rect[0] <= bounds[0] and rect[1] <= bounds[1] and rect[2] >= bounds[2] and rect[3] >= bounds[3]:
+                return True
+    return False
+
+
+def remote_to(label, max_moves=24):
+    """D-pad search in both directions; verifies focused hit, not a touch tap."""
+    if is_focused(label):
+        return
+    for direction in (["DPAD_UP"] * max_moves +
+                      ["DPAD_RIGHT"] + ["DPAD_DOWN"] * max_moves):
+        key(direction)
+        if is_focused(label):
+            return
+    screenshot("99-tv-remote-focus-failure")
+    snapshot = nodes()
+    focused = [(n.get("text", ""), n.get("content-desc", ""), n.get("bounds", ""))
+               for n in snapshot if n.get("focused") == "true"]
+    raise AssertionError("D-pad never focused " + label + "; focused=" + repr(focused[:8]))
+
+def wait_contains(needle, attempts=24):
+    for _ in range(attempts):
+        if any(needle in (n.get("text", "") + n.get("content-desc", ""))
+               for n in nodes()):
+            return
+        time.sleep(.4)
+    raise AssertionError("TV never displayed " + needle)
 
 
 def report_singbox_exit():
@@ -268,39 +319,117 @@ if not page_size_16k:
     # All servers are reachable directly on Home in two columns.
     # The separate Servers rail tab is intentionally absent.
     assert not any(n.get("content-desc") == "Вкладка Серверы" for n in nodes())
-    wait_label("Серверы")
+    # The redundant "Серверы" heading was intentionally removed in 0.3.26.
+    # Verify the actual remote-selectable server instead of stale decoration.
+    wait_label("Выбрать сервер " + label)
     wait_label("В избранное")
     wait_label("Открыть JSON конфигурации " + label)
     wait_label("Подключить VPN")
+    # TV rail must display its FULL labels, without the visible truncation
+    # present in the owner's screenshots (Подписк / Настрой). The rail is
+    # deliberately wider and supports multiline text at large font scale.
+    for item in ("Главная", "Подписка", "Настройки"):
+        assert any(n.get("text") == item for n in nodes()), "Missing TV navigation label: " + item
+    screenshot("00-navigation-full-labels")
     tap("Вкладка Подписка")
+    wait_label("Ваш доступ")
     wait_label("В магазин")
+    screenshot("00-subscription-access")
     tap("Вкладка Настройки")
     wait_label("Подключение")
+    screenshot("01-settings")
     tap("Подключение")
     wait_label("DNS")
-    tap("DNS")
+    wait_label("Фрагментация TLS")
+    screenshot("02-connection")
+    # Explicitly exercise the previously skipped TLS switch using OK, not tap.
+    remote_to("Фрагментация TLS")
+    key("DPAD_CENTER")
+    assert any(n.get("text") == "Применить параметры" for n in nodes()), (
+        "OK did not enable TLS fragmentation")
+    key("DPAD_CENTER")
+    assert not any(n.get("text") == "Применить параметры" for n in nodes()), (
+        "Second OK did not disable TLS fragmentation")
+    remote_to("Пинг серверов")
+    key("DPAD_CENTER")
+    wait_label("Автоматический пинг TUIC")
+    wait_label("+ 1 сек")
+    screenshot("03-ping")
+    # D-pad activation must work on the full switch row.
+    remote_to("Автоматический пинг TUIC")
+    key("DPAD_CENTER")
+    # Discard changed preference by toggling back before saving.
+    key("DPAD_CENTER")
+    remote_to("Сохранить")
+    key("DPAD_CENTER")
+    wait_label("Подключение")
+    remote_to("DNS")
+    key("DPAD_CENTER")
     wait_label("Сохранить")
     key("BACK")
     wait_label("Подключение")
-    # Navigate settings by remote keys; expanding items must be reachable by
-    # D-pad scrolling, not only via touch.
-    for _ in range(24):
-        if any(n.get("text") == "О приложении" for n in nodes()):
+    # BACK should restore the actual DNS action, not the TV rail.
+    for _ in range(6):
+        if is_focused("DNS"):
             break
-        key("DPAD_DOWN")
-    tap("О приложении")
+        time.sleep(.2)
+    if not is_focused("DNS"):
+        screenshot("99-tv-dns-back-focus-failure")
+        snapshot = nodes()
+        focused_bounds = [n.get("bounds", "") for n in snapshot
+                          if n.get("focused") == "true"]
+        dns_nodes = [(n.get("text", ""), n.get("bounds", "")) for n in snapshot
+                     if n.get("text", "") in ("DNS", "Подключение")]
+        raise AssertionError("BACK did not restore DNS remote focus; "
+                             "focused_bounds=" + repr(focused_bounds[:4]) +
+                             "; visible_nav=" + repr(dns_nodes[:5]))
+    key("DPAD_UP")
+    assert is_focused("Подключение"), "UP from DNS cannot focus connection"
+    key("DPAD_CENTER")
+    remote_to("О приложении")
+    key("DPAD_CENTER")
     wait_label("Проверить обновление приложения")
     wait_label("Автообновление по Wi-Fi")
-    tap("Компоненты и лицензии")
+    remote_to("Компоненты и лицензии")
+    key("DPAD_CENTER")
     wait_label("ВОЗМОЖНОСТИ КЛИЕНТА")
     key("BACK")
-    wait_label("Журнал VPN")
-    tap("Журнал VPN")
+    for _ in range(6):
+        if is_focused("Компоненты и лицензии"):
+            break
+        time.sleep(.2)
+    assert is_focused("Компоненты и лицензии"), "Components BACK lost focus"
+    remote_to("Журнал VPN")
+    key("DPAD_CENTER")
     wait_label("Журнал VPN")
     key("BACK")
+    assert is_focused("Журнал VPN"), "Diagnostics BACK lost focus"
     wait_label("К настройкам")
     tap("К настройкам")
     wait_label("Резервная копия")
+    remote_to("Резервная копия")
+    key("DPAD_CENTER")
+    # The owner's real TV returned to the launcher on this exact transition.
+    wait_label("Сохранить резервную копию")
+    wait_label("Восстановить из файла")
+    assert adb("shell", "pidof", "-s", PACKAGE).strip(), "Backup screen killed Phantom"
+    screenshot("04-backup")
+    # Save via the physical remote, not the Android system file picker.
+    remote_to("Сохранить резервную копию")
+    key("DPAD_CENTER")
+    wait_contains("Сохранено:")
+    screenshot("05-backup-saved")
+    tap("Восстановить из файла")
+    wait_label("Восстановить резервную копию?")
+    key("BACK")  # cancellation must preserve all existing profiles
+    wait_label("Восстановить из файла")
+    tap("Восстановить из файла")
+    wait_label("Восстановить резервную копию?")
+    tap("Восстановить")
+    wait_label(label)  # restored mock server remains available
+    tap("Вкладка Настройки")
+    wait_label("Подключение")
     tap("Вкладка Главная")
     wait_label("Подключить VPN")
-    print("Android TV: D-pad, unified server grid, three rail tabs, VPN cores, DNS, About, journal and Back passed")
+    screenshot("06-home-after-restore")
+    print("Android TV: D-pad TLS and TUIC toggles, backup export/restore, focus, VPN cores, DNS and Back passed")

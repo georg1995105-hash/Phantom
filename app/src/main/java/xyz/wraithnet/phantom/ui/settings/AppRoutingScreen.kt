@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import xyz.wraithnet.phantom.ui.home.tvFocusRing
+import xyz.wraithnet.phantom.ui.home.isTelevision
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
@@ -49,6 +50,7 @@ private data class SelectableApp(val packageName: String, val title: String, val
 @Composable
 fun AppRoutingScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val tv = isTelevision()
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(AppRouting.mode(context)) }
@@ -246,8 +248,8 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                     Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         mode = value; gentleTap()
                     }.heightIn(min = 50.dp), verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = mode == value, onClick = {
-                            mode = value; gentleTap()
+                        RadioButton(selected = mode == value, onClick = if (tv) null else {
+                            { mode = value; gentleTap() }
                         })
                         Spacer(Modifier.width(6.dp))
                         Text(title)
@@ -274,7 +276,8 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(checked = showSystem, onCheckedChange = { showSystem = it })
+                        Switch(checked = showSystem,
+                            onCheckedChange = if (tv) null else { checked -> showSystem = checked })
                     }
                     Text("Выбрано: " + selected.size,
                         style = MaterialTheme.typography.bodySmall,
@@ -336,6 +339,7 @@ private fun RoutingAppRow(
     onToggle: () -> Unit
 ) {
     val context = LocalContext.current
+    val tv = isTelevision()
     var icon by remember(app.packageName) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(app.packageName) {
         icon = withContext(Dispatchers.IO) {
@@ -347,7 +351,9 @@ private fun RoutingAppRow(
     }
     Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = onToggle)
         .heightIn(min = 58.dp), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked = selected, onCheckedChange = { onToggle() })
+        Checkbox(checked = selected, onCheckedChange = if (tv) null else {
+            { onToggle() }
+        })
         Spacer(Modifier.width(8.dp))
         if (icon != null) {
             Image(bitmap = icon!!, contentDescription = null,
@@ -361,10 +367,10 @@ private fun RoutingAppRow(
         }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Text(app.title, maxLines = 1)
+            Text(app.title, maxLines = if (tv) 5 else 1)
             Text(
                 app.packageName + if (app.system) " · Система" else "",
-                maxLines = 1, style = MaterialTheme.typography.labelSmall,
+                maxLines = if (tv) 4 else 1, style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

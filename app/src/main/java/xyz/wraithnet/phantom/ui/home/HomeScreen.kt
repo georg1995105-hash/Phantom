@@ -26,6 +26,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,6 +42,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
@@ -65,6 +70,7 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
+import xyz.wraithnet.phantom.data.SubscriptionRefreshErrors
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.service.physicalNetwork
@@ -505,11 +511,12 @@ fun HomeScreen(
             "Подписка обновлена"
         } catch (e: CancellationException) {
             throw e
-        } catch (_: Exception) {
+        } catch (e: Exception) {
             refreshFailed = refreshFailed + item.id
             when {
                 !quiet && vpnStatus == PhantomVpnService.STATUS_STARTING ->
                     "Дождитесь подключения VPN и повторите проверку"
+                !quiet -> SubscriptionRefreshErrors.describe(e, checkingNode)
                 else -> "Не удалось обновить подписку"
             }
         } finally {
@@ -1478,10 +1485,11 @@ private fun funActionRow(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val tv = isTelevision()
-    Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 48.dp else 55.dp)
+    Row(modifier.fillMaxWidth().heightIn(min = if (tv) 48.dp else 55.dp)
         .tvFocusRing().clickable(enabled = enabled, onClick = onClick)
         .padding(horizontal = if (tv) 12.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
@@ -1567,7 +1575,22 @@ private fun PhantomSettings(
     }
     val tv = isTelevision()
     var group by rememberSaveable { mutableStateOf("") }
-    BackHandler(enabled = tv && group.isNotEmpty()) { group = "" }
+    var restoreTvFocus by remember { mutableStateOf("") }
+    val connectionFocus = remember { FocusRequester() }
+    val dnsFocus = remember { FocusRequester() }
+    val pingFocus = remember { FocusRequester() }
+    val backupFocus = remember { FocusRequester() }
+    val aboutFocus = remember { FocusRequester() }
+    var connectionHasFocus by remember { mutableStateOf(false) }
+    var dnsHasFocus by remember { mutableStateOf(false) }
+    var pingHasFocus by remember { mutableStateOf(false) }
+    var backupHasFocus by remember { mutableStateOf(false) }
+    var aboutHasFocus by remember { mutableStateOf(false) }
+    var restoreAboutFocus by remember { mutableStateOf("") }
+    BackHandler(enabled = tv && group.isNotEmpty()) {
+        if (group == "about") restoreTvFocus = "about"
+        group = ""
+    }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(tv, group) {
         if (tv && group == "background") settingsScroll.animateScrollToItem(4)
@@ -1581,14 +1604,14 @@ private fun PhantomSettings(
         )
         return
     }
-    if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
-    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
+    if (showLog) { DiagnosticsScreen(onBack = { showLog = false; restoreAboutFocus = "log" }); return }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false; restoreTvFocus = "ping" }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
-    if (showDns) { DnsSettingsScreen(onBack = { showDns = false }); return }
+    if (showDns) { DnsSettingsScreen(onBack = { showDns = false; restoreTvFocus = "dns" }); return }
 
     if (showBackup) {
         BackupScreen(
-            onBack = { showBackup = false },
+            onBack = { showBackup = false; restoreTvFocus = "backup" },
             onRestored = {
                 showBackup = false
                 onBackupRestored()
@@ -1597,7 +1620,7 @@ private fun PhantomSettings(
         return
     }
     if (showComponents) {
-        ComponentsScreen(onBack = { showComponents = false })
+        ComponentsScreen(onBack = { showComponents = false; restoreAboutFocus = "components" })
         return
     }
     val version = remember {
@@ -1631,37 +1654,118 @@ private fun PhantomSettings(
             onCheckUpdate = onCheckAppUpdate,
             onComponents = { showComponents = true },
             onLog = { showLog = true },
-            onBack = { group = "" },
+            focusOnReturn = restoreAboutFocus,
+            onFocusRestored = { restoreAboutFocus = "" },
+            onBack = { group = ""; restoreTvFocus = "about" },
         )
         return
+    }
+    // Child screens replace this LazyColumn; focus may otherwise return to the
+    // left navigation rail after BACK on a real remote.
+    LaunchedEffect(tv, restoreTvFocus) {
+        if (!tv || restoreTvFocus.isBlank()) return@LaunchedEffect
+        val destination = restoreTvFocus
+        // BACK may collapse the network group on some TV firmware before the
+        // child handler disposes its screen. Without reopening it there is no
+        // DNS/ping focus target to restore to.
+        if (destination == "dns" || destination == "ping") {
+            if (group != "network") {
+                group = "network"
+                withFrameNanos { }
+            }
+        }
+        // LazyColumn may not yet have mounted the target item after leaving a
+        // child screen. A single request silently fails or targets the TV rail.
+        val targetIndex = when (destination) {
+            "network", "dns", "ping" -> 0
+            "backup" -> 5
+            else -> 6
+        }
+        repeat(24) {
+            settingsScroll.scrollToItem(targetIndex)
+            withFrameNanos { }
+            val requested = runCatching {
+                when (destination) {
+                    "network" -> connectionFocus.requestFocus()
+                    "dns" -> dnsFocus.requestFocus()
+                    "ping" -> pingFocus.requestFocus()
+                    "backup" -> backupFocus.requestFocus()
+                    "about" -> aboutFocus.requestFocus()
+                }
+                // Compose FocusRequester.requestFocus() returns Unit on the
+                // pinned version; success means no exception, while the
+                // onFocusChanged state below proves focus was actually restored.
+                true
+            }.getOrDefault(false)
+            withFrameNanos { }
+            val restored = when (destination) {
+                "network" -> connectionHasFocus
+                "dns" -> dnsHasFocus
+                "ping" -> pingHasFocus
+                "backup" -> backupHasFocus
+                "about" -> aboutHasFocus
+                else -> true
+            }
+            // Do not accept an old hasFocus=true from the row we navigated
+            // away from: the request must succeed on the NEW mounted row.
+            if (requested && restored) {
+                restoreTvFocus = ""
+                return@LaunchedEffect
+            }
+            delay(75)
+        }
+        restoreTvFocus = ""
     }
     LazyColumn(Modifier.fillMaxSize(), state = settingsScroll,
         contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Panel {
-                SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune) { toggle("network") }
+                SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune,
+                    modifier = Modifier.focusRequester(connectionFocus)
+                        .onFocusChanged { connectionHasFocus = it.hasFocus }) { toggle("network") }
                 if (group == "network") {
-                    funActionRow("DNS", Icons.Default.Dns) { showDns = true }
-                    funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    funActionRow("DNS", Icons.Default.Dns,
+                        modifier = Modifier.focusRequester(dnsFocus)
+                            .onFocusChanged { dnsHasFocus = it.hasFocus }) {
+                        dnsHasFocus = false
+                        showDns = true
+                    }
+                    funActionRow("Пинг серверов", Icons.Default.Speed,
+                        modifier = Modifier.focusRequester(pingFocus)
+                            .onFocusChanged { pingHasFocus = it.hasFocus }) {
+                        pingHasFocus = false
+                        showPing = true
+                    }
+                    // Keep the existing touch-only Switch behavior on phones/tablets.
+                    // A remote can toggle the entire row on Android TV.
+                    val onFragmentToggle: (Boolean) -> Unit = { enabled ->
+                        val next = fragment.copy(enabled = enabled)
+                        if (next.isValid()) {
+                            fragment = next
+                            FragmentationOptions.save(context, next)
+                            fragmentMessage = "При следующем подключении изменения вступят в силу"
+                        } else {
+                            fragmentMessage = "Исправьте значения фрагментации"
+                        }
+                    }
+                    Row(
+                        (if (tv) Modifier.fillMaxWidth().heightIn(min = 66.dp)
+                            .tvFocusRing()
+                            .toggleable(value = fragment.enabled, role = Role.Switch,
+                                onValueChange = onFragmentToggle)
+                        else Modifier.fillMaxWidth())
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text("Фрагментация TLS", fontSize = 15.sp)
                             Spacer(Modifier.height(4.dp))
                             Text("Для TCP-соединений с TLS/REALITY. На Hysteria2 не действует.",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = fragment.enabled, onCheckedChange = { enabled ->
-                            val next = fragment.copy(enabled = enabled)
-                            if (next.isValid()) {
-                                fragment = next
-                                FragmentationOptions.save(context, next)
-                                fragmentMessage = "При следующем подключении изменения вступят в силу"
-                            } else {
-                                fragmentMessage = "Исправьте значения фрагментации"
-                            }
-                        })
+                        Switch(checked = fragment.enabled,
+                            onCheckedChange = if (tv) null else onFragmentToggle)
                     }
                     if (fragment.enabled) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -1724,7 +1828,7 @@ private fun PhantomSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.width(8.dp))
-                        Switch(checked = bootConnect, onCheckedChange = { checked ->
+                        Switch(checked = bootConnect, onCheckedChange = if (tv) null else { checked ->
                             bootConnect = checked
                             prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, checked).apply()
                         })
@@ -1754,7 +1858,7 @@ private fun PhantomSettings(
                                 fontSize = 12.sp, lineHeight = 16.sp)
                         }
                         Spacer(Modifier.width(7.dp))
-                        Switch(checked = keepActive, onCheckedChange = { enabled ->
+                        Switch(checked = keepActive, onCheckedChange = if (tv) null else { enabled ->
                             keepActive = enabled
                             prefs.edit().putBoolean("keep_active", enabled).apply()
                             if (prefs.getBoolean("vpn_running", false)) {
@@ -1772,10 +1876,20 @@ private fun PhantomSettings(
                 }
             }
         }
-        item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup) { showBackup = true } } }
+        item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
+            modifier = Modifier.focusRequester(backupFocus)
+                .onFocusChanged { backupHasFocus = it.hasFocus }) {
+                backupHasFocus = false
+                showBackup = true
+            } } }
         item {
             Panel {
-                SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
+                SettingsAction("О приложении", "Phantom $version", Icons.Default.Info,
+                    modifier = Modifier.focusRequester(aboutFocus)
+                        .onFocusChanged { aboutHasFocus = it.hasFocus }) {
+                    aboutHasFocus = false
+                    toggle("about")
+                }
                 if (group == "about") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -1817,9 +1931,10 @@ private fun PhantomSettings(
 
 @Composable
 private fun SettingsAction(title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
     action: () -> Unit) {
     val tv = isTelevision()
-    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
+    Row(modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
         .padding(horizontal = if (tv) 14.dp else 16.dp,
             vertical = if (tv) 11.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
@@ -1848,8 +1963,34 @@ private fun TvAboutSettings(
     onCheckUpdate: () -> Unit,
     onComponents: () -> Unit,
     onLog: () -> Unit,
+    focusOnReturn: String,
+    onFocusRestored: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val componentsFocus = remember { FocusRequester() }
+    val logFocus = remember { FocusRequester() }
+    var componentsHasFocus by remember { mutableStateOf(false) }
+    var logHasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focusOnReturn) {
+        if (focusOnReturn.isBlank()) return@LaunchedEffect
+        repeat(16) {
+            withFrameNanos { }
+            runCatching {
+                when (focusOnReturn) {
+                    "components" -> componentsFocus.requestFocus()
+                    "log" -> logFocus.requestFocus()
+                }
+            }
+            withFrameNanos { }
+            if ((focusOnReturn == "components" && componentsHasFocus) ||
+                (focusOnReturn == "log" && logHasFocus)) {
+                onFocusRestored()
+                return@LaunchedEffect
+            }
+            delay(80)
+        }
+        onFocusRestored()
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -1903,8 +2044,13 @@ private fun TvAboutSettings(
             funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt,
                 onClick = onCheckUpdate)
             funActionRow("Компоненты и лицензии", Icons.Default.Layers,
+                modifier = Modifier.focusRequester(componentsFocus)
+                    .onFocusChanged { componentsHasFocus = it.hasFocus },
                 onClick = onComponents)
-            funActionRow("Журнал VPN", Icons.Default.List, onClick = onLog)
+            funActionRow("Журнал VPN", Icons.Default.List,
+                modifier = Modifier.focusRequester(logFocus)
+                    .onFocusChanged { logHasFocus = it.hasFocus },
+                onClick = onLog)
         }
     }
 }

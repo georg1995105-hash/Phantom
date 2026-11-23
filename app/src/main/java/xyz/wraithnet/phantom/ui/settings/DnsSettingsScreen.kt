@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import xyz.wraithnet.phantom.ui.home.tvFocusRing
+import xyz.wraithnet.phantom.ui.home.isTelevision
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -24,6 +25,7 @@ import xyz.wraithnet.phantom.data.VpnDnsSettings
 @Composable
 fun DnsSettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val tv = isTelevision()
     val prefs = remember { context.getSharedPreferences("phantom_preferences", 0) }
     var settings by remember { mutableStateOf(VpnDnsSettings.load(context)) }
     var fallback by remember {
@@ -68,7 +70,7 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                         }
                     },
                     enabled = settings.validate() == null,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).tvFocusRing(),
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("Сохранить") }
             }
@@ -105,7 +107,9 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                     ) {
                         RadioButton(
                             selected = settings.mode == choice,
-                            onClick = { settings = settings.copy(mode = choice); message = null }
+                            onClick = if (tv) null else {
+                                { settings = settings.copy(mode = choice); message = null }
+                            }
                         )
                         Spacer(Modifier.width(6.dp))
                         Column(Modifier.weight(1f)) {
@@ -162,7 +166,8 @@ fun DnsSettingsScreen(onBack: () -> Unit) {
                             fontSize = 12.sp, lineHeight = 17.sp)
                     }
                     Spacer(Modifier.width(12.dp))
-                    Switch(checked = fallback, onCheckedChange = { fallback = it })
+                    Switch(checked = fallback,
+                        onCheckedChange = if (tv) null else { checked -> fallback = checked })
                 }
             }
             Text("Изменение DNS внутри VPN применяется при следующем подключении. " +

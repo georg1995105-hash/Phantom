@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -27,11 +29,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import xyz.wraithnet.phantom.data.ConfigurationFiles
 import xyz.wraithnet.phantom.data.PhantomBackup
+import xyz.wraithnet.phantom.data.TvBackupFiles
+import xyz.wraithnet.phantom.ui.home.isTelevision
 import java.io.InputStreamReader
 
 /** User-controlled, local archive; never uploads credentials or runs an imported profile. */
 @Composable
 fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
+    if (isTelevision()) {
+        TvBackupScreen(onBack, onRestored)
+        return
+    }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -208,6 +216,145 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
             },
             dismissButton = {
                 TextButton(onClick = { pending = null }) { Text("Отмена") }
+            }
+        )
+    }
+}
+
+
+/**
+ * Remote-first backup page. Android TV often has no DocumentsUI at all;
+ * attempting ACTION_CREATE_DOCUMENT or ACTION_OPEN_DOCUMENT can close the
+ * application or leave the user on an unusable system screen.
+ *
+ * Downloads is public storage, so the original plain-JSON privacy warning
+ * still applies. Import only PREPARES a snapshot; restore needs confirmation.
+ */
+@Composable
+private fun TvBackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    var pending by remember { mutableStateOf<PhantomBackup.Snapshot?>(null) }
+
+    BackHandler(enabled = pending == null && !busy, onBack = onBack)
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack, modifier = Modifier.tvFocusRing()) {
+                    Icon(Icons.Default.ArrowBack, "К настройкам")
+                }
+                Spacer(Modifier.width(10.dp))
+                Text("Резервная копия", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold)
+            }
+        }
+    ) { inner ->
+        Column(
+            Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Сохранение и восстановление подписок и настроек на телевизоре.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).tvFocusRing(),
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        try {
+                            val path = withContext(Dispatchers.IO) { TvBackupFiles.export(context) }
+                            feedback = "Сохранено: $path"
+                        } catch (error: Exception) {
+                            feedback = error.message ?: "Не удалось сохранить резервную копию"
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) {
+                Icon(Icons.Default.SaveAlt, null)
+                Spacer(Modifier.width(10.dp))
+                Text("Сохранить резервную копию")
+            }
+            OutlinedButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).tvFocusRing(),
+                onClick = {
+                    scope.launch {
+                        busy = true
+                        try {
+                            pending = withContext(Dispatchers.IO) {
+                                TvBackupFiles.importNewest(context)
+                            }
+                            feedback = null
+                        } catch (error: Exception) {
+                            feedback = error.message ?: "Не удалось открыть резервную копию"
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) {
+                Icon(Icons.Default.FileOpen, null)
+                Spacer(Modifier.width(10.dp))
+                Text("Восстановить из файла")
+            }
+            Text(
+                "Копия содержит приватные ссылки, ключи и ID клиента. Файл не шифруется. " +
+                    "На Android TV используется папка Загрузки/Phantom; если она " +
+                    "недоступна — папка приложения. Восстановление объединяет подписки, " +
+                    "не подключает VPN автоматически. Перед восстановлением отключите VPN.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                lineHeight = 19.sp
+            )
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            feedback?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+        }
+    }
+    pending?.let { snapshot ->
+        AlertDialog(
+            onDismissRequest = { pending = null },
+            title = { Text("Восстановить резервную копию?") },
+            text = {
+                Text("Подписок: ${snapshot.count}. Новые будут добавлены, " +
+                    "совпадающие обновлены, настройки заменены. VPN не включится.")
+            },
+            confirmButton = {
+                TextButton(
+                    modifier = Modifier.tvFocusRing(),
+                    enabled = !busy,
+                    onClick = {
+                        pending = null
+                        scope.launch {
+                            busy = true
+                            try {
+                                val count = withContext(Dispatchers.IO) {
+                                    PhantomBackup.restore(context, snapshot)
+                                }
+                                feedback = "Восстановлено подписок: $count"
+                                onRestored()
+                            } catch (error: Exception) {
+                                feedback = error.message ?: "Не удалось восстановить копию"
+                            } finally {
+                                busy = false
+                            }
+                        }
+                    }
+                ) { Text("Восстановить") }
+            },
+            dismissButton = {
+                TextButton(
+                    modifier = Modifier.tvFocusRing(),
+                    onClick = { pending = null }
+                ) { Text("Отмена") }
             }
         )
     }
