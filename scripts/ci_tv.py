@@ -45,45 +45,36 @@ def screenshot(name):
 
 
 def is_focused(label):
-    """A focused parent row may contain the label as a child text node."""
-    for node in nodes():
-        if node.get("focused") != "true":
-            continue
-        rect = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+    """One consistent UI snapshot avoids focus/text races during D-pad checks."""
+    snapshot = nodes()
+    matches = [n for n in snapshot
+               if label in (n.get("text", ""), n.get("content-desc", ""))]
+    focused = [n for n in snapshot if n.get("focused") == "true"]
+    for focus in focused:
+        rect = list(map(int, re.findall(r"\d+", focus.get("bounds", ""))))
         if len(rect) != 4:
             continue
-        for item in nodes():
-            if label not in (item.get("text", ""), item.get("content-desc", "")):
-                continue
+        for item in matches:
             bounds = list(map(int, re.findall(r"\d+", item.get("bounds", ""))))
-            if len(bounds) == 4 and rect[0] <= bounds[0] and rect[1] <= bounds[1] \
-                    and rect[2] >= bounds[2] and rect[3] >= bounds[3]:
+            if len(bounds) == 4 and rect[0] <= bounds[0] and rect[1] <= bounds[1] and rect[2] >= bounds[2] and rect[3] >= bounds[3]:
                 return True
     return False
 
 
-def remote_to(label, max_moves=30):
-    """Use real keyevent D-pad movement and reject a painted but inert focus."""
-    # Do not move away when BACK has already restored the correct focus.
+def remote_to(label, max_moves=24):
+    """D-pad search in both directions; verifies focused hit, not a touch tap."""
     if is_focused(label):
         return
-    key("DPAD_UP")  # exit Android touch mode left by UI setup
-    if is_focused(label):
-        return
-    for direction in ("DPAD_RIGHT", "DPAD_DOWN", "DPAD_DOWN", "DPAD_DOWN",
-                      "DPAD_UP", "DPAD_LEFT", "DPAD_RIGHT"):
+    for direction in (["DPAD_UP"] * max_moves +
+                      ["DPAD_RIGHT"] + ["DPAD_DOWN"] * max_moves):
         key(direction)
         if is_focused(label):
             return
-    for _ in range(max_moves):
-        key("DPAD_DOWN")
-        if is_focused(label):
-            return
     screenshot("99-tv-remote-focus-failure")
+    snapshot = nodes()
     focused = [(n.get("text", ""), n.get("content-desc", ""), n.get("bounds", ""))
-               for n in nodes() if n.get("focused") == "true"]
+               for n in snapshot if n.get("focused") == "true"]
     raise AssertionError("D-pad never focused " + label + "; focused=" + repr(focused[:8]))
-
 
 def wait_contains(needle, attempts=24):
     for _ in range(attempts):
@@ -374,11 +365,14 @@ if not page_size_16k:
     wait_label("Сохранить")
     key("BACK")
     wait_label("Подключение")
-    # BACK must restore the focus to the connection entry, not lose it
-    # in the navigation rail. Collapse the group with the remote, then walk
-    # down to About (lazily materialized below the viewport).
-    wait_label("Подключение")
-    remote_to("Подключение")
+    # BACK should restore the actual DNS action, not the TV rail.
+    for _ in range(6):
+        if is_focused("DNS"):
+            break
+        time.sleep(.2)
+    assert is_focused("DNS"), "BACK did not restore DNS remote focus"
+    key("DPAD_UP")
+    assert is_focused("Подключение"), "UP from DNS cannot focus connection"
     key("DPAD_CENTER")
     remote_to("О приложении")
     key("DPAD_CENTER")
@@ -387,10 +381,16 @@ if not page_size_16k:
     tap("Компоненты и лицензии")
     wait_label("ВОЗМОЖНОСТИ КЛИЕНТА")
     key("BACK")
-    wait_label("Журнал VPN")
-    tap("Журнал VPN")
+    for _ in range(6):
+        if is_focused("Компоненты и лицензии"):
+            break
+        time.sleep(.2)
+    assert is_focused("Компоненты и лицензии"), "Components BACK lost focus"
+    remote_to("Журнал VPN")
+    key("DPAD_CENTER")
     wait_label("Журнал VPN")
     key("BACK")
+    assert is_focused("Журнал VPN"), "Diagnostics BACK lost focus"
     wait_label("К настройкам")
     tap("К настройкам")
     wait_label("Резервная копия")
