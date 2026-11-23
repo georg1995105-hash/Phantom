@@ -27,6 +27,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
     var timeout by remember { mutableFloatStateOf(LatencyProbe.timeoutMs(context) / 1000f) }
     var autoTuic by remember { mutableStateOf(LatencyProbe.autoTuicEnabled(context)) }
     val tv = isTelevision()
+    val tvScroll = if (tv) Modifier.verticalScroll(rememberScrollState()) else Modifier
     BackHandler { onBack() }
 
     Scaffold(
@@ -41,8 +42,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
         }
     ) { inset ->
         Column(
-            Modifier.fillMaxSize().padding(inset).verticalScroll(rememberScrollState())
-                .padding(18.dp),
+            Modifier.fillMaxSize().padding(inset).then(tvScroll).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp)
         ) {
             Text("Проверка пинга", fontSize = 14.sp,
@@ -87,6 +87,7 @@ fun PingSettingsScreen(onBack: () -> Unit) {
                 Slider(value = timeout, onValueChange = { timeout = it },
                     valueRange = 2f..12f, steps = 9)
             }
+            if (!tv) Spacer(Modifier.weight(1f))
             Button(
                 onClick = {
                     LatencyProbe.configure(context, timeout.toInt())
