@@ -370,7 +370,16 @@ if not page_size_16k:
         if is_focused("DNS"):
             break
         time.sleep(.2)
-    assert is_focused("DNS"), "BACK did not restore DNS remote focus"
+    if not is_focused("DNS"):
+        screenshot("99-tv-dns-back-focus-failure")
+        snapshot = nodes()
+        focused_bounds = [n.get("bounds", "") for n in snapshot
+                          if n.get("focused") == "true"]
+        dns_nodes = [(n.get("text", ""), n.get("bounds", "")) for n in snapshot
+                     if n.get("text", "") in ("DNS", "Подключение")]
+        raise AssertionError("BACK did not restore DNS remote focus; "
+                             "focused_bounds=" + repr(focused_bounds[:4]) +
+                             "; visible_nav=" + repr(dns_nodes[:5]))
     key("DPAD_UP")
     assert is_focused("Подключение"), "UP from DNS cannot focus connection"
     key("DPAD_CENTER")
