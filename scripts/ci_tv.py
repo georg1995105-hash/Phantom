@@ -360,13 +360,14 @@ if not page_size_16k:
     wait_label("Сохранить")
     key("BACK")
     wait_label("Подключение")
-    # Navigate settings by remote keys; expanding items must be reachable by
-    # D-pad scrolling, not only via touch.
-    for _ in range(24):
-        if any(n.get("text") == "О приложении" for n in nodes()):
-            break
-        key("DPAD_DOWN")
-    tap("О приложении")
+    # BACK must restore the focus to the connection entry, not lose it
+    # in the navigation rail. Collapse the group with the remote, then walk
+    # down to About (lazily materialized below the viewport).
+    wait_label("Подключение")
+    remote_to("Подключение")
+    key("DPAD_CENTER")
+    remote_to("О приложении")
+    key("DPAD_CENTER")
     wait_label("Проверить обновление приложения")
     wait_label("Автообновление по Wi-Fi")
     tap("Компоненты и лицензии")
@@ -379,7 +380,8 @@ if not page_size_16k:
     wait_label("К настройкам")
     tap("К настройкам")
     wait_label("Резервная копия")
-    tap("Резервная копия")
+    remote_to("Резервная копия")
+    key("DPAD_CENTER")
     # The owner's real TV returned to the launcher on this exact transition.
     wait_label("Сохранить резервную копию")
     wait_label("Восстановить из файла")

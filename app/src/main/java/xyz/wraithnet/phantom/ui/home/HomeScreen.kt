@@ -42,6 +42,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
@@ -1569,7 +1571,14 @@ private fun PhantomSettings(
     }
     val tv = isTelevision()
     var group by rememberSaveable { mutableStateOf("") }
-    BackHandler(enabled = tv && group.isNotEmpty()) { group = "" }
+    var restoreTvFocus by remember { mutableStateOf("") }
+    val connectionFocus = remember { FocusRequester() }
+    val backupFocus = remember { FocusRequester() }
+    val aboutFocus = remember { FocusRequester() }
+    BackHandler(enabled = tv && group.isNotEmpty()) {
+        if (group == "about") restoreTvFocus = "about"
+        group = ""
+    }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(tv, group) {
         if (tv && group == "background") settingsScroll.animateScrollToItem(4)
@@ -1584,13 +1593,13 @@ private fun PhantomSettings(
         return
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
-    if (showPing) { PingSettingsScreen(onBack = { showPing = false }); return }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false; restoreTvFocus = "network" }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
-    if (showDns) { DnsSettingsScreen(onBack = { showDns = false }); return }
+    if (showDns) { DnsSettingsScreen(onBack = { showDns = false; restoreTvFocus = "network" }); return }
 
     if (showBackup) {
         BackupScreen(
-            onBack = { showBackup = false },
+            onBack = { showBackup = false; restoreTvFocus = "backup" },
             onRestored = {
                 showBackup = false
                 onBackupRestored()
@@ -1633,16 +1642,33 @@ private fun PhantomSettings(
             onCheckUpdate = onCheckAppUpdate,
             onComponents = { showComponents = true },
             onLog = { showLog = true },
-            onBack = { group = "" },
+            onBack = { group = ""; restoreTvFocus = "about" },
         )
         return
+    }
+    // Child screens replace this LazyColumn; focus may otherwise return to the
+    // left navigation rail after BACK on a real remote.
+    LaunchedEffect(tv, restoreTvFocus) {
+        if (!tv || restoreTvFocus.isBlank()) return@LaunchedEffect
+        val destination = restoreTvFocus
+        settingsScroll.scrollToItem(if (destination == "network") 0 else if (destination == "backup") 5 else 6)
+        withFrameNanos { }
+        runCatching {
+            when (destination) {
+                "network" -> connectionFocus.requestFocus()
+                "backup" -> backupFocus.requestFocus()
+                "about" -> aboutFocus.requestFocus()
+            }
+        }
+        restoreTvFocus = ""
     }
     LazyColumn(Modifier.fillMaxSize(), state = settingsScroll,
         contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Panel {
-                SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune) { toggle("network") }
+                SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune,
+                    modifier = Modifier.focusRequester(connectionFocus)) { toggle("network") }
                 if (group == "network") {
                     funActionRow("DNS", Icons.Default.Dns) { showDns = true }
                     funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
@@ -1780,10 +1806,12 @@ private fun PhantomSettings(
                 }
             }
         }
-        item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup) { showBackup = true } } }
+        item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
+            modifier = Modifier.focusRequester(backupFocus)) { showBackup = true } } }
         item {
             Panel {
-                SettingsAction("О приложении", "Phantom $version", Icons.Default.Info) { toggle("about") }
+                SettingsAction("О приложении", "Phantom $version", Icons.Default.Info,
+                    modifier = Modifier.focusRequester(aboutFocus)) { toggle("about") }
                 if (group == "about") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -1825,9 +1853,10 @@ private fun PhantomSettings(
 
 @Composable
 private fun SettingsAction(title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier,
     action: () -> Unit) {
     val tv = isTelevision()
-    Row(Modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
+    Row(modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
         .padding(horizontal = if (tv) 14.dp else 16.dp,
             vertical = if (tv) 11.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
