@@ -1,6 +1,9 @@
 package xyz.wraithnet.phantom.ui
 
 import android.content.res.Configuration
+import xyz.wraithnet.phantom.ui.home.SubscriptionExpansionStore
+import androidx.test.platform.app.InstrumentationRegistry
+import android.content.Context
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -116,6 +119,74 @@ class WideHomeDashboardUiTest {
                 assertEquals(1, scanClicks)
             }
             compose.onAllNodes(hasScrollAction()).assertCountEquals(1)
+        }
+    }
+
+    @Test fun tabletExpandedChoiceSurvivesLeavingAndReturningToDashboard() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+        val key = SubscriptionExpansionStore.preferenceKey("tablet-expanded-restart-test")
+        val original = if (prefs.contains(key)) prefs.getBoolean(key, false) else null
+        prefs.edit().remove(key).commit()
+        try {
+            val server = ServerProfile("restart-nl", "Нидерланды", "vless",
+                raw = "vless://00000000-0000-0000-0000-000000000011@test.example:443#NL")
+            val owner = Subscription("tablet-expanded-restart-test", "Состояние",
+                "https://example.com/sub", listOf(server))
+            var dashboardVisible by mutableStateOf(true)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    val tablet = Configuration(activity.resources.configuration).apply {
+                        screenWidthDp = 900
+                        smallestScreenWidthDp = 900
+                        screenHeightDp = 600
+                        uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or
+                            Configuration.UI_MODE_TYPE_NORMAL
+                    }
+                    activity.setContent {
+                        CompositionLocalProvider(LocalConfiguration provides tablet) {
+                            PhantomTheme {
+                                if (dashboardVisible) WideHomeDashboard(
+                                    status = "disconnected", selected = null,
+                                    download = -1, upload = -1, seconds = 0,
+                                    subscriptions = listOf(owner), pinnedId = null,
+                                    favorites = emptySet(), latency = emptyMap(),
+                                    measuring = emptyMap(), refreshing = emptySet(),
+                                    probing = emptySet(), failed = emptySet(),
+                                    importing = false, focusEpoch = 0, modalVisible = false,
+                                    onToggle = {}, onSelect = { _, _ -> },
+                                    onRefresh = {}, onManage = {}, onProbe = {},
+                                    onManualPing = {}, onFavorite = {},
+                                    onImport = {}, onPairQr = null, onScanQr = null,
+                                    onShowError = null, onOpenUrl = {}
+                                )
+                            }
+                        }
+                    }
+                }
+                val list = compose.onNode(hasScrollAction())
+                list.performScrollToNode(hasContentDescription("Свернуть подписку Состояние"))
+                compose.awaitVisible(hasContentDescription("Свернуть подписку Состояние"))
+                    .performClick()
+                compose.onAllNodes(hasContentDescription("Выбрать сервер Нидерланды"))
+                    .assertCountEquals(0)
+
+                // Re-entering the tab destroys and recreates the composable.
+                compose.runOnIdle { dashboardVisible = false }
+                compose.runOnIdle { dashboardVisible = true }
+                compose.awaitVisible(hasContentDescription("Раскрыть подписку Состояние"))
+                compose.onAllNodes(hasContentDescription("Выбрать сервер Нидерланды"))
+                    .assertCountEquals(0)
+
+                compose.awaitVisible(hasContentDescription("Раскрыть подписку Состояние"))
+                    .performClick()
+                compose.awaitVisible(hasContentDescription("Выбрать сервер Нидерланды"))
+                assertTrue(SubscriptionExpansionStore(context).isExpanded(owner.id, false))
+            }
+        } finally {
+            prefs.edit().apply {
+                if (original == null) remove(key) else putBoolean(key, original)
+            }.commit()
         }
     }
 
