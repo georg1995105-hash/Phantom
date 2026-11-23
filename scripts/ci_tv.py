@@ -322,7 +322,9 @@ if not page_size_16k:
     # All servers are reachable directly on Home in two columns.
     # The separate Servers rail tab is intentionally absent.
     assert not any(n.get("content-desc") == "Вкладка Серверы" for n in nodes())
-    wait_label("Серверы")
+    # The redundant "Серверы" heading was intentionally removed in 0.3.26.
+    # Verify the actual remote-selectable server instead of stale decoration.
+    wait_label("Выбрать сервер " + label)
     wait_label("В избранное")
     wait_label("Открыть JSON конфигурации " + label)
     wait_label("Подключить VPN")
