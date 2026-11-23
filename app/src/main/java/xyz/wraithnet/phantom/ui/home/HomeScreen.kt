@@ -1485,10 +1485,11 @@ private fun funActionRow(
     title: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val tv = isTelevision()
-    Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 48.dp else 55.dp)
+    Row(modifier.fillMaxWidth().heightIn(min = if (tv) 48.dp else 55.dp)
         .tvFocusRing().clickable(enabled = enabled, onClick = onClick)
         .padding(horizontal = if (tv) 12.dp else 16.dp),
         verticalAlignment = Alignment.CenterVertically) {
@@ -1576,11 +1577,16 @@ private fun PhantomSettings(
     var group by rememberSaveable { mutableStateOf("") }
     var restoreTvFocus by remember { mutableStateOf("") }
     val connectionFocus = remember { FocusRequester() }
+    val dnsFocus = remember { FocusRequester() }
+    val pingFocus = remember { FocusRequester() }
     val backupFocus = remember { FocusRequester() }
     val aboutFocus = remember { FocusRequester() }
     var connectionHasFocus by remember { mutableStateOf(false) }
+    var dnsHasFocus by remember { mutableStateOf(false) }
+    var pingHasFocus by remember { mutableStateOf(false) }
     var backupHasFocus by remember { mutableStateOf(false) }
     var aboutHasFocus by remember { mutableStateOf(false) }
+    var restoreAboutFocus by remember { mutableStateOf("") }
     BackHandler(enabled = tv && group.isNotEmpty()) {
         if (group == "about") restoreTvFocus = "about"
         group = ""
@@ -1598,10 +1604,10 @@ private fun PhantomSettings(
         )
         return
     }
-    if (showLog) { DiagnosticsScreen(onBack = { showLog = false }); return }
-    if (showPing) { PingSettingsScreen(onBack = { showPing = false; restoreTvFocus = "network" }); return }
+    if (showLog) { DiagnosticsScreen(onBack = { showLog = false; restoreAboutFocus = "log" }); return }
+    if (showPing) { PingSettingsScreen(onBack = { showPing = false; restoreTvFocus = "ping" }); return }
     if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
-    if (showDns) { DnsSettingsScreen(onBack = { showDns = false; restoreTvFocus = "network" }); return }
+    if (showDns) { DnsSettingsScreen(onBack = { showDns = false; restoreTvFocus = "dns" }); return }
 
     if (showBackup) {
         BackupScreen(
@@ -1614,7 +1620,7 @@ private fun PhantomSettings(
         return
     }
     if (showComponents) {
-        ComponentsScreen(onBack = { showComponents = false })
+        ComponentsScreen(onBack = { showComponents = false; restoreAboutFocus = "components" })
         return
     }
     val version = remember {
@@ -1648,6 +1654,8 @@ private fun PhantomSettings(
             onCheckUpdate = onCheckAppUpdate,
             onComponents = { showComponents = true },
             onLog = { showLog = true },
+            focusOnReturn = restoreAboutFocus,
+            onFocusRestored = { restoreAboutFocus = "" },
             onBack = { group = ""; restoreTvFocus = "about" },
         )
         return
@@ -1659,16 +1667,19 @@ private fun PhantomSettings(
         val destination = restoreTvFocus
         // LazyColumn may not yet have mounted the target item after leaving a
         // child screen. A single request silently fails or targets the TV rail.
-        settingsScroll.scrollToItem(when (destination) {
-            "network" -> 0
+        val targetIndex = when (destination) {
+            "network", "dns", "ping" -> 0
             "backup" -> 5
             else -> 6
-        })
+        }
         repeat(24) {
+            settingsScroll.scrollToItem(targetIndex)
             withFrameNanos { }
             runCatching {
                 when (destination) {
                     "network" -> connectionFocus.requestFocus()
+                    "dns" -> dnsFocus.requestFocus()
+                    "ping" -> pingFocus.requestFocus()
                     "backup" -> backupFocus.requestFocus()
                     "about" -> aboutFocus.requestFocus()
                 }
@@ -1676,6 +1687,8 @@ private fun PhantomSettings(
             withFrameNanos { }
             val restored = when (destination) {
                 "network" -> connectionHasFocus
+                "dns" -> dnsHasFocus
+                "ping" -> pingHasFocus
                 "backup" -> backupHasFocus
                 "about" -> aboutHasFocus
                 else -> true
@@ -1695,10 +1708,14 @@ private fun PhantomSettings(
             Panel {
                 SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune,
                     modifier = Modifier.focusRequester(connectionFocus)
-                        .onFocusChanged { connectionHasFocus = it.isFocused }) { toggle("network") }
+                        .onFocusChanged { connectionHasFocus = it.hasFocus }) { toggle("network") }
                 if (group == "network") {
-                    funActionRow("DNS", Icons.Default.Dns) { showDns = true }
-                    funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
+                    funActionRow("DNS", Icons.Default.Dns,
+                        modifier = Modifier.focusRequester(dnsFocus)
+                            .onFocusChanged { dnsHasFocus = it.hasFocus }) { showDns = true }
+                    funActionRow("Пинг серверов", Icons.Default.Speed,
+                        modifier = Modifier.focusRequester(pingFocus)
+                            .onFocusChanged { pingHasFocus = it.hasFocus }) { showPing = true }
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = if (tv) 66.dp else 48.dp)
                             .tvFocusRing()
@@ -1835,12 +1852,12 @@ private fun PhantomSettings(
         }
         item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
             modifier = Modifier.focusRequester(backupFocus)
-                .onFocusChanged { backupHasFocus = it.isFocused }) { showBackup = true } } }
+                .onFocusChanged { backupHasFocus = it.hasFocus }) { showBackup = true } } }
         item {
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info,
                     modifier = Modifier.focusRequester(aboutFocus)
-                        .onFocusChanged { aboutHasFocus = it.isFocused }) { toggle("about") }
+                        .onFocusChanged { aboutHasFocus = it.hasFocus }) { toggle("about") }
                 if (group == "about") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
