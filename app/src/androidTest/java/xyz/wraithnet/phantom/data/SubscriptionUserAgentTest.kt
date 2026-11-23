@@ -62,7 +62,7 @@ class SubscriptionUserAgentTest {
                 ActivityScenario.launch<MainActivity>(intent).use {
                     received("import")
                     val refresh = compose.awaitVisible(
-                        hasContentDescription("Обновить выбранную подписку") and isEnabled()
+                        hasContentDescription("Обновить подписку", substring = true) and isEnabled()
                     )
                     val importedAt = store.read().single().updatedAt
                     refresh.performTouchInput { click() }
