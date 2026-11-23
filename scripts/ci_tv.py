@@ -1,5 +1,6 @@
 """Exercise both native VPN cores on x86 TV and the x86_64 16 KiB image."""
 import json
+import os
 import re
 from pathlib import Path
 import shlex
@@ -32,6 +33,59 @@ def nodes():
     result.check_returncode()
     assert "UI hierchary dumped to" in result.stdout or "UI hierarchy dumped to" in result.stdout, result
     return list(ET.fromstring(adb("shell", "cat", "/sdcard/tv-ui.xml")).iter("node"))
+
+
+def screenshot(name):
+    """Real pixels from the running Android TV emulator, never a design mock."""
+    os.makedirs("tv-screens", exist_ok=True)
+    with open("tv-screens/" + name + ".png", "wb") as output:
+        subprocess.run(["adb", "exec-out", "screencap", "-p"],
+                       stdout=output, check=True)
+    assert Path("tv-screens/" + name + ".png").stat().st_size > 2000
+
+
+def is_focused(label):
+    """A focused parent row may contain the label as a child text node."""
+    for node in nodes():
+        if node.get("focused") != "true":
+            continue
+        rect = list(map(int, re.findall(r"\d+", node.get("bounds", ""))))
+        if len(rect) != 4:
+            continue
+        for item in nodes():
+            if label not in (item.get("text", ""), item.get("content-desc", "")):
+                continue
+            bounds = list(map(int, re.findall(r"\d+", item.get("bounds", ""))))
+            if len(bounds) == 4 and rect[0] <= bounds[0] and rect[1] <= bounds[1] \
+                    and rect[2] >= bounds[2] and rect[3] >= bounds[3]:
+                return True
+    return False
+
+
+def remote_to(label, max_moves=30):
+    """Use real keyevent D-pad movement and reject a painted but inert focus."""
+    key("DPAD_UP")  # exit Android touch mode left by UI setup
+    if is_focused(label):
+        return
+    for direction in ("DPAD_RIGHT", "DPAD_DOWN", "DPAD_DOWN", "DPAD_DOWN",
+                      "DPAD_UP", "DPAD_LEFT", "DPAD_RIGHT"):
+        key(direction)
+        if is_focused(label):
+            return
+    for _ in range(max_moves):
+        key("DPAD_DOWN")
+        if is_focused(label):
+            return
+    raise AssertionError("D-pad never focused " + label)
+
+
+def wait_contains(needle, attempts=24):
+    for _ in range(attempts):
+        if any(needle in (n.get("text", "") + n.get("content-desc", ""))
+               for n in nodes()):
+            return
+        time.sleep(.4)
+    raise AssertionError("TV never displayed " + needle)
 
 
 def report_singbox_exit():
@@ -276,8 +330,30 @@ if not page_size_16k:
     wait_label("В магазин")
     tap("Вкладка Настройки")
     wait_label("Подключение")
+    screenshot("01-settings")
     tap("Подключение")
     wait_label("DNS")
+    wait_label("Фрагментация TLS")
+    screenshot("02-connection")
+    # Explicitly exercise the previously skipped TLS switch using OK, not tap.
+    remote_to("Фрагментация TLS")
+    key("DPAD_CENTER")
+    assert any(n.get("text") == "Применить параметры" for n in nodes()), (
+        "OK did not enable TLS fragmentation")
+    key("DPAD_CENTER")
+    assert not any(n.get("text") == "Применить параметры" for n in nodes()), (
+        "Second OK did not disable TLS fragmentation")
+    tap("Пинг серверов")
+    wait_label("Автоматический пинг TUIC")
+    wait_label("+ 1 сек")
+    screenshot("03-ping")
+    # D-pad activation must work on the full switch row.
+    remote_to("Автоматический пинг TUIC")
+    key("DPAD_CENTER")
+    # Discard changed preference by toggling back before saving.
+    key("DPAD_CENTER")
+    tap("Сохранить")
+    wait_label("Подключение")
     tap("DNS")
     wait_label("Сохранить")
     key("BACK")
@@ -301,6 +377,28 @@ if not page_size_16k:
     wait_label("К настройкам")
     tap("К настройкам")
     wait_label("Резервная копия")
+    tap("Резервная копия")
+    # The owner's real TV returned to the launcher on this exact transition.
+    wait_label("Сохранить резервную копию")
+    wait_label("Восстановить из файла")
+    assert adb("shell", "pidof", "-s", PACKAGE).strip(), "Backup screen killed Phantom"
+    screenshot("04-backup")
+    # Save via the physical remote, not the Android system file picker.
+    remote_to("Сохранить резервную копию")
+    key("DPAD_CENTER")
+    wait_contains("Сохранено:")
+    screenshot("05-backup-saved")
+    tap("Восстановить из файла")
+    wait_label("Восстановить резервную копию?")
+    key("BACK")  # cancellation must preserve all existing profiles
+    wait_label("Восстановить из файла")
+    tap("Восстановить из файла")
+    wait_label("Восстановить резервную копию?")
+    tap("Восстановить")
+    wait_label(label)  # restored mock server remains available
+    tap("Вкладка Настройки")
+    wait_label("Подключение")
     tap("Вкладка Главная")
     wait_label("Подключить VPN")
-    print("Android TV: D-pad, unified server grid, three rail tabs, VPN cores, DNS, About, journal and Back passed")
+    screenshot("06-home-after-restore")
+    print("Android TV: D-pad TLS and TUIC toggles, backup export/restore, focus, VPN cores, DNS and Back passed")
