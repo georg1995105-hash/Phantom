@@ -1665,6 +1665,15 @@ private fun PhantomSettings(
     LaunchedEffect(tv, restoreTvFocus) {
         if (!tv || restoreTvFocus.isBlank()) return@LaunchedEffect
         val destination = restoreTvFocus
+        // BACK may collapse the network group on some TV firmware before the
+        // child handler disposes its screen. Without reopening it there is no
+        // DNS/ping focus target to restore to.
+        if (destination == "dns" || destination == "ping") {
+            if (group != "network") {
+                group = "network"
+                withFrameNanos { }
+            }
+        }
         // LazyColumn may not yet have mounted the target item after leaving a
         // child screen. A single request silently fails or targets the TV rail.
         val targetIndex = when (destination) {
@@ -1675,15 +1684,16 @@ private fun PhantomSettings(
         repeat(24) {
             settingsScroll.scrollToItem(targetIndex)
             withFrameNanos { }
-            runCatching {
+            val requested = runCatching {
                 when (destination) {
                     "network" -> connectionFocus.requestFocus()
                     "dns" -> dnsFocus.requestFocus()
                     "ping" -> pingFocus.requestFocus()
                     "backup" -> backupFocus.requestFocus()
                     "about" -> aboutFocus.requestFocus()
+                    else -> false
                 }
-            }
+            }.getOrDefault(false)
             withFrameNanos { }
             val restored = when (destination) {
                 "network" -> connectionHasFocus
@@ -1693,7 +1703,9 @@ private fun PhantomSettings(
                 "about" -> aboutHasFocus
                 else -> true
             }
-            if (restored) {
+            // Do not accept an old hasFocus=true from the row we navigated
+            // away from: the request must succeed on the NEW mounted row.
+            if (requested && restored) {
                 restoreTvFocus = ""
                 return@LaunchedEffect
             }
@@ -1712,10 +1724,16 @@ private fun PhantomSettings(
                 if (group == "network") {
                     funActionRow("DNS", Icons.Default.Dns,
                         modifier = Modifier.focusRequester(dnsFocus)
-                            .onFocusChanged { dnsHasFocus = it.hasFocus }) { showDns = true }
+                            .onFocusChanged { dnsHasFocus = it.hasFocus }) {
+                        dnsHasFocus = false
+                        showDns = true
+                    }
                     funActionRow("Пинг серверов", Icons.Default.Speed,
                         modifier = Modifier.focusRequester(pingFocus)
-                            .onFocusChanged { pingHasFocus = it.hasFocus }) { showPing = true }
+                            .onFocusChanged { pingHasFocus = it.hasFocus }) {
+                        pingHasFocus = false
+                        showPing = true
+                    }
                     // Keep the existing touch-only Switch behavior on phones/tablets.
                     // A remote can toggle the entire row on Android TV.
                     val onFragmentToggle: (Boolean) -> Unit = { enabled ->
@@ -1857,12 +1875,18 @@ private fun PhantomSettings(
         }
         item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
             modifier = Modifier.focusRequester(backupFocus)
-                .onFocusChanged { backupHasFocus = it.hasFocus }) { showBackup = true } } }
+                .onFocusChanged { backupHasFocus = it.hasFocus }) {
+                backupHasFocus = false
+                showBackup = true
+            } } }
         item {
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info,
                     modifier = Modifier.focusRequester(aboutFocus)
-                        .onFocusChanged { aboutHasFocus = it.hasFocus }) { toggle("about") }
+                        .onFocusChanged { aboutHasFocus = it.hasFocus }) {
+                    aboutHasFocus = false
+                    toggle("about")
+                }
                 if (group == "about") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
