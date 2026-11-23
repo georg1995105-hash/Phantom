@@ -66,8 +66,9 @@ fun PingSettingsScreen(onBack: () -> Unit) {
                     Text("Дополнительный процесс sing-box с QUIC. По умолчанию отключён для стабильности соединения; вручную доступен в списке серверов.",
                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                val onTouchChange: (Boolean) -> Unit = { checked -> autoTuic = checked }
                 Switch(checked = autoTuic,
-                    onCheckedChange = if (tv) null else { autoTuic = it })
+                    onCheckedChange = if (tv) null else onTouchChange)
             }
             HorizontalDivider()
             Text("Тайм-аут: " + timeout.toInt() + " сек",
