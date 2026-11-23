@@ -350,7 +350,8 @@ if not page_size_16k:
     key("DPAD_CENTER")
     assert not any(n.get("text") == "Применить параметры" for n in nodes()), (
         "Second OK did not disable TLS fragmentation")
-    tap("Пинг серверов")
+    remote_to("Пинг серверов")
+    key("DPAD_CENTER")
     wait_label("Автоматический пинг TUIC")
     wait_label("+ 1 сек")
     screenshot("03-ping")
@@ -359,9 +360,11 @@ if not page_size_16k:
     key("DPAD_CENTER")
     # Discard changed preference by toggling back before saving.
     key("DPAD_CENTER")
-    tap("Сохранить")
+    remote_to("Сохранить")
+    key("DPAD_CENTER")
     wait_label("Подключение")
-    tap("DNS")
+    remote_to("DNS")
+    key("DPAD_CENTER")
     wait_label("Сохранить")
     key("BACK")
     wait_label("Подключение")
@@ -387,7 +390,8 @@ if not page_size_16k:
     key("DPAD_CENTER")
     wait_label("Проверить обновление приложения")
     wait_label("Автообновление по Wi-Fi")
-    tap("Компоненты и лицензии")
+    remote_to("Компоненты и лицензии")
+    key("DPAD_CENTER")
     wait_label("ВОЗМОЖНОСТИ КЛИЕНТА")
     key("BACK")
     for _ in range(6):
