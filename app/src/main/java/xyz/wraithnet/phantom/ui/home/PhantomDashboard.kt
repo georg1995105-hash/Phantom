@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
@@ -805,6 +806,7 @@ internal fun subscriptionAccessSnapshot(sub: Subscription, nowSeconds: Long): Su
 @Composable
 private fun SubscriptionAccessSummary(sub: Subscription) {
     val colors = MaterialTheme.colorScheme
+    val tv = isTelevision()
     val access = subscriptionAccessSnapshot(sub, System.currentTimeMillis() / 1000L)
     val status = when (access.daysRemaining) {
         null -> "Срок не указан"
@@ -820,9 +822,13 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
         0L -> "Без лимита"
         else -> access.limitBytes?.let(::sizeLabel) ?: "Не указан"
     }
-    Surface(color = colors.surfaceVariant.copy(alpha = .37f),
+    Surface(
+        modifier = if (tv) Modifier.tvFocusRing(RoundedCornerShape(16.dp))
+            .focusable() else Modifier,
+        color = colors.surfaceVariant.copy(alpha = .37f),
         shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))) {
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = .2f))
+    ) {
         Column(Modifier.fillMaxWidth().padding(11.dp)) {
             Text("ВЫБРАННАЯ ПОДПИСКА", fontSize = 10.sp,
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
@@ -830,7 +836,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
             Spacer(Modifier.height(5.dp))
             Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                maxLines = if (tv) 4 else 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = colors.outline.copy(alpha = .2f))
             Spacer(Modifier.height(8.dp))
@@ -875,8 +881,6 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
             ) {
                 Column(Modifier.fillMaxWidth().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("PHANTOM VPN", color = colors.primary,
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     Text("Ваш доступ", style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold)
                     if (currentSubscription != null) {
