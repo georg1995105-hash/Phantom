@@ -1931,8 +1931,34 @@ private fun TvAboutSettings(
     onCheckUpdate: () -> Unit,
     onComponents: () -> Unit,
     onLog: () -> Unit,
+    focusOnReturn: String,
+    onFocusRestored: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val componentsFocus = remember { FocusRequester() }
+    val logFocus = remember { FocusRequester() }
+    var componentsHasFocus by remember { mutableStateOf(false) }
+    var logHasFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(focusOnReturn) {
+        if (focusOnReturn.isBlank()) return@LaunchedEffect
+        repeat(16) {
+            withFrameNanos { }
+            runCatching {
+                when (focusOnReturn) {
+                    "components" -> componentsFocus.requestFocus()
+                    "log" -> logFocus.requestFocus()
+                }
+            }
+            withFrameNanos { }
+            if ((focusOnReturn == "components" && componentsHasFocus) ||
+                (focusOnReturn == "log" && logHasFocus)) {
+                onFocusRestored()
+                return@LaunchedEffect
+            }
+            delay(80)
+        }
+        onFocusRestored()
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 12.dp),
@@ -1986,8 +2012,13 @@ private fun TvAboutSettings(
             funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt,
                 onClick = onCheckUpdate)
             funActionRow("Компоненты и лицензии", Icons.Default.Layers,
+                modifier = Modifier.focusRequester(componentsFocus)
+                    .onFocusChanged { componentsHasFocus = it.hasFocus },
                 onClick = onComponents)
-            funActionRow("Журнал VPN", Icons.Default.List, onClick = onLog)
+            funActionRow("Журнал VPN", Icons.Default.List,
+                modifier = Modifier.focusRequester(logFocus)
+                    .onFocusChanged { logHasFocus = it.hasFocus },
+                onClick = onLog)
         }
     }
 }
