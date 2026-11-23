@@ -673,7 +673,9 @@ fun HomeScreen(
                 }
                 availableUpdate = result
                 if (result != null && !otaDismissed) {
-                    otaManuallyRequested = false
+                    // Switching channels from Settings should show a newly
+                    // available update right away, without leaving Settings.
+                    otaManuallyRequested = requestEpoch > 0
                     showOtaSheet = true
                 }
                 otaError = null
