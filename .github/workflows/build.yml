@@ -88,6 +88,10 @@ jobs:
           test -n "$VERSION"
           grep -Fxq "# PHANTOM VPN $VERSION" RELEASE_NOTES.md
 
+      - name: Verify byte-exact delta generation and corruption fallback
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_apk_delta.py' -v
+
       - name: Build and test single universal APK
         run: |
           set -euo pipefail

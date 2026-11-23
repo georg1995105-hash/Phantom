@@ -46,6 +46,43 @@ class PhantomUpdatesVersionTest {
                 .put("browser_download_url", "https://example.org/phantom.apk")), choices))
     }
 
+    @Test fun deltaAssetIsOfferedOnlyToExactInstalledOfficialVersion() {
+        fun asset(name: String, urlVersion: String, size: Long) =
+            org.json.JSONObject().put("name", name)
+                .put("size", size)
+                .put("state", "uploaded")
+                .put("digest", "sha256:" + "a".repeat(64))
+                .put("browser_download_url",
+                    "https://github.com/georg1995105-hash/Phantom/releases/download/" +
+                        urlVersion + "/" + name)
+        val nextTag = "v0.3.25"
+        val full = asset(PhantomUpdates.UNIVERSAL_APK, nextTag, 184_000_000)
+        val patch = asset("phantom-delta-from-v0.3.24.apkdelta", nextTag, 8_000_000)
+        val wrongTag = asset("phantom-delta-from-v0.3.23.apkdelta", nextTag, 9_000_000)
+        val json = org.json.JSONArray().put(
+            org.json.JSONObject().put("tag_name", nextTag)
+                .put("draft", false).put("prerelease", false)
+                .put("assets", org.json.JSONArray().put(patch).put(full).put(wrongTag))
+        )
+        val assets = PhantomUpdates.assetCandidates(listOf("arm64-v8a"))
+        val withDelta = PhantomUpdates.findAvailableRelease(
+            json, "0.3.24", UpdateChannel.STABLE, assets)
+        assertEquals("0.3.25", withDelta?.version)
+        assertEquals("0.3.24", withDelta?.delta?.fromVersion)
+        assertEquals(8_000_000L, withDelta?.delta?.sizeBytes)
+        assertEquals(184_000_000L, withDelta?.sizeBytes)
+        val oldVersion = PhantomUpdates.findAvailableRelease(
+            json, "0.3.22", UpdateChannel.STABLE, assets)
+        assertNull(oldVersion?.delta)
+        val invalidUrl = org.json.JSONArray().put(org.json.JSONObject()
+            .put("tag_name", nextTag).put("draft", false).put("prerelease", false)
+            .put("assets", org.json.JSONArray().put(full)
+                .put(asset("phantom-delta-from-v0.3.24.apkdelta",
+                    "v0.3.24", 8_000_000))))
+        assertNull(PhantomUpdates.findAvailableRelease(
+            invalidUrl, "0.3.24", UpdateChannel.STABLE, assets)?.delta)
+    }
+
     @Test fun resumedApkRequiresExactHttpContentRange() {
         assertTrue(PhantomUpdates.validContentRange("bytes 1024-2047/4096", 1024, 4096))
         assertTrue(PhantomUpdates.validContentRange("bytes 0-4095/4096", 0, 4096))

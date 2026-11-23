@@ -20,6 +20,7 @@ import android.os.SystemClock
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.sync.Mutex
@@ -31,6 +32,14 @@ data class PhantomRelease(
     val sizeBytes: Long,
     val notes: String,
     val isBeta: Boolean = false,
+    val delta: PhantomDeltaAsset? = null,
+)
+
+data class PhantomDeltaAsset(
+    val fromVersion: String,
+    val downloadUrl: String,
+    val sha256: String,
+    val sizeBytes: Long,
 )
 
 enum class UpdateChannel { STABLE, BETA }
@@ -178,6 +187,20 @@ object PhantomUpdates {
             // An asset from a different tag must never masquerade as this release.
             if (!asset.optString("browser_download_url")
                     .startsWith("$PREFIX$tag/")) continue
+            val delta = chooseAsset(
+                assets, listOf("phantom-delta-from-v$installed.apkdelta")
+            )?.takeIf {
+                it.optString("browser_download_url").startsWith("$PREFIX$tag/") &&
+                    it.optLong("size") in 92L..(asset.optLong("size") * 8L / 10L)
+            }?.let {
+                PhantomDeltaAsset(
+                    fromVersion = installed,
+                    downloadUrl = it.getString("browser_download_url"),
+                    sha256 = it.getString("digest").removePrefix("sha256:")
+                        .lowercase(Locale.ROOT),
+                    sizeBytes = it.getLong("size")
+                )
+            }
             best = PhantomRelease(
                 version = version,
                 downloadUrl = asset.getString("browser_download_url"),
@@ -185,7 +208,8 @@ object PhantomUpdates {
                     .lowercase(Locale.ROOT),
                 sizeBytes = asset.getLong("size"),
                 notes = item.optString("body").take(1500),
-                isBeta = prerelease
+                isBeta = prerelease,
+                delta = delta
             )
         }
         return best
@@ -215,9 +239,27 @@ object PhantomUpdates {
         release: PhantomRelease,
         onProgress: (Int) -> Unit,
         onSpeed: ((Long) -> Unit)? = null,
+        onStatus: ((String) -> Unit)? = null,
     ): File {
         downloadMutex.lock()
         try {
+            val patch = release.delta
+            if (patch != null && hasOfficialSigningCertificate(context) == true) {
+                try {
+                    onStatus?.invoke("Загружаем только изменения")
+                    return downloadAndApplyDelta(context, release, patch,
+                        onProgress, onSpeed)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (error: Exception) {
+                    // Never install an unverified patch or require the user to
+                    // manually recover; download the signed full APK instead.
+                    VpnEventLog.record(context, "update",
+                        "Delta пропущена: ${error.javaClass.simpleName}; полный APK")
+                    onStatus?.invoke("Полная загрузка — патч не подошёл")
+                    onProgress(0)
+                }
+            }
             require(release.downloadUrl.startsWith(PREFIX) &&
                 release.sha256.matches(Regex("[a-f0-9]{64}"))) {
                 "Источник обновления не прошёл проверку"
@@ -353,6 +395,130 @@ object PhantomUpdates {
             }
         } finally {
             downloadMutex.unlock()
+        }
+    }
+
+    /** Download the small verified patch and reconstruct the signed release APK
+     * from the currently installed base.apk. Any mismatch falls back to the
+     * existing full download, with no user intervention.
+     */
+    private suspend fun downloadAndApplyDelta(
+        context: Context,
+        release: PhantomRelease,
+        delta: PhantomDeltaAsset,
+        onProgress: (Int) -> Unit,
+        onSpeed: ((Long) -> Unit)?
+    ): File {
+        require(delta.fromVersion == context.packageManager
+            .getPackageInfo(context.packageName, 0).versionName) {
+            "Этот патч предназначен для другой версии"
+        }
+        require(delta.downloadUrl.startsWith(PREFIX) &&
+            delta.sha256.matches(Regex("[a-f0-9]{64}")) &&
+            delta.sizeBytes in 92L until release.sizeBytes * 8L / 10L) {
+            "Неверные сведения пакета изменений"
+        }
+        val directory = File(context.cacheDir, "updates").apply { mkdirs() }
+        val patchFile = File(directory,
+            "delta-${release.version}-${delta.sha256.take(16)}.apkdelta")
+        val patchPart = File(directory, patchFile.name + ".part")
+        val job = currentCoroutineContext()
+
+        fun verifiedPatch(file: File): Boolean = file.length() == delta.sizeBytes &&
+            PhantomDelta.sha256(file).joinToString("") {
+                "%02x".format(it.toInt() and 0xff)
+            } == delta.sha256
+
+        if (!verifiedPatch(patchFile)) {
+            patchFile.delete()
+            var lastError: Exception? = null
+            for (attempt in 0 until 3) {
+                job.ensureActive()
+                patchPart.delete()
+                try {
+                    val started = SystemClock.elapsedRealtime()
+                    PhantomHttp.get(context, delta.downloadUrl,
+                        headers = mapOf(
+                            "User-Agent" to "PhantomVPN-Android",
+                            "Accept-Encoding" to "identity"
+                        ), callTimeoutMs = 0L) { response ->
+                        require(response.code == 200) {
+                            "Сервер не вернул полный пакет изменений"
+                        }
+                        val input = response.body?.byteStream()
+                            ?: error("Сервер вернул пустой пакет изменений")
+                        FileOutputStream(patchPart).use { output ->
+                            input.use { stream ->
+                                val buffer = ByteArray(64 * 1024)
+                                var received = 0L
+                                while (true) {
+                                    job.ensureActive()
+                                    val read = stream.read(buffer)
+                                    if (read < 0) break
+                                    if (read == 0) continue
+                                    received += read
+                                    require(received <= delta.sizeBytes) {
+                                        "Размер патча превышает ожидаемый"
+                                    }
+                                    output.write(buffer, 0, read)
+                                    onProgress((received * 65 / delta.sizeBytes)
+                                        .toInt().coerceIn(0, 65))
+                                    val elapsed = SystemClock.elapsedRealtime() - started
+                                    if (elapsed > 1000) onSpeed?.invoke(
+                                        received * 1000L / elapsed)
+                                }
+                            }
+                        }
+                    }
+                    require(verifiedPatch(patchPart)) {
+                        "SHA-256 пакета изменений не совпадает"
+                    }
+                    require(patchPart.renameTo(patchFile)) {
+                        "Не удалось сохранить проверенный патч"
+                    }
+                    lastError = null
+                    break
+                } catch (cancel: CancellationException) {
+                    patchPart.delete()
+                    throw cancel
+                } catch (error: Exception) {
+                    lastError = error
+                    patchPart.delete()
+                    if (attempt < 2) delay((attempt + 1) * 650L)
+                }
+            }
+            if (lastError != null) throw lastError
+        }
+
+        val reconstructed = File(directory, "delta-rebuilt-${release.version}.apk")
+        val target = File(directory, "phantom-${release.version}.apk")
+        try {
+            withContext(Dispatchers.IO) {
+                PhantomDelta.reconstruct(
+                    installedApk = File(context.applicationInfo.sourceDir),
+                    patchFile = patchFile,
+                    targetFile = reconstructed,
+                    expectedTargetSha256 = release.sha256,
+                    expectedTargetLength = release.sizeBytes,
+                    onProgress = onProgress,
+                    ensureActive = { job.ensureActive() }
+                )
+                verifyApk(context, reconstructed, release.version)
+                if (target.exists() && !target.delete()) {
+                    throw IOException("Не удалось заменить предыдущий APK")
+                }
+                require(reconstructed.renameTo(target)) {
+                    "Не удалось сохранить APK после проверки"
+                }
+            }
+            onProgress(100)
+            VpnEventLog.record(context, "update",
+                "Delta OTA: ${delta.sizeBytes / 1048576} МиБ вместо " +
+                    "${release.sizeBytes / 1048576} МиБ; подпись и SHA-256 проверены")
+            return target
+        } finally {
+            reconstructed.delete()
+            patchPart.delete()
         }
     }
 

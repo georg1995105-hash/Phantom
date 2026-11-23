@@ -23,6 +23,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import xyz.wraithnet.phantom.MainActivity
 import xyz.wraithnet.phantom.data.PhantomRelease
+import xyz.wraithnet.phantom.data.PhantomDeltaAsset
 import xyz.wraithnet.phantom.ui.home.AppUpdateSheet
 import xyz.wraithnet.phantom.ui.theme.PhantomTheme
 
@@ -45,6 +46,38 @@ class AppUpdateSheetUiTest {
             }
             compose.awaitVisible(hasText("Бета-версия 0.3.25-beta.1"))
             compose.awaitVisible(hasText("Обновить"))
+        }
+    }
+
+    @Test fun deltaShowsSavingsWithoutExtraBrowserButtonInNormalFlow() {
+        val release = PhantomRelease(
+            version = "0.3.26",
+            downloadUrl = "",
+            sha256 = "a".repeat(64),
+            sizeBytes = 184_000_000,
+            notes = "- Оптимизация",
+            delta = PhantomDeltaAsset(
+                fromVersion = "0.3.25",
+                downloadUrl = "",
+                sha256 = "b".repeat(64),
+                sizeBytes = 4_000_000
+            )
+        )
+        var installs = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    PhantomTheme {
+                        AppUpdateSheet(release, false, 0, 0L, false, null,
+                            onLater = {}, onUpdate = { installs++ },
+                            onDownloadInBrowser = {}, onCancelDownload = {})
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Экономное обновление", substring = true))
+            compose.onAllNodes(hasText("Скачать через браузер")).assertCountEquals(0)
+            compose.awaitVisible(hasText("Обновить")).performClick()
+            compose.runOnIdle { assertTrue(installs == 1) }
         }
     }
 

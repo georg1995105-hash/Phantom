@@ -634,6 +634,7 @@ internal fun AppUpdateSheet(
     speedBytesPerSecond: Long,
     readyToInstall: Boolean,
     error: String?,
+    transferMode: String = "",
     onLater: () -> Unit,
     onUpdate: () -> Unit,
     onDownloadInBrowser: () -> Unit,
@@ -669,6 +670,14 @@ internal fun AppUpdateSheet(
                         release.version)
                 }
             }
+            if (release.delta != null && !readyToInstall) {
+                val deltaMb = release.delta.sizeBytes.toDouble() / 1_048_576.0
+                val fullMb = release.sizeBytes.toDouble() / 1_048_576.0
+                Caption("Экономное обновление: ≈" +
+                    String.format(java.util.Locale.US, "%.1f", deltaMb) + " МБ вместо " +
+                    String.format(java.util.Locale.US, "%.0f", fullMb) +
+                    " МБ; при необходимости загрузим полный APK")
+            }
             if (brief.isNotBlank()) {
                 Text(if (expanded) details else brief,
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
@@ -684,7 +693,8 @@ internal fun AppUpdateSheet(
             if (downloading) {
                 LinearProgressIndicator(progress = { progress / 100f },
                     modifier = Modifier.fillMaxWidth())
-                Caption("Загрузка $progress%" + if (speedBytesPerSecond > 0L)
+                Caption((transferMode.ifBlank { "Загрузка обновления" }) +
+                    " · $progress%" + if (speedBytesPerSecond > 0L)
                     " · " + speedBytesPerSecond / 1024L + " КБ/с" else "")
             }
             if (blocked) {
@@ -708,7 +718,7 @@ internal fun AppUpdateSheet(
             } else error?.let {
                 Text(it, color = c.error, style = MaterialTheme.typography.bodySmall)
             }
-            if (!downloading && !blocked) TextButton(
+            if (!downloading && !blocked && error != null) TextButton(
                 onClick = onDownloadInBrowser,
                 modifier = Modifier.align(Alignment.Start).tvFocusRing()
             ) {

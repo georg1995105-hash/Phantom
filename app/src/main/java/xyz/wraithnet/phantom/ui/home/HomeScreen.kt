@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.os.Build
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import android.os.PersistableBundle
 import android.content.Context
 import android.content.res.Configuration
@@ -645,6 +648,8 @@ fun HomeScreen(
     var otaDownloadJob by remember { mutableStateOf<Job?>(null) }
     var otaProgress by remember { mutableIntStateOf(0) }
     var otaSpeed by remember { mutableLongStateOf(0L) }
+    var otaTransferMode by remember { mutableStateOf("") }
+    var resumeInstallAfterPermission by remember { mutableStateOf(false) }
     var otaFile by remember { mutableStateOf<File?>(null) }
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
@@ -724,15 +729,18 @@ fun HomeScreen(
             return
         }
         otaError = null
+        resumeInstallAfterPermission = false
         otaDownloadJob = scope.launch {
             try {
                 val file = otaFile?.takeIf { it.exists() } ?: run {
                     otaDownload = true
                     otaProgress = 0
                     otaSpeed = 0L
+                    otaTransferMode = ""
                     PhantomUpdates.download(context, release,
                         onProgress = { otaProgress = it },
-                        onSpeed = { otaSpeed = it })
+                        onSpeed = { otaSpeed = it },
+                        onStatus = { otaTransferMode = it })
                         .also { otaFile = it }
                 }
                 // Protect against a channel change during the download.
@@ -743,7 +751,8 @@ fun HomeScreen(
                 }
                 val launched = PhantomUpdates.openInstaller(context, file)
                 if (!launched) {
-                    otaError = "Разрешите установку из Phantom и нажмите «Установить» ещё раз"
+                    resumeInstallAfterPermission = true
+                    otaError = "Разрешите установку из Phantom — затем установка продолжится сама"
                 }
             } catch (_: CancellationException) {
                 otaError = "Загрузка остановлена. Можно скачать через браузер."
@@ -754,6 +763,35 @@ fun HomeScreen(
                 otaDownloadJob = null
             }
         }
+    }
+
+    // The first permission grant should not force the user to press Install twice.
+    // The APK has already been reconstructed and verified before this point.
+    val installLifecycle = (context as? LifecycleOwner)?.lifecycle
+    DisposableEffect(installLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && resumeInstallAfterPermission &&
+                Build.VERSION.SDK_INT >= 26 &&
+                context.packageManager.canRequestPackageInstalls()) {
+                resumeInstallAfterPermission = false
+                val verified = otaFile?.takeIf { it.isFile }
+                if (verified != null && availableUpdate?.let {
+                        PhantomUpdates.channelAllows(it, PhantomUpdates.selectedChannel(context))
+                    } == true) {
+                    scope.launch {
+                        try {
+                            if (PhantomUpdates.openInstaller(context, verified)) {
+                                otaError = null
+                            }
+                        } catch (e: Exception) {
+                            otaError = e.message ?: "Не удалось открыть установщик"
+                        }
+                    }
+                }
+            }
+        }
+        installLifecycle?.addObserver(observer)
+        onDispose { installLifecycle?.removeObserver(observer) }
     }
 
     fun openUrl(url: String) {
@@ -962,6 +1000,8 @@ fun HomeScreen(
                         otaDownloadJob?.cancel()
                         availableUpdate = null
                         otaFile = null
+                        resumeInstallAfterPermission = false
+                        otaTransferMode = ""
                         showOtaSheet = false
                         otaDismissed = false
                         otaManuallyRequested = false
@@ -1014,6 +1054,7 @@ fun HomeScreen(
             progress = otaProgress,
             speedBytesPerSecond = otaSpeed,
             readyToInstall = otaFile?.exists() == true,
+            transferMode = otaTransferMode,
             error = otaError,
             onLater = { showOtaSheet = false; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
