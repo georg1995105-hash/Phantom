@@ -61,7 +61,7 @@ class TvSubscriptionTextUiTest {
         }
         val textNode = compose.onNode(hasText(title), useUnmergedTree = true).fetchSemanticsNode()
         val layouts = mutableListOf<TextLayoutResult>()
-        val getResult = textNode.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
+        val getResult = textNode.config[SemanticsActions.GetTextLayoutResult].action
             ?: error("Subscription title must expose its text layout")
         assertTrue(getResult(layouts))
         assertTrue(layouts.isNotEmpty())

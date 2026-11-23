@@ -64,6 +64,9 @@ def is_focused(label):
 
 def remote_to(label, max_moves=30):
     """Use real keyevent D-pad movement and reject a painted but inert focus."""
+    # Do not move away when BACK has already restored the correct focus.
+    if is_focused(label):
+        return
     key("DPAD_UP")  # exit Android touch mode left by UI setup
     if is_focused(label):
         return
@@ -76,7 +79,10 @@ def remote_to(label, max_moves=30):
         key("DPAD_DOWN")
         if is_focused(label):
             return
-    raise AssertionError("D-pad never focused " + label)
+    screenshot("99-tv-remote-focus-failure")
+    focused = [(n.get("text", ""), n.get("content-desc", ""), n.get("bounds", ""))
+               for n in nodes() if n.get("focused") == "true"]
+    raise AssertionError("D-pad never focused " + label + "; focused=" + repr(focused[:8]))
 
 
 def wait_contains(needle, attempts=24):
