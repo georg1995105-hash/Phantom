@@ -26,6 +26,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -1644,24 +1646,30 @@ private fun PhantomSettings(
                 if (group == "network") {
                     funActionRow("DNS", Icons.Default.Dns) { showDns = true }
                     funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = if (tv) 66.dp else 48.dp)
+                            .tvFocusRing()
+                            .toggleable(value = fragment.enabled, role = Role.Switch,
+                                onValueChange = { enabled ->
+                                    val next = fragment.copy(enabled = enabled)
+                                    if (next.isValid()) {
+                                        fragment = next
+                                        FragmentationOptions.save(context, next)
+                                        fragmentMessage = "При следующем подключении изменения вступят в силу"
+                                    } else {
+                                        fragmentMessage = "Исправьте значения фрагментации"
+                                    }
+                                })
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text("Фрагментация TLS", fontSize = 15.sp)
                             Spacer(Modifier.height(4.dp))
                             Text("Для TCP-соединений с TLS/REALITY. На Hysteria2 не действует.",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(checked = fragment.enabled, onCheckedChange = { enabled ->
-                            val next = fragment.copy(enabled = enabled)
-                            if (next.isValid()) {
-                                fragment = next
-                                FragmentationOptions.save(context, next)
-                                fragmentMessage = "При следующем подключении изменения вступят в силу"
-                            } else {
-                                fragmentMessage = "Исправьте значения фрагментации"
-                            }
-                        })
+                        Switch(checked = fragment.enabled, onCheckedChange = null)
                     }
                     if (fragment.enabled) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
