@@ -13,13 +13,21 @@ on:
         required: true
         default: true
         type: boolean
+      release_channel:
+        description: 'Release channel; beta is a GitHub prerelease and never replaces stable/latest'
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
 
 # The source build never gets production signing secrets or write permissions.
 permissions:
   contents: read
 
 concurrency:
-  group: quick-apk-${{ inputs.source_sha }}
+  group: phantom-official-release-build
   cancel-in-progress: false
 
 jobs:
@@ -168,9 +176,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          CHANNEL: ${{ inputs.release_channel }}
         run: |
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$CHANNEL" == stable || "$CHANNEL" == beta ]]
           test -s release-assets/Phantom.apk
           test "$(cat release-assets/source-commit.txt)" = "$SOURCE_SHA"
           test "$(find release-assets -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
@@ -180,7 +190,15 @@ jobs:
           code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/source-gradle.kts")
           version=$(awk -F '"' '/^[[:space:]]*versionName =/ { print $2; exit }' "$RUNNER_TEMP/source-gradle.kts")
           [[ "$code" =~ ^[0-9]+$ ]]
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$CHANNEL" == stable ]]; then
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "::error::Stable channel requires X.Y.Z versionName"; exit 1;
+            }
+          else
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*$ ]] || {
+              echo "::error::Beta channel requires X.Y.Z-beta.N versionName"; exit 1;
+            }
+          fi
           tag="v$version"
           if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" >/dev/null 2>&1; then
             echo "::error::Release $tag already exists"; exit 1
@@ -191,7 +209,23 @@ jobs:
           oldcode=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/previous-gradle.kts")
           [[ "$oldcode" =~ ^[0-9]+$ ]]
           if (( code <= oldcode )); then
-            echo "::error::versionCode $code must exceed $oldcode"; exit 1
+            echo "::error::versionCode $code must exceed stable $oldcode"; exit 1
+          fi
+          # Stable and beta share the same Android applicationId: versionCode
+          # must increase across BOTH channels, or switching channels can
+          # make the next update uninstallable.
+          last_beta=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r '[.[] | select(.prerelease == true and .draft == false and
+              (.tag_name | contains("-beta.")))] | sort_by(.published_at) |
+              last | .tag_name // empty')
+          if [[ -n "$last_beta" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$last_beta" \
+              --jq .content | base64 -d > "$RUNNER_TEMP/beta-gradle.kts"
+            last_beta_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/beta-gradle.kts")
+            [[ "$last_beta_code" =~ ^[0-9]+$ ]]
+            if (( code <= last_beta_code )); then
+              echo "::error::versionCode $code must exceed beta $last_beta_code"; exit 1
+            fi
           fi
           gh api "repos/$GITHUB_REPOSITORY/contents/RELEASE_NOTES.md?ref=$SOURCE_SHA" \
             --jq .content | base64 -d > "$RUNNER_TEMP/notes.md"
@@ -200,30 +234,43 @@ jobs:
           mv release-assets/Phantom.apk release-assets/phantom-universal-release.apk
           sha256sum release-assets/phantom-universal-release.apk
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "previous_stable=$previous" >> "$GITHUB_OUTPUT"
       - name: Publish stable release on permanent download link
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
           TAG: ${{ steps.meta.outputs.tag }}
+          CHANNEL: ${{ inputs.release_channel }}
         run: |
           set -euo pipefail
+          flags=(--latest)
+          if [[ "$CHANNEL" == beta ]]; then flags=(--prerelease --latest=false); fi
           gh release create "$TAG" \
             release-assets/phantom-universal-release.apk \
             --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
-            --title "PHANTOM VPN $TAG" --notes-file "$RUNNER_TEMP/notes.md" --latest
+            --title "PHANTOM VPN $TAG" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
       - name: Verify release, single asset and SHA-256
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.meta.outputs.tag }}
+          CHANNEL: ${{ inputs.release_channel }}
+          PREVIOUS_STABLE: ${{ steps.meta.outputs.previous_stable }}
         run: |
           set -euo pipefail
           sha="sha256:$(sha256sum release-assets/phantom-universal-release.apk | cut -d' ' -f1)"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" | jq -e --arg digest "$sha" '
-            .draft == false and .prerelease == false and
-            ([.assets[] | select(.name == "phantom-universal-release.apk" and
-              .state == "uploaded" and .digest == $digest)] | length) == 1
-          '
-          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
+          expected_beta=false
+          if [[ "$CHANNEL" == beta ]]; then expected_beta=true; fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" |
+            jq -e --arg digest "$sha" --argjson beta "$expected_beta" '
+              .draft == false and .prerelease == $beta and
+              ([.assets[] | select(.name == "phantom-universal-release.apk" and
+                .state == "uploaded" and .digest == $digest)] | length) == 1
+            '
+          if [[ "$CHANNEL" == stable ]]; then
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
+          else
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$PREVIOUS_STABLE"
+          fi
           echo "Permanent official APK: https://github.com/$GITHUB_REPOSITORY/releases/latest/download/phantom-universal-release.apk"
