@@ -81,7 +81,7 @@ internal fun WideHomeDashboard(
     val hostView = androidx.compose.ui.platform.LocalView.current
     var powerFocused by remember { mutableStateOf(false) }
     var selectedForJson by remember { mutableStateOf<ServerProfile?>(null) }
-    var collapsed by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    val expansion = rememberSubscriptionExpansionStore()
     var showDetails by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val sortedGroups = remember(subscriptions, pinnedId, favorites) {
         orderedSubscriptions(subscriptions, pinnedId).map { owner ->
@@ -219,16 +219,8 @@ internal fun WideHomeDashboard(
                 }
             }
         }
-        item(key = "wide-server-heading") {
-            Row(Modifier.fillMaxWidth().padding(top = 2.dp, start = 4.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("Серверы", style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text(subscriptions.sumOf { it.servers.size }.toString(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant)
-            }
-        }
+        // Selected country and subscription already identify the server list.
+        // Keep the wide layout clean without a count or redundant heading.
         if (sortedGroups.isEmpty()) item(key = "wide-empty") {
             Surface(
                 color = scheme.surfaceVariant.copy(alpha = .38f),
@@ -241,7 +233,7 @@ internal fun WideHomeDashboard(
         }
         sortedGroups.forEach { (owner, profiles) ->
             val title = subscriptionDisplayName(owner, subscriptions)
-            val visible = owner.id !in collapsed
+            val visible = expansion.isExpanded(owner.id, defaultExpanded = true)
             val remote = owner.source.startsWith("https://", true) ||
                 owner.source.startsWith("http://", true)
             item(key = "wide-group:" + owner.id) {
@@ -257,8 +249,7 @@ internal fun WideHomeDashboard(
                                     .heightIn(min = 46.dp)
                                     .tvFocusRing()
                                     .clickable {
-                                        collapsed = ArrayList(if (visible) collapsed + owner.id
-                                            else collapsed - owner.id)
+                                        expansion.setExpanded(owner.id, !visible)
                                     }
                                     .semantics {
                                         contentDescription = (if (visible) "Свернуть" else "Раскрыть") +
@@ -346,6 +337,14 @@ internal fun WideHomeDashboard(
                 if (visible && owner.id !in probing) {
                     LaunchedEffect(owner.id, owner.servers) { onProbe(owner) }
                 }
+            }
+            if (visible && profiles.isNotEmpty()) item(key = "wide-group-divider:" + owner.id) {
+                HorizontalDivider(
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(horizontal = 13.dp, vertical = 2.dp),
+                    thickness = 1.dp,
+                    color = scheme.outline.copy(alpha = .28f)
+                )
             }
             if (visible) {
                 profiles.chunked(gridColumns).forEachIndexed { index, pair ->
