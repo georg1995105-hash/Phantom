@@ -7,6 +7,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -37,7 +39,10 @@ class TvNavigationTextUiTest {
             fontScale = 1.35f
         }
         compose.setContent {
-            CompositionLocalProvider(LocalConfiguration provides config) {
+            CompositionLocalProvider(
+                LocalConfiguration provides config,
+                LocalDensity provides Density(context.resources.displayMetrics.density, 1.35f)
+            ) {
                 MaterialTheme {
                     Box(Modifier.height(560.dp)) {
                         TvSideNavigation(Destination.SETTINGS, select = {})
