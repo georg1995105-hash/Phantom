@@ -155,9 +155,198 @@ jobs:
           retention-days: 7
           compression-level: 0
 
+  delta:
+    name: Generate and verify small APK patches
+    needs: sign
+    if: ${{ inputs.publish_release == true && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout trusted source for patch generator (read-only)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          persist-credentials: false
+      - name: Download signed target APK
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: phantom-quick-official-signed
+          path: signed
+      - name: Create patches against latest stable and latest beta (if available)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(cat signed/source-commit.txt)" = "$SOURCE_SHA"
+          mkdir -p delta previous
+          stable=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          beta=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r '[.[] | select(.prerelease == true and .draft == false and
+              (.tag_name | contains("-beta.")))] | sort_by(.published_at) |
+              last | .tag_name // empty')
+          for tag in $(printf '%s\n' "$stable" "$beta" |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[1-9][0-9]*)?
+    if: ${{ inputs.publish_release == true && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      # Do not execute untrusted project code in this write-enabled job.
+      - name: Fetch signed APK from isolated signer
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: phantom-quick-official-signed
+          path: release-assets
+      - name: Fetch verified small patches
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: phantom-quick-deltas
+          path: release-assets/deltas
+      - name: Validate signed source and next version
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          CHANNEL: ${{ inputs.release_channel }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$CHANNEL" == stable || "$CHANNEL" == beta ]]
+          test -s release-assets/Phantom.apk
+          test "$(cat release-assets/source-commit.txt)" = "$SOURCE_SHA"
+          test "$(find release-assets -maxdepth 1 -name '*.apk' | wc -l)" -eq 1
+          test "$(stat -c '%s' release-assets/Phantom.apk)" -lt 262144000
+          gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$SOURCE_SHA" \
+            --jq .content | base64 -d > "$RUNNER_TEMP/source-gradle.kts"
+          code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/source-gradle.kts")
+          version=$(awk -F '"' '/^[[:space:]]*versionName =/ { print $2; exit }' "$RUNNER_TEMP/source-gradle.kts")
+          [[ "$code" =~ ^[0-9]+$ ]]
+          if [[ "$CHANNEL" == stable ]]; then
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "::error::Stable channel requires X.Y.Z versionName"; exit 1;
+            }
+          else
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[1-9][0-9]*$ ]] || {
+              echo "::error::Beta channel requires X.Y.Z-beta.N versionName"; exit 1;
+            }
+          fi
+          tag="v$version"
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists"; exit 1
+          fi
+          previous=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$previous" \
+            --jq .content | base64 -d > "$RUNNER_TEMP/previous-gradle.kts"
+          oldcode=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/previous-gradle.kts")
+          [[ "$oldcode" =~ ^[0-9]+$ ]]
+          if (( code <= oldcode )); then
+            echo "::error::versionCode $code must exceed stable $oldcode"; exit 1
+          fi
+          # Stable and beta share the same Android applicationId: versionCode
+          # must increase across BOTH channels, or switching channels can
+          # make the next update uninstallable.
+          last_beta=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -r '[.[] | select(.prerelease == true and .draft == false and
+              (.tag_name | contains("-beta.")))] | sort_by(.published_at) |
+              last | .tag_name // empty')
+          if [[ -n "$last_beta" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/contents/app/build.gradle.kts?ref=$last_beta" \
+              --jq .content | base64 -d > "$RUNNER_TEMP/beta-gradle.kts"
+            last_beta_code=$(awk '/^[[:space:]]*versionCode =/ { print $3; exit }' "$RUNNER_TEMP/beta-gradle.kts")
+            [[ "$last_beta_code" =~ ^[0-9]+$ ]]
+            if (( code <= last_beta_code )); then
+              echo "::error::versionCode $code must exceed beta $last_beta_code"; exit 1
+            fi
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/contents/RELEASE_NOTES.md?ref=$SOURCE_SHA" \
+            --jq .content | base64 -d > "$RUNNER_TEMP/notes.md"
+          grep -Fxq "# PHANTOM VPN $version" "$RUNNER_TEMP/notes.md"
+          printf "\nОфициальная быстрая сборка. Полный Android/TV аудит запускается отдельно.\n" >> "$RUNNER_TEMP/notes.md"
+          mv release-assets/Phantom.apk release-assets/phantom-universal-release.apk
+          sha256sum release-assets/phantom-universal-release.apk
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "previous_stable=$previous" >> "$GITHUB_OUTPUT"
+      - name: Publish stable release on permanent download link
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          CHANNEL: ${{ inputs.release_channel }}
+        run: |
+          set -euo pipefail
+          flags=(--latest)
+          if [[ "$CHANNEL" == beta ]]; then flags=(--prerelease --latest=false); fi
+          gh release create "$TAG" \
+            release-assets/phantom-universal-release.apk \
+            --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
+            --title "PHANTOM VPN $TAG" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
+      - name: Verify release, single asset and SHA-256
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          CHANNEL: ${{ inputs.release_channel }}
+          PREVIOUS_STABLE: ${{ steps.meta.outputs.previous_stable }}
+        run: |
+          set -euo pipefail
+          sha="sha256:$(sha256sum release-assets/phantom-universal-release.apk | cut -d' ' -f1)"
+          expected_beta=false
+          if [[ "$CHANNEL" == beta ]]; then expected_beta=true; fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" |
+            jq -e --arg digest "$sha" --argjson beta "$expected_beta" '
+              .draft == false and .prerelease == $beta and
+              ([.assets[] | select(.name == "phantom-universal-release.apk" and
+                .state == "uploaded" and .digest == $digest)] | length) == 1
+            '
+          for file in release-assets/deltas/*.apkdelta; do
+            [[ -f "$file" ]] || continue
+            name=$(basename "$file")
+            digest="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" |
+              jq -e --arg name "$name" --arg sha "$digest" '
+                ([.assets[] | select(.name == $name and .digest == $sha and
+                  .state == "uploaded")] | length) == 1'
+          done
+          if [[ "$CHANNEL" == stable ]]; then
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$TAG"
+          else
+            test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$PREVIOUS_STABLE"
+          fi
+          echo "Permanent official APK: https://github.com/$GITHUB_REPOSITORY/releases/latest/download/phantom-universal-release.apk"
+ | sort -u); do
+            echo "Building verified patch from $tag"
+            mkdir -p "previous/$tag"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern phantom-universal-release.apk --dir "previous/$tag" --clobber
+            python3 scripts/build_apk_delta.py \
+              --base "previous/$tag/phantom-universal-release.apk" \
+              --target signed/Phantom.apk \
+              --output "delta/phantom-delta-from-$tag.apkdelta"
+          done
+          for file in delta/*.apkdelta; do
+            [[ -f "$file" ]] || continue
+            sha256sum "$file"
+          done
+          touch delta/manifest.txt
+      - name: Preserve verified patches for release publisher
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: phantom-quick-deltas
+          path: delta/
+          retention-days: 2
+          compression-level: 0
+          if-no-files-found: error
+
   publish:
     name: Publish one official stable APK and OTA
-    needs: sign
+    needs: [sign, delta]
     if: ${{ inputs.publish_release == true && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     permissions:
@@ -246,8 +435,11 @@ jobs:
           set -euo pipefail
           flags=(--latest)
           if [[ "$CHANNEL" == beta ]]; then flags=(--prerelease --latest=false); fi
-          gh release create "$TAG" \
-            release-assets/phantom-universal-release.apk \
+          assets=(release-assets/phantom-universal-release.apk)
+          for patch in release-assets/deltas/*.apkdelta; do
+            if [[ -f "$patch" ]]; then assets+=("$patch"); fi
+          done
+          gh release create "$TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" \
             --title "PHANTOM VPN $TAG" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"
       - name: Verify release, single asset and SHA-256
