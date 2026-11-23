@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
@@ -1575,6 +1576,9 @@ private fun PhantomSettings(
     val connectionFocus = remember { FocusRequester() }
     val backupFocus = remember { FocusRequester() }
     val aboutFocus = remember { FocusRequester() }
+    var connectionHasFocus by remember { mutableStateOf(false) }
+    var backupHasFocus by remember { mutableStateOf(false) }
+    var aboutHasFocus by remember { mutableStateOf(false) }
     BackHandler(enabled = tv && group.isNotEmpty()) {
         if (group == "about") restoreTvFocus = "about"
         group = ""
@@ -1651,14 +1655,34 @@ private fun PhantomSettings(
     LaunchedEffect(tv, restoreTvFocus) {
         if (!tv || restoreTvFocus.isBlank()) return@LaunchedEffect
         val destination = restoreTvFocus
-        settingsScroll.scrollToItem(if (destination == "network") 0 else if (destination == "backup") 5 else 6)
-        withFrameNanos { }
-        runCatching {
-            when (destination) {
-                "network" -> connectionFocus.requestFocus()
-                "backup" -> backupFocus.requestFocus()
-                "about" -> aboutFocus.requestFocus()
+        // LazyColumn may not yet have mounted the target item after leaving a
+        // child screen. A single request silently fails or targets the TV rail.
+        settingsScroll.scrollToItem(when (destination) {
+            "network" -> 0
+            "backup" -> 5
+            else -> 6
+        })
+        repeat(24) {
+            withFrameNanos { }
+            runCatching {
+                when (destination) {
+                    "network" -> connectionFocus.requestFocus()
+                    "backup" -> backupFocus.requestFocus()
+                    "about" -> aboutFocus.requestFocus()
+                }
             }
+            withFrameNanos { }
+            val restored = when (destination) {
+                "network" -> connectionHasFocus
+                "backup" -> backupHasFocus
+                "about" -> aboutHasFocus
+                else -> true
+            }
+            if (restored) {
+                restoreTvFocus = ""
+                return@LaunchedEffect
+            }
+            delay(75)
         }
         restoreTvFocus = ""
     }
@@ -1668,7 +1692,8 @@ private fun PhantomSettings(
         item {
             Panel {
                 SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune,
-                    modifier = Modifier.focusRequester(connectionFocus)) { toggle("network") }
+                    modifier = Modifier.focusRequester(connectionFocus)
+                        .onFocusChanged { connectionHasFocus = it.isFocused }) { toggle("network") }
                 if (group == "network") {
                     funActionRow("DNS", Icons.Default.Dns) { showDns = true }
                     funActionRow("Пинг серверов", Icons.Default.Speed) { showPing = true }
@@ -1807,11 +1832,13 @@ private fun PhantomSettings(
             }
         }
         item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
-            modifier = Modifier.focusRequester(backupFocus)) { showBackup = true } } }
+            modifier = Modifier.focusRequester(backupFocus)
+                .onFocusChanged { backupHasFocus = it.isFocused }) { showBackup = true } } }
         item {
             Panel {
                 SettingsAction("О приложении", "Phantom $version", Icons.Default.Info,
-                    modifier = Modifier.focusRequester(aboutFocus)) { toggle("about") }
+                    modifier = Modifier.focusRequester(aboutFocus)
+                        .onFocusChanged { aboutHasFocus = it.isFocused }) { toggle("about") }
                 if (group == "about") {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {

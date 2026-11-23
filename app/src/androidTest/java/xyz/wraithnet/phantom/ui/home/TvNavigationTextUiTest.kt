@@ -54,7 +54,7 @@ class TvNavigationTextUiTest {
             val node = compose.onNode(hasText(label), useUnmergedTree = true)
                 .fetchSemanticsNode()
             val layout = mutableListOf<TextLayoutResult>()
-            val action = node.config.getOrNull(SemanticsActions.GetTextLayoutResult)?.action
+            val action = node.config[SemanticsActions.GetTextLayoutResult].action
                 ?: error("Text layout is missing for TV rail: $label")
             assertTrue("Unable to read real text layout for $label", action(layout))
             assertTrue("No layout result for $label", layout.isNotEmpty())
