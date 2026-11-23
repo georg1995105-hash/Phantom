@@ -38,12 +38,16 @@ class PhantomAutoUpdateWorker(context: Context, params: WorkerParameters) :
             return Result.success()
         }
         return try {
-            val next = PhantomUpdates.check(ctx) ?: return Result.success()
+            val channel = PhantomUpdates.selectedChannel(ctx)
+            val next = PhantomUpdates.check(ctx, channel) ?: return Result.success()
             if (Build.VERSION.SDK_INT < 31 ||
                 !ctx.packageManager.canRequestPackageInstalls()) return Result.success()
             val apk = PhantomUpdates.download(ctx, next, onProgress = { })
+            // A user can opt out while a large beta APK is downloading.
+            // Never install a previously selected beta after switching to Stable.
             if (prefs.getBoolean("vpn_running", false) ||
-                !prefs.getBoolean("auto_apk_updates", true)) return Result.success()
+                !prefs.getBoolean("auto_apk_updates", true) ||
+                PhantomUpdates.selectedChannel(ctx) != channel) return Result.success()
             PhantomUpdates.openInstaller(ctx, apk)
             Result.success()
         } catch (cancel: CancellationException) {
