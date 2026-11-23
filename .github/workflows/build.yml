@@ -18,7 +18,8 @@ permissions:
   contents: read
   actions: read
 
-# A new PR commit supersedes older unverified PR builds. Do not cancel
+# A new PR commit supersedes older QUICK builds; only manual dispatch runs full device tests.
+# Do not cancel
 # production releases: they use distinct refs and cancel-in-progress=false.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -163,7 +164,7 @@ jobs:
             "$apk"
 
       - name: Prepare loopback protocol peers
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           mkdir -p "$RUNNER_TEMP/peers"
           cd "$RUNNER_TEMP/peers"
@@ -182,7 +183,7 @@ jobs:
           exit 1
 
       - name: Verify signed 0.3.13 baseline and upgrade signer
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           curl --retry 3 -fsSL -o previous.apk https://github.com/georg1995105-hash/Phantom/releases/download/v0.3.13/phantom-x86_64-release.apk
           echo '852ead67dfbfe6bca018211291477bd3fc39036deeb3a364f27978a1e8b5afbc  previous.apk' | sha256sum -c -
@@ -207,13 +208,13 @@ jobs:
           fi
 
       - name: Enable emulator hardware acceleration
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; fi
 
       - name: Run dual Go runtime JNI smoke test on Android
         id: android_native
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -230,7 +231,7 @@ jobs:
 
       - name: Test actual LANDSCAPE tablet layout and QR camera scanner
         id: android_tablet
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -246,7 +247,7 @@ jobs:
 
       - name: Install verified Android TV x86 system image
         id: android_tv_image
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -262,7 +263,7 @@ jobs:
 
       - name: Test universal APK with an Android TV remote
         id: android_tv
-        if: github.event_name != 'push' && steps.android_tv_image.outcome == 'success'
+        if: github.event_name == 'workflow_dispatch' && steps.android_tv_image.outcome == 'success'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -278,7 +279,7 @@ jobs:
 
       - name: Test signed universal APK on Android with 16 KiB pages
         id: android_16k
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -295,7 +296,7 @@ jobs:
           script: python3 scripts/ci_tv.py --16k
 
       - name: Enforce successful device tests
-        if: github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: |
           result=0
           if [ "${{ steps.android_native.outcome }}" != "success" ]; then
@@ -317,7 +318,7 @@ jobs:
           exit "$result"
 
       - name: Upload upgrade screenshots
-        if: ${{ !cancelled() && github.event_name != 'push' && hashFiles('upgrade-screens/*.png') != '' }}
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && hashFiles('upgrade-screens/*.png') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: upgrade-screens
