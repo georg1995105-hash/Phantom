@@ -1758,7 +1758,7 @@ private fun PhantomSettings(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Spacer(Modifier.width(8.dp))
-                        Switch(checked = bootConnect, onCheckedChange = { checked ->
+                        Switch(checked = bootConnect, onCheckedChange = if (tv) null else { checked ->
                             bootConnect = checked
                             prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, checked).apply()
                         })
@@ -1788,7 +1788,7 @@ private fun PhantomSettings(
                                 fontSize = 12.sp, lineHeight = 16.sp)
                         }
                         Spacer(Modifier.width(7.dp))
-                        Switch(checked = keepActive, onCheckedChange = { enabled ->
+                        Switch(checked = keepActive, onCheckedChange = if (tv) null else { enabled ->
                             keepActive = enabled
                             prefs.edit().putBoolean("keep_active", enabled).apply()
                             if (prefs.getBoolean("vpn_running", false)) {

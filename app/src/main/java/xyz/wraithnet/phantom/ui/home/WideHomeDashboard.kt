@@ -199,11 +199,11 @@ internal fun WideHomeDashboard(
                             Text(selected?.second?.let(::displayServerName) ?: "Выбрать сервер",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                maxLines = if (tv) 3 else 1, overflow = TextOverflow.Ellipsis)
                         }
                         Text(selected?.second?.let(::protocolLabel) ?: "Нет выбранного сервера",
                             color = scheme.onSurfaceVariant, fontSize = 12.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            maxLines = if (tv) 3 else 1, overflow = TextOverflow.Ellipsis)
                         Spacer(Modifier.height(7.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(15.dp)) {
                             if (download >= 0) Text("↓ " + sizeLabel(download),
@@ -264,7 +264,7 @@ internal fun WideHomeDashboard(
                                 Spacer(Modifier.width(7.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(title, fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        maxLines = if (tv) 4 else 1, overflow = TextOverflow.Ellipsis,
                                         fontSize = 14.sp)
                                     if (remote) Text(
                                         "Обновление · " + intervalLabel(
@@ -314,7 +314,7 @@ internal fun WideHomeDashboard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Трафик " + traffic + " / " + total + "   ·   До " + expires,
-                                fontSize = 10.sp, maxLines = 1,
+                                fontSize = 10.sp, maxLines = if (tv) 4 else 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                                 color = scheme.onSurfaceVariant)
@@ -385,11 +385,11 @@ internal fun WideHomeDashboard(
                                                     fontSize = 13.sp,
                                                     fontWeight = if (active) FontWeight.SemiBold
                                                         else FontWeight.Medium,
-                                                    maxLines = 1,
+                                                    maxLines = if (tv) 4 else 1,
                                                     overflow = TextOverflow.Ellipsis)
                                                 Text(protocolLabel(server),
                                                     fontSize = 10.sp,
-                                                    maxLines = 1,
+                                                    maxLines = if (tv) 3 else 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     color = scheme.onSurfaceVariant)
                                                 Text(SubscriptionPingText.display(
@@ -451,7 +451,7 @@ internal fun WideHomeDashboard(
                     ) {
                         Icon(Icons.Default.Add, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text("Добавить подписку или ключ", maxLines = 1,
+                        Text("Добавить подписку или ключ", maxLines = if (tv) 3 else 1,
                             overflow = TextOverflow.Ellipsis)
                     }
                     val qrAction = onPairQr ?: onScanQr
@@ -474,7 +474,7 @@ internal fun WideHomeDashboard(
                         Icon(Icons.Default.QrCode, null, Modifier.size(19.dp))
                         Spacer(Modifier.width(7.dp))
                         Text(if (tv) "QR с телефона" else "Сканировать QR",
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            maxLines = if (tv) 3 else 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }

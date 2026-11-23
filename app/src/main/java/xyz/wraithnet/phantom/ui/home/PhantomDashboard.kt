@@ -836,7 +836,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
             Spacer(Modifier.height(5.dp))
             Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                maxLines = if (tv) 4 else 2, overflow = TextOverflow.Ellipsis)
+                maxLines = if (tv) 8 else 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             HorizontalDivider(color = colors.outline.copy(alpha = .2f))
             Spacer(Modifier.height(8.dp))

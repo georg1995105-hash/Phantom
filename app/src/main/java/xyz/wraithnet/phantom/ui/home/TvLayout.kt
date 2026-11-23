@@ -73,7 +73,7 @@ internal fun TvSideNavigation(
 ) {
     val c = MaterialTheme.colorScheme
     Column(
-        Modifier.width(142.dp).fillMaxHeight()
+        Modifier.width(184.dp).fillMaxHeight()
             .padding(start = 6.dp, end = 6.dp, bottom = 8.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(c.surface)
@@ -88,7 +88,7 @@ internal fun TvSideNavigation(
             val active = current == destination
             val shape = RoundedCornerShape(13.dp)
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                Modifier.fillMaxWidth().heightIn(min = 56.dp)
                     .clip(shape)
                     .background(if (active) c.primaryContainer else Color.Transparent)
                     .tvFocusRing(shape)
@@ -105,7 +105,8 @@ internal fun TvSideNavigation(
                     fontSize = 13.sp,
                     fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                     color = if (active) c.onSurface else c.onSurfaceVariant,
-                    maxLines = 1)
+                    softWrap = true,
+                    maxLines = 3)
             }
         }
         Spacer(Modifier.weight(1f))

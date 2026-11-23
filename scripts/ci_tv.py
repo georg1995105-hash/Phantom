@@ -328,8 +328,16 @@ if not page_size_16k:
     wait_label("В избранное")
     wait_label("Открыть JSON конфигурации " + label)
     wait_label("Подключить VPN")
+    # TV rail must display its FULL labels, without the visible truncation
+    # present in the owner's screenshots (Подписк / Настрой). The rail is
+    # deliberately wider and supports multiline text at large font scale.
+    for item in ("Главная", "Подписка", "Настройки"):
+        assert any(n.get("text") == item for n in nodes()), "Missing TV navigation label: " + item
+    screenshot("00-navigation-full-labels")
     tap("Вкладка Подписка")
+    wait_label("Ваш доступ")
     wait_label("В магазин")
+    screenshot("00-subscription-access")
     tap("Вкладка Настройки")
     wait_label("Подключение")
     screenshot("01-settings")
