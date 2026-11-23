@@ -52,18 +52,22 @@ fun PingSettingsScreen(onBack: () -> Unit) {
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             HorizontalDivider()
-            Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 64.dp else 48.dp)
-                .tvFocusRing()
-                .toggleable(value = autoTuic, role = Role.Switch,
-                    onValueChange = { autoTuic = it })
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                if (tv) Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                    .tvFocusRing()
+                    .toggleable(value = autoTuic, role = Role.Switch,
+                        onValueChange = { autoTuic = it })
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                else Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(Modifier.weight(1f)) {
                     Text("Автоматический пинг TUIC", fontWeight = FontWeight.SemiBold)
                     Text("Дополнительный процесс sing-box с QUIC. По умолчанию отключён для стабильности соединения; вручную доступен в списке серверов.",
                         fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = autoTuic, onCheckedChange = null)
+                Switch(checked = autoTuic,
+                    onCheckedChange = if (tv) null else { autoTuic = it })
             }
             HorizontalDivider()
             Text("Тайм-аут: " + timeout.toInt() + " сек",
@@ -94,7 +98,8 @@ fun PingSettingsScreen(onBack: () -> Unit) {
                     LatencyProbe.setAutoTuicEnabled(context, autoTuic)
                     onBack()
                 },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).tvFocusRing()
+                modifier = if (tv) Modifier.fillMaxWidth().heightIn(min = 50.dp)
+                    .tvFocusRing() else Modifier.fillMaxWidth()
             ) { Text("Сохранить") }
         }
     }
