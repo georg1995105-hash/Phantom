@@ -30,10 +30,29 @@ data class PhantomRelease(
     val sha256: String,
     val sizeBytes: Long,
     val notes: String,
+    val isBeta: Boolean = false,
 )
+
+enum class UpdateChannel { STABLE, BETA }
 
 /** Verified self-updates from the project's published GitHub Releases. */
 object PhantomUpdates {
+    const val BETA_UPDATES_PREF = "beta_apk_updates"
+
+    fun selectedChannel(context: Context): UpdateChannel =
+        if (context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+                .getBoolean(BETA_UPDATES_PREF, false)) UpdateChannel.BETA
+        else UpdateChannel.STABLE
+
+    fun setBetaEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            .edit().putBoolean(BETA_UPDATES_PREF, enabled).apply()
+    }
+
+    /** A channel change never changes the installed package or its data. */
+    internal fun channelAllows(release: PhantomRelease, channel: UpdateChannel): Boolean =
+        !release.isBeta || channel == UpdateChannel.BETA
+
     private const val API = "https://api.github.com/repos/georg1995105-hash/Phantom/releases?per_page=50"
     private val supportedAbis = setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
 
@@ -89,9 +108,18 @@ object PhantomUpdates {
     }
     private const val PREFIX = "https://github.com/georg1995105-hash/Phantom/releases/download/"
 
-    // Ignore drafts and prereleases. All devices use the same official OTA.
+    // Stable never offers a prerelease; beta opts into stable PLUS numbered beta tags.
+    // Unknown prerelease styles are rejected rather than accidentally installed.
     internal fun eligibleForStable(draft: Boolean, prerelease: Boolean): Boolean =
         !draft && !prerelease
+
+    internal fun eligibleForChannel(draft: Boolean, prerelease: Boolean,
+        version: String, channel: UpdateChannel): Boolean {
+        if (draft || parts(version) == null) return false
+        val isBetaTag = version.contains("-beta.")
+        return if (prerelease) isBetaTag && channel == UpdateChannel.BETA
+            else !isBetaTag
+    }
 
     // Accept a partial GitHub CDN response only when it exactly continues
     // the verified asset length. Never append unrelated HTTP 200 content.
@@ -107,21 +135,64 @@ object PhantomUpdates {
 
     private val downloadMutex = Mutex()
 
+    /** SemVer ordering: 0.3.25-beta.2 > beta.1, but 0.3.25 > any 0.3.25-beta.N.
+     * Older stable releases never become downgrade suggestions after a beta install.
+     */
     fun isNewer(remote: String, installed: String): Boolean {
         val a = parts(remote) ?: return false
         val b = parts(installed) ?: return false
-        for (i in 0..2) {
+        for (i in a.indices) {
             if (a[i] != b[i]) return a[i] > b[i]
         }
         return false
     }
 
     private fun parts(value: String): List<Int>? {
-        val m = Regex("""^v?(\d+)\.(\d+)\.(\d+)$""").matchEntire(value.trim()) ?: return null
-        return m.groupValues.drop(1).map { it.toIntOrNull() ?: return null }
+        val match = Regex("""^v?(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$""")
+            .matchEntire(value.trim()) ?: return null
+        val core = (1..3).map { match.groupValues[it].toIntOrNull() ?: return null }
+        val beta = match.groupValues[4]
+        if (beta.isEmpty()) return core + listOf(1, 0)
+        val betaNumber = beta.toIntOrNull()?.takeIf { it > 0 } ?: return null
+        return core + listOf(0, betaNumber)
     }
 
-    suspend fun check(context: Context): PhantomRelease? = PhantomHttp.get(
+    /** Pure selection for consistent foreground, manual and background OTA behavior. */
+    internal fun findAvailableRelease(
+        releases: JSONArray,
+        installed: String,
+        channel: UpdateChannel,
+        candidates: List<String>
+    ): PhantomRelease? {
+        var best: PhantomRelease? = null
+        for (i in 0 until releases.length()) {
+            val item = releases.optJSONObject(i) ?: continue
+            val tag = item.optString("tag_name")
+            val version = tag.removePrefix("v")
+            val prerelease = item.optBoolean("prerelease")
+            if (!eligibleForChannel(item.optBoolean("draft"), prerelease, version, channel) ||
+                !isNewer(version, installed)) continue
+            if (best != null && !isNewer(version, best.version)) continue
+            val assets = item.optJSONArray("assets") ?: continue
+            val asset = chooseAsset(assets, candidates) ?: continue
+            // An asset from a different tag must never masquerade as this release.
+            if (!asset.optString("browser_download_url")
+                    .startsWith("$PREFIX$tag/")) continue
+            best = PhantomRelease(
+                version = version,
+                downloadUrl = asset.getString("browser_download_url"),
+                sha256 = asset.getString("digest").removePrefix("sha256:")
+                    .lowercase(Locale.ROOT),
+                sizeBytes = asset.getLong("size"),
+                notes = item.optString("body").take(1500),
+                isBeta = prerelease
+            )
+        }
+        return best
+    }
+
+    suspend fun check(context: Context, channel: UpdateChannel = selectedChannel(context)):
+        PhantomRelease? = PhantomHttp.get(
         context = context,
         url = API,
         headers = mapOf(
@@ -135,28 +206,8 @@ object PhantomUpdates {
         val releases = JSONArray(stream.use {
             PhantomHttp.readUtf8Limited(it, 2 * 1024 * 1024)
         })
-        val candidateAssets = assetCandidates(Build.SUPPORTED_ABIS.toList())
-        if (candidateAssets.isEmpty()) return@get null
-        var best: PhantomRelease? = null
-        for (i in 0 until releases.length()) {
-            val item = releases.getJSONObject(i)
-            val version = item.optString("tag_name").removePrefix("v")
-            if (!eligibleForStable(item.optBoolean("draft"), item.optBoolean("prerelease")) ||
-                parts(version) == null || !isNewer(version, installed)) continue
-            if (best != null && !isNewer(version, best.version)) continue
-            val assets = item.optJSONArray("assets") ?: continue
-            // The latest release is chosen by version, then the smallest
-            // compatible complete APK by candidate priority, not API order.
-            val asset = chooseAsset(assets, candidateAssets) ?: continue
-            best = PhantomRelease(
-                version,
-                asset.getString("browser_download_url"),
-                asset.getString("digest").removePrefix("sha256:").lowercase(Locale.ROOT),
-                asset.getLong("size"),
-                item.optString("body").take(1500)
-            )
-        }
-        best
+        findAvailableRelease(releases, installed, channel,
+            assetCandidates(Build.SUPPORTED_ABIS.toList()))
     }
 
     suspend fun download(
