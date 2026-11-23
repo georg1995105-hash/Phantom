@@ -3,6 +3,9 @@ package xyz.wraithnet.phantom.ui.home
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Keeps each subscription's expanded/collapsed server state across process
@@ -31,4 +34,10 @@ internal class SubscriptionExpansionStore(context: Context) {
 
         internal fun preferenceKey(subscriptionId: String): String = PREFIX + subscriptionId
     }
+}
+
+@Composable
+internal fun rememberSubscriptionExpansionStore(): SubscriptionExpansionStore {
+    val context = LocalContext.current.applicationContext
+    return remember(context) { SubscriptionExpansionStore(context) }
 }
