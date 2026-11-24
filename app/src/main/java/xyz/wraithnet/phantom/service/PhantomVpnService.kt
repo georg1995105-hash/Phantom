@@ -70,6 +70,7 @@ class PhantomVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
+        VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Phantom VPN"))
@@ -206,7 +207,8 @@ class PhantomVpnService : VpnService() {
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
-            val dns = VpnDnsSettings.load(this)
+            val settings = VpnSettingsBridge.read(this)
+            val dns = settings.dns
             check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
             val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
             var singBoxPort: Int? = null
@@ -236,7 +238,7 @@ class PhantomVpnService : VpnService() {
             } else {
                 XrayConfigBuilder.build(profile)
             }
-            val config = dns.applyToXray(FragmentationOptions.load(this).apply(baseConfig))
+            val config = dns.applyToXray(settings.fragmentation.apply(baseConfig))
             val providerDns = if (scheme == "xray" && dns.mode == VpnDnsSettings.Mode.DEFAULT)
                 XrayConfigBuilder.withProviderTunDns(config) else null
             val systemDns = if (providerDns == null) dns.addresses() else listOf(XrayConfigBuilder.TUN_RESOLVER)
@@ -251,7 +253,7 @@ class PhantomVpnService : VpnService() {
                 .addRoute("::", 0)
                 .also { builder ->
                     systemDns.forEach { builder.addDnsServer(it) }
-                    AppRouting.apply(this, builder)
+                    AppRouting.apply(this, builder, settings.routeMode, settings.applications)
                 }
                 .establish() ?: error("Android не создал VPN-интерфейс")
             vpnInterface = tun
@@ -339,11 +341,11 @@ class PhantomVpnService : VpnService() {
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
-            configureWakeLock()
+            configureWakeLock(settings.keepActive)
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
             setState(STATUS_CONNECTED)
             updateNotification("VPN подключён")
-            if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
+            if (settings.uiVisible) startTrafficReports()
         } catch (e: Exception) {
             stopLocked(false)
             if (revokedByAndroid) setState(STATUS_DISCONNECTED)
@@ -408,9 +410,9 @@ class PhantomVpnService : VpnService() {
         }
     }
 
-    private fun configureWakeLock() {
+    private fun configureWakeLock(enabled: Boolean = VpnSettingsBridge.read(this).keepActive) {
         releaseWakeLock()
-        if (!running || !prefs.getBoolean("keep_active", false)) return
+        if (!running || !enabled) return
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:vpn-keep-active").apply {
             setReferenceCounted(false)
@@ -436,6 +438,9 @@ class PhantomVpnService : VpnService() {
         // Persist and publish the real service state BEFORE asking SystemUI to redraw.
         state = next
         prefs.edit().putString("vpn_status", next).apply()
+        VpnRuntimeBridge.publish(next,
+            if (next == STATUS_CONNECTED)
+                prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
         VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
         PhantomQuickTileService.notifyStateChanged(applicationContext)
@@ -506,6 +511,7 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         ActiveVpnSubscriptionProxy.clear()
         if (::prefs.isInitialized) {
             running = false
