@@ -66,6 +66,7 @@ class PhantomVpnService : VpnService() {
 
     @Volatile private var running = false
     @Volatile private var state = STATUS_DISCONNECTED
+    @Volatile private var lastStatusError = ""
     @Volatile private var revokedByAndroid = false
 
     override fun onCreate() {
@@ -96,16 +97,21 @@ class PhantomVpnService : VpnService() {
         handoverJob = ioScope.launch {
             delay(1600L)
             mutex.withLock {
-                if (revokedByAndroid || !prefs.getBoolean("vpn_requested", false)) return@withLock
-                val route = runCatching { physicalRoute() }.getOrNull() ?: return@withLock
-                if (route == lastPhysicalRoute) return@withLock
-                val previous = lastPhysicalRoute
-                val profile = prefs.getString("vpn_last_profile", "").orEmpty()
-                if (profile.isBlank()) return@withLock
-                // First boot or a real Wi-Fi/mobile handover; do not restart on
-                // unrelated network callbacks or repeated capability updates.
-                if (previous == null && running) lastPhysicalRoute = route
-                else startLocked(profile, commandEpoch.get())
+                if (revokedByAndroid) return@withLock
+                val route = runCatching { physicalRoute() }.getOrNull()
+                when (PhysicalHandoverPolicy.decide(
+                    requested = prefs.getBoolean("vpn_requested", false),
+                    running = running,
+                    currentRoute = route,
+                    previousRoute = lastPhysicalRoute,
+                )) {
+                    PhysicalHandoverPolicy.Decision.IGNORE -> Unit
+                    PhysicalHandoverPolicy.Decision.PRESERVE_TUN -> lastPhysicalRoute = route
+                    PhysicalHandoverPolicy.Decision.BOOTSTRAP -> {
+                        val profile = prefs.getString("vpn_last_profile", "").orEmpty()
+                        if (profile.isNotBlank()) startLocked(profile, commandEpoch.get())
+                    }
+                }
             }
         }
     }
@@ -317,7 +323,9 @@ class PhantomVpnService : VpnService() {
                     else -> "ошибка проверки HTTPS"
                 }
             }
-            require(verified) {
+            // A rejected control HTTPS site must not destroy a live TUN.
+            // Keep included Android applications inside VPN even if unverified.
+            val verificationFailure = if (verified) "" else run {
                 if (SingBoxBridgeConfig.requiresSingBox(profile)) {
                     val port = singBoxPort
                     val local = port?.let { LocalSocks5Probe.check(it) }
@@ -351,8 +359,8 @@ class PhantomVpnService : VpnService() {
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock(settings.keepActive)
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
-            setState(STATUS_CONNECTED)
-            updateNotification("VPN подключён")
+            setState(VpnTunnelHealth.afterHttpsProbes(verified), verificationFailure)
+            updateNotification(if (verified) "VPN подключён" else "VPN · связь не подтверждена")
             if (settings.uiVisible) startTrafficReports()
         } catch (e: Exception) {
             stopLocked(false)
@@ -445,21 +453,22 @@ class PhantomVpnService : VpnService() {
     private fun setState(next: String, error: String = "") {
         // Persist and publish the real service state BEFORE asking SystemUI to redraw.
         state = next
+        lastStatusError = error
         prefs.edit().putString("vpn_status", next).apply()
         VpnRuntimeBridge.publish(next,
-            if (next == STATUS_CONNECTED)
+            if (isTunnelActive(next))
                 prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
         VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
         PhantomQuickTileService.notifyStateChanged(applicationContext)
     }
 
-    private fun sendStatus(status: String, error: String = "") {
+    private fun sendStatus(status: String, error: String = lastStatusError) {
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName)
                 .putExtra(EXTRA_STATUS, status).putExtra(EXTRA_ERROR, error)
                 .putExtra(EXTRA_CONNECTED_SINCE,
-                    if (status == STATUS_CONNECTED) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
+                    if (isTunnelActive(status)) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
         )
     }
 
@@ -574,6 +583,8 @@ class PhantomVpnService : VpnService() {
         const val EXTRA_STATUS = "status"
         const val EXTRA_ERROR = "error"
         const val STATUS_CONNECTED = "connected"
+        const val STATUS_DEGRADED = "degraded"
+        fun isTunnelActive(status: String): Boolean = VpnTunnelHealth.isActive(status)
         const val STATUS_STARTING = "starting"
         const val STATUS_DISCONNECTED = "disconnected"
         const val STATUS_ERROR = "error"
