@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -12,12 +16,16 @@ import java.net.ServerSocket
 import java.net.URLEncoder
 import kotlin.concurrent.thread
 import org.junit.Assert.*
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import xyz.wraithnet.phantom.MainActivity
+import xyz.wraithnet.phantom.ui.awaitVisible
 
 @RunWith(AndroidJUnit4::class)
 class SubscriptionDeepLinkTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
     @Test fun browserIntentImportsServerAndDuplicateDoesNotCreateAnotherSubscription() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val store = SubscriptionStore(context)
@@ -61,11 +69,22 @@ class SubscriptionDeepLinkTest {
                 assertEquals(1, added.size)
                 assertEquals(body, added.single().servers.single().raw)
                 assertEquals(1, requests.get())
-                context.startActivity(Intent(intent).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                SystemClock.sleep(1500)
+                // Re-deliver the URI from the existing task. Verify that the
+                // duplicate was actually processed, not merely that no request
+                // appeared during a fixed delay.
+                scenario.onActivity { it.startActivity(Intent(intent)) }
+                compose.awaitVisible(hasText("Эта подписка уже добавлена"))
                 assertEquals(1, store.read().count { it.source == source })
                 assertEquals(1, requests.get())
-                scenario.onActivity { it.finish() }
+                // singleTask may replace the Activity tracked by ActivityScenario.
+                // Finish the actual live Activity, not a stale scenario reference.
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    val monitor = ActivityLifecycleMonitorRegistry.getInstance()
+                    listOf(Stage.RESUMED, Stage.STARTED, Stage.PAUSED, Stage.STOPPED)
+                        .flatMap { monitor.getActivitiesInStage(it).toList() }
+                        .filterIsInstance<MainActivity>().distinct()
+                        .forEach { if (!it.isFinishing && !it.isDestroyed) it.finish() }
+                }
             }
         } finally {
             peer.close()
