@@ -235,9 +235,23 @@ class PhantomVpnService : VpnService() {
                     ioScope.launch {
                         mutex.withLock {
                             if (singBoxSession === session) {
-                                stopLocked(false)
-                                setState(STATUS_ERROR, "Процесс sing-box неожиданно завершился")
-                                updateNotification("Ошибка движка VPN")
+                                // Losing the transport worker is not permission
+                                // to remove Android's already-established TUN.
+                                // Preserve the Xray->SOCKS path (which now fails
+                                // closed) until the user explicitly reconnects.
+                                singBoxSession = null
+                                val failedBridge = singBoxBridge
+                                singBoxBridge = null
+                                runCatching { failedBridge?.stop() }
+                                if (running && controller != null && vpnInterface != null &&
+                                    !revokedByAndroid) {
+                                    setState(STATUS_DEGRADED, "Движок sing-box завершился")
+                                    updateNotification("VPN · восстановите соединение")
+                                } else {
+                                    stopLocked(false)
+                                    setState(STATUS_ERROR, "Процесс sing-box неожиданно завершился")
+                                    updateNotification("Ошибка движка VPN")
+                                }
                             }
                         }
                     }
