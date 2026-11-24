@@ -34,9 +34,9 @@ internal object ConnectivityProbePlan {
 
         val primary = listOf(
             Step(TRACE, 200, 4_000),
-            Step(GSTATIC, 204, 3_500),
-            Step(CLOUDFLARE, 204, 3_500),
-            Step(EXAMPLE, 200, 3_500),
+            Step(GSTATIC, 204, 3_000),
+            Step(CLOUDFLARE, 204, 3_000),
+            Step(EXAMPLE, 200, 3_000),
         )
         if (!hasObserver && !hasBalancer) return primary
 
