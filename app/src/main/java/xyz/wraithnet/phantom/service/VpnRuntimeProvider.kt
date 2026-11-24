@@ -17,7 +17,7 @@ import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
  */
 internal object VpnRuntimeBridge {
     data class Snapshot(val status: String, val connectedSince: Long, val available: Boolean = true) {
-        val running: Boolean get() = status == PhantomVpnService.STATUS_CONNECTED
+        val running: Boolean get() = PhantomVpnService.isTunnelActive(status)
     }
 
     @Volatile private var actualStatus = PhantomVpnService.STATUS_DISCONNECTED
@@ -29,7 +29,7 @@ internal object VpnRuntimeBridge {
     }
 
     internal fun localSnapshot(): Snapshot =
-        if (actualStatus == PhantomVpnService.STATUS_CONNECTED &&
+        if (PhantomVpnService.isTunnelActive(actualStatus) &&
             !ActiveVpnSubscriptionProxy.hasRoute()) {
             Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L)
         } else Snapshot(actualStatus, actualConnectedSince)
