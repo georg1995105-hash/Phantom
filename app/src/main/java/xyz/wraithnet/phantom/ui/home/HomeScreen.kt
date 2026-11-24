@@ -97,6 +97,7 @@ import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionMutations
 import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import java.text.SimpleDateFormat
@@ -1843,7 +1844,7 @@ private fun PhantomSettings(
                     Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         keepActive = !keepActive
                         prefs.edit().putBoolean("keep_active", keepActive).apply()
-                        if (prefs.getBoolean("vpn_running", false)) {
+                        if (VpnRuntimeBridge.snapshot(context).running) {
                             context.startService(Intent(context, PhantomVpnService::class.java)
                                 .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                         }
@@ -1861,7 +1862,7 @@ private fun PhantomSettings(
                         Switch(checked = keepActive, onCheckedChange = if (tv) null else { enabled ->
                             keepActive = enabled
                             prefs.edit().putBoolean("keep_active", enabled).apply()
-                            if (prefs.getBoolean("vpn_running", false)) {
+                            if (VpnRuntimeBridge.snapshot(context).running) {
                                 context.startService(Intent(context, PhantomVpnService::class.java)
                                     .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                             }
