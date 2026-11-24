@@ -812,7 +812,8 @@ fun HomeScreen(
     }
 
     // TV and real tablets have their own wide Home, not a stretched phone page.
-    val wideTablet = !isTelevision() &&
+    val tv = isTelevision()
+    val wideTablet = !tv &&
         LocalConfiguration.current.smallestScreenWidthDp >= 600
     val onServerPicked: (Subscription, ServerProfile) -> Unit = { owner, server ->
                             if (ProtocolSupport.isSupported(server.scheme)) {
@@ -826,7 +827,7 @@ fun HomeScreen(
                                 selectedSubId = owner.id
                                 prefs.edit().putString("selected_server_id", server.id)
                                     .putString("selected_subscription_id", owner.id).apply()
-                                if (ownerChanged && !isTelevision() && !wideTablet) {
+                                if (ownerChanged && !tv && !wideTablet) {
                                     scope.launch { unifiedHomeListState.scrollToItem(0) }
                                 }
                                 scope.launch {
@@ -844,7 +845,6 @@ fun HomeScreen(
                         }
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
-    val tv = isTelevision()
     LaunchedEffect(tv, tab) {
         if (tv && tab == Destination.SERVERS) tab = Destination.HOME
     }
