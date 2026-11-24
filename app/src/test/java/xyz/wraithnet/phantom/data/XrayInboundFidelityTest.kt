@@ -67,4 +67,20 @@ class XrayInboundFidelityTest {
         assertNotEquals("tun", built.getJSONArray("inbounds").getJSONObject(0).getString("tag"))
         assertEquals(JSONObject(raw).getJSONObject("routing").toString(), built.getJSONObject("routing").toString())
     }
+    @Test fun providerHysteriaTransportRemainsUnmodified() {
+        val raw = """{"outbounds":[{"tag":"hy2","protocol":"hysteria",
+          "streamSettings":{"network":"hysteria","security":"tls",
+            "finalmask":{"quicParams":{"udpIdleTimeout":60}}}}]}"""
+        assertEquals(JSONObject(raw).getJSONArray("outbounds").toString(),
+            adapt(raw).getJSONArray("outbounds").toString())
+    }
+
+    @Test fun removedServiceInboundCannotCaptureAndroidTraffic() {
+        val raw = """{"inbounds":[{"tag":"tun","protocol":"dokodemo-door"}],
+          "outbounds":[{"tag":"proxy","protocol":"vless"},{"tag":"block","protocol":"blackhole"}],
+          "routing":{"rules":[{"type":"field","inboundTag":["tun"],"outboundTag":"block"}]}}"""
+        val built = adapt(raw)
+        assertNotEquals("tun", built.getJSONArray("inbounds").getJSONObject(0).getString("tag"))
+        assertEquals(JSONObject(raw).getJSONObject("routing").toString(), built.getJSONObject("routing").toString())
+    }
 }
