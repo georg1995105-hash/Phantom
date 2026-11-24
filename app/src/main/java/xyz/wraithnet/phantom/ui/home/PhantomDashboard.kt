@@ -524,7 +524,7 @@ internal fun ServersPage(
 
 // Draw one continuous outline while keeping individual server rows lazy.
 @Composable
-private fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
+internal fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
     val c = MaterialTheme.colorScheme
     val radius = 18.dp
     val shape = RoundedCornerShape(if (first) radius else 0.dp, if (first) radius else 0.dp,

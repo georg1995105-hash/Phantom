@@ -89,8 +89,20 @@ class WideHomeDashboardUiTest {
                 second.top > first.bottom)
             assertTrue("Tablet servers must use the same full-width column",
                 kotlin.math.abs(first.left.value - second.left.value) < 4f)
-            assertTrue("Tablet server cards must stay aligned at the right edge",
+            assertTrue("Tablet server rows must stay aligned at the right edge",
                 kotlin.math.abs(first.right.value - second.right.value) < 4f)
+            val header = compose.onNodeWithTag("tablet-subscription-header:" + tabletOwner.id)
+                .getUnclippedBoundsInRoot()
+            val row1 = compose.onNodeWithTag("tablet-subscription-row:" + tabletOwner.id + ":nl-tablet")
+                .getUnclippedBoundsInRoot()
+            val row2 = compose.onNodeWithTag("tablet-subscription-row:" + tabletOwner.id + ":pl-tablet")
+                .getUnclippedBoundsInRoot()
+            assertTrue("Header and server rows must form a continuous card",
+                kotlin.math.abs(header.bottom.value - row1.top.value) < 2f &&
+                kotlin.math.abs(row1.bottom.value - row2.top.value) < 2f)
+            assertTrue("All card segments must share both edges",
+                kotlin.math.abs(header.left.value - row1.left.value) < 2f &&
+                kotlin.math.abs(header.right.value - row2.right.value) < 2f)
             list.performScrollToNode(hasContentDescription("Добавить подписку или ключ"))
             val add = compose.awaitVisible(
                 hasContentDescription("Добавить подписку или ключ"))
