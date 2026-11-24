@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
             vpnError.value = intent?.getStringExtra(PhantomVpnService.EXTRA_ERROR).orEmpty()
             connectedSinceElapsed.longValue = intent?.getLongExtra(
                 PhantomVpnService.EXTRA_CONNECTED_SINCE, 0L) ?: 0L
-            if (vpnStatus.value != PhantomVpnService.STATUS_CONNECTED) {
+            if (!PhantomVpnService.isTunnelActive(vpnStatus.value)) {
                 downloadBytes.longValue = -1L
                 uploadBytes.longValue = -1L
             }

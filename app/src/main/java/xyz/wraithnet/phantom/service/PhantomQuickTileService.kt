@@ -125,14 +125,15 @@ class PhantomQuickTileService : TileService() {
     private fun renderState() {
         val tile = qsTile ?: return
         val prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-        val state = prefs.getString("vpn_status", PhantomVpnService.STATUS_DISCONNECTED)
+        val state = prefs.getString("vpn_status", PhantomVpnService.STATUS_DISCONNECTED) ?: PhantomVpnService.STATUS_DISCONNECTED
         val running = prefs.getBoolean("vpn_running", false) &&
-            state == PhantomVpnService.STATUS_CONNECTED
+            PhantomVpnService.isTunnelActive(state)
         tile.label = "Phantom VPN"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_phantom)
         tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         if (Build.VERSION.SDK_INT >= 29) {
             tile.subtitle = when {
+                state == PhantomVpnService.STATUS_DEGRADED -> "Связь не подтверждена"
                 running -> "Подключено"
                 state == PhantomVpnService.STATUS_STARTING -> "Подключение…"
                 else -> "Отключено"
