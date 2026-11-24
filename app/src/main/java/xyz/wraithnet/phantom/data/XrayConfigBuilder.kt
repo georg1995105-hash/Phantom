@@ -294,7 +294,7 @@ object XrayConfigBuilder {
             "Xray JSON использует общий тег для DNS и клиентского входа"
         }
         val tunTag = sourceTag.ifBlank {
-            if (selected == null && "tun" !in dnsTags) "tun"
+            if ((oldInbounds?.length() ?: 0) == 0 && "tun" !in dnsTags) "tun"
             else generateSequence(0) { it + 1 }.map { if (it == 0) "tun" else "phantom-tun-$it" }
                 .first { it !in reservedTags }
         }
@@ -323,16 +323,8 @@ object XrayConfigBuilder {
                     "Нужна серверная конфигурация XHTTP/H3 или Hysteria2."
             }
         }
-        // Keep UDP QUIC sessions alive on idle mobile networks.
-        for (i in 0 until outbounds.length()) {
-            val outbound = outbounds.optJSONObject(i) ?: continue
-            if (outbound.optString("protocol") != "hysteria") continue
-            val stream = outbound.optJSONObject("streamSettings") ?: continue
-            val mask = stream.optJSONObject("finalmask") ?: JSONObject()
-            val quic = mask.optJSONObject("quicParams") ?: JSONObject()
-            if (!quic.has("keepAlivePeriod")) quic.put("keepAlivePeriod", 15)
-            stream.put("finalmask", mask.put("quicParams", quic))
-        }
+        // Full provider JSON owns its transport tuning. Share links still get
+        // Phantom's defaults, but imported outbounds must not be rewritten.
         if (!root.has("log")) root.put("log", JSONObject().put("loglevel", "warning"))
         return enableTrafficStats(root).toString()
     }
