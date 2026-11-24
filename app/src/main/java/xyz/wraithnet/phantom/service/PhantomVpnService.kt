@@ -345,7 +345,7 @@ class PhantomVpnService : VpnService() {
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
-            setState(if (verified) STATUS_CONNECTED else STATUS_DEGRADED, verificationFailure)
+            setState(VpnTunnelHealth.afterHttpsProbes(verified), verificationFailure)
             updateNotification(if (verified) "VPN подключён" else "VPN · связь не подтверждена")
             if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
         } catch (e: Exception) {
@@ -566,8 +566,7 @@ class PhantomVpnService : VpnService() {
         const val EXTRA_ERROR = "error"
         const val STATUS_CONNECTED = "connected"
         const val STATUS_DEGRADED = "degraded"
-        fun isTunnelActive(status: String): Boolean =
-            status == STATUS_CONNECTED || status == STATUS_DEGRADED
+        fun isTunnelActive(status: String): Boolean = VpnTunnelHealth.isActive(status)
         const val STATUS_STARTING = "starting"
         const val STATUS_DISCONNECTED = "disconnected"
         const val STATUS_ERROR = "error"
