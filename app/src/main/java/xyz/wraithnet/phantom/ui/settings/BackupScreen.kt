@@ -56,7 +56,7 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
                     withContext(Dispatchers.IO) {
                         // Capture only after the user selects a destination.
                         val data = PhantomBackup.capture(context)
-                        context.contentResolver.openOutputStream(uri)?.use { output ->
+                        context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
                             output.write(data.toByteArray(Charsets.UTF_8))
                         } ?: error("Не удалось записать файл")
                     }
@@ -139,7 +139,7 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
                         Spacer(Modifier.width(15.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Сохранить резервную копию", fontWeight = FontWeight.SemiBold)
-                            Text("Подписки, настройки и выбранные приложения",
+                            Text("Подписки, серверы, ключи и настройки",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Icon(Icons.Default.ChevronRight, null)
@@ -190,7 +190,7 @@ fun BackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
             shape = RoundedCornerShape(24.dp),
             title = { Text("Восстановить резервную копию?") },
             text = {
-                Text("В архиве подписок: ${snapshot.count}. " +
+                Text("В архиве подписок: ${snapshot.count}, серверов: ${snapshot.serverCount}. " +
                     "Новые подписки будут добавлены, совпадающие обновлены, " +
                     "а сохранённые настройки заменят текущие. " +
                     "Функции подключения сами не включатся.")
@@ -324,7 +324,7 @@ private fun TvBackupScreen(onBack: () -> Unit, onRestored: () -> Unit) {
             onDismissRequest = { pending = null },
             title = { Text("Восстановить резервную копию?") },
             text = {
-                Text("Подписок: ${snapshot.count}. Новые будут добавлены, " +
+                Text("Подписок: ${snapshot.count}, серверов: ${snapshot.serverCount}. Новые будут добавлены, " +
                     "совпадающие обновлены, настройки заменены. VPN не включится.")
             },
             confirmButton = {

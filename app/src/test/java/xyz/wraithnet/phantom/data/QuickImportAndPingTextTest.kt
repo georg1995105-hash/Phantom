@@ -20,6 +20,33 @@ class QuickImportAndPingTextTest {
         }
     }
 
+    @Test fun providerLinkDecodesExactlyOnceAndMatchesPlainSubscription() {
+        val original = "https://vpn.example.com/sub%2Fid?x=a%2Bb&y=1+2"
+        val wrapped = "phantom://import?url=https%3A%2F%2Fvpn.example.com%2Fsub%252Fid%3Fx%3Da%252Bb%26y%3D1%2B2"
+        assertEquals(original, SubscriptionQuickImport.unwrap(wrapped))
+        assertEquals(original, SubscriptionQuickImport.unwrap(original))
+        assertTrue(SubscriptionQuickImport.isSubscriptionLink(wrapped))
+    }
+
+    @Test fun rejectsMalformedOrAmbiguousImportLinks() {
+        listOf("phantom://import", "phantom://import?url=",
+            "phantom://import?url=https%3A%2F%2Fexample.org%2Fsub&url=other",
+            "phantom://import?url=https%3A%2F%2Fexample.org%2Fsub#other",
+            "phantom://import?url=https%3A%2F%2Fuser%40example.org",
+            "phantom://import?url=file%3A%2F%2F%2Fetc%2Fpasswd",
+            "phantom://import?url=https%3A%2F%2Fexample.org%2F%0A",
+            "phantom://import?url=https%3A%2F%2Fexample.org%2F%ZZ",
+            "phantom://import?url=https%253A%252F%252Fexample.org",
+            "phantom://import?url=https://example.org/sub",
+            "phantom://import.evil?url=https%3A%2F%2Fexample.org"
+        ).forEach {
+            assertFalse(it, SubscriptionQuickImport.isSubscriptionLink(it))
+            assertThrows(IllegalArgumentException::class.java) { SubscriptionQuickImport.unwrap(it) }
+        }
+        val pairing = "phantom://pair?token=abc"
+        assertEquals(pairing, SubscriptionQuickImport.unwrap(pairing))
+    }
+
     @Test fun pingDisplaysOnlyMillisecondsAndHasDistinctMeasuringAndMissingStates() {
         assertEquals("97 мс", SubscriptionPingText.display(97L, false))
         assertEquals("…", SubscriptionPingText.display(97L, true))
