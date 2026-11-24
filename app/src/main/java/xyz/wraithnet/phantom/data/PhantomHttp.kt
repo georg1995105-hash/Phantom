@@ -1,6 +1,7 @@
 package xyz.wraithnet.phantom.data
 
 import android.content.Context
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
@@ -57,8 +58,7 @@ object PhantomHttp {
         return runCatching {
             val network = cm.activeNetwork
             val caps = network?.let { cm.getNetworkCapabilities(it) }
-            val ownVpn = context.getSharedPreferences(
-                "phantom_preferences", Context.MODE_PRIVATE).getBoolean("vpn_running", false)
+            val ownVpn = VpnRuntimeBridge.snapshot(context).running
             NetworkState(
                 routeId = network?.toString(),
                 validated = caps?.hasCapability(
@@ -195,7 +195,7 @@ object PhantomHttp {
         }.build()
         val maxAttempts = if (manual) 1 else 3
         for (attempt in 0 until maxAttempts) {
-            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(context, vpnRoute)) {
                 throw IOException("Выбранная нода VPN отключена или изменена")
             }
             // No silent retries on manual checks: the whole operation must
@@ -219,7 +219,7 @@ object PhantomHttp {
                 throw Failure(explainFailure(e, networkState(context)), e)
             }
             response.use {
-                if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+                if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(context, vpnRoute)) {
                     throw IOException("Выбранная нода VPN отключена или изменена")
                 }
                 if (!it.isSuccessful) throw IOException("Сервер ответил HTTP " + it.code)
