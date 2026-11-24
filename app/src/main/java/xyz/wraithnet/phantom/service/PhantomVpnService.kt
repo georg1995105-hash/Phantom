@@ -211,7 +211,7 @@ class PhantomVpnService : VpnService() {
         val settings = try {
             VpnSettingsBridge.read(this)
         } catch (_: Exception) {
-            if (running) sendStatus(STATUS_CONNECTED, "Новые настройки VPN не получены")
+            if (running) sendStatus(state, "Новые настройки VPN не получены")
             else setState(STATUS_ERROR, "Не удалось получить настройки VPN")
             return
         }
