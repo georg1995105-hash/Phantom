@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
             if (statusGeneration == generation) {
                 vpnStatus.value = snapshot.status
                 connectedSinceElapsed.longValue = snapshot.connectedSince
-                vpnError.value = ""
+                vpnError.value = snapshot.error
                 if (!snapshot.running) {
                     downloadBytes.longValue = -1L
                     uploadBytes.longValue = -1L

@@ -83,8 +83,8 @@ internal fun WideHomeDashboard(
     var selectedForJson by remember { mutableStateOf<ServerProfile?>(null) }
     val expansion = rememberSubscriptionExpansionStore()
     var showDetails by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
-    val sortedGroups = remember(subscriptions, pinnedId, favorites) {
-        orderedSubscriptions(subscriptions, pinnedId).map { owner ->
+    val sortedGroups = remember(subscriptions, pinnedId, selected?.first?.id, favorites) {
+        orderedSubscriptions(subscriptions, pinnedId, selected?.first?.id).map { owner ->
             owner to owner.servers.sortedWith(
                 compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                     .thenByDescending { (owner.id + ":" + it.id) in favorites })
@@ -180,7 +180,7 @@ internal fun WideHomeDashboard(
                                 Spacer(Modifier.height(4.dp))
                                 Text(when (status) {
                                     "connected" -> "Подключено"
-                                    "degraded" -> "Нет проверки"
+                                    "degraded" -> if (onShowError == null) "Проверка…" else "Нет проверки"
                                     "starting" -> "Подключение"
                                     "error" -> "Ошибка"
                                     else -> "Отключено"
@@ -276,6 +276,9 @@ internal fun WideHomeDashboard(
                                             owner.customIntervalSeconds ?: owner.updateIntervalSeconds),
                                         color = scheme.onSurfaceVariant, fontSize = 10.sp)
                                 }
+                                if (owner.id == pinnedId) Icon(Icons.Default.PushPin,
+                                    if (remote) "Подписка закреплена" else "Ключ закреплён",
+                                    Modifier.padding(end = 4.dp).size(14.dp), tint = scheme.primary)
                             }
                             if (remote) IconButton(
                                 onClick = { onRefresh(owner) },

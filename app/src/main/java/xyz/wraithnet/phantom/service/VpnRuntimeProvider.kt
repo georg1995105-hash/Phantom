@@ -17,23 +17,22 @@ import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
  */
 internal object VpnRuntimeBridge {
     data class Snapshot(val status: String, val connectedSince: Long, val available: Boolean = true,
-        val profileDigest: String? = null) {
+        val profileDigest: String? = null, val error: String = "") {
         val running: Boolean get() = PhantomVpnService.isTunnelActive(status)
     }
 
-    @Volatile private var actualStatus = PhantomVpnService.STATUS_DISCONNECTED
-    @Volatile private var actualConnectedSince = 0L
+    @Volatile private var actual = Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L)
 
-    fun publish(status: String, connectedSince: Long = 0L) {
-        actualStatus = status
-        actualConnectedSince = connectedSince
+    fun publish(status: String, connectedSince: Long = 0L, error: String = "") {
+        actual = Snapshot(status, connectedSince, error = error)
     }
 
-    internal fun localSnapshot(): Snapshot =
-        if (PhantomVpnService.isTunnelActive(actualStatus) &&
-            !ActiveVpnSubscriptionProxy.hasRoute()) {
+    internal fun localSnapshot(): Snapshot {
+        val state = actual
+        return if (state.running && !ActiveVpnSubscriptionProxy.hasRoute()) {
             Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L)
-        } else Snapshot(actualStatus, actualConnectedSince)
+        } else state
+    }
 
     private fun uri(context: Context) = Uri.parse("content://${context.packageName}.vpn-runtime")
 
@@ -43,6 +42,7 @@ internal object VpnRuntimeBridge {
             data.getString("status") ?: PhantomVpnService.STATUS_DISCONNECTED,
             data.getLong("since", 0L),
             profileDigest = data.getString("digest"),
+            error = data.getString("error").orEmpty(),
         )
     }.getOrDefault(Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L, available = false))
 
@@ -79,6 +79,7 @@ class VpnRuntimeProvider : ContentProvider() {
             Bundle().apply {
                 putString("status", s.status)
                 putLong("since", s.connectedSince)
+                putString("error", s.error)
                 putString("digest", ActiveVpnSubscriptionProxy.currentDigest())
             }
         }

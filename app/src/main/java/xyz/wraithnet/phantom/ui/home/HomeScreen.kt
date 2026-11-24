@@ -820,11 +820,15 @@ fun HomeScreen(
                                     PhantomVpnService.isTunnelActive(vpnStatus) &&
                                         VpnRuntimeBridge.snapshot(context).profileDigest !=
                                             ActiveVpnSubscriptionProxy.digestForProfile(server.raw)
+                                val ownerChanged = selectedMatch?.first?.id != owner.id
                                 softTap()
                                 selectedId = server.id
                                 selectedSubId = owner.id
                                 prefs.edit().putString("selected_server_id", server.id)
                                     .putString("selected_subscription_id", owner.id).apply()
+                                if (ownerChanged && !isTelevision() && !wideTablet) {
+                                    scope.launch { unifiedHomeListState.scrollToItem(0) }
+                                }
                                 scope.launch {
                                     persist { current ->
                                         current.map { item ->

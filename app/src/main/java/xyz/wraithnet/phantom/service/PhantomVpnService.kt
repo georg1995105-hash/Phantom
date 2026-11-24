@@ -132,7 +132,7 @@ class PhantomVpnService : VpnService() {
                     PhysicalHandoverPolicy.Decision.PRESERVE_TUN -> {
                         lastPhysicalRoute = route
                         // The old HTTPS result cannot prove the new network's egress.
-                        setState(STATUS_DEGRADED, "Проверка VPN после смены сети")
+                        setState(STATUS_DEGRADED)
                         updateNotification("VPN · проверка после смены сети")
                         if (singBoxPinnedPort != null && singBoxSession == null) {
                             scheduleSingBoxRecovery()
@@ -464,7 +464,7 @@ class PhantomVpnService : VpnService() {
                         prefs.getBoolean("vpn_requested", false)) {
                         "Сеанс VPN заменён новой командой"
                     }
-                    setState(STATUS_DEGRADED, "Транспорт восстановлен; проверка HTTPS")
+                    setState(STATUS_DEGRADED)
                     updateNotification("VPN · проверка после восстановления")
                     verifyCurrentTunnel()
                     // Release the completed retry owner while still holding
@@ -677,7 +677,7 @@ class PhantomVpnService : VpnService() {
         prefs.edit().putString("vpn_status", next).apply()
         VpnRuntimeBridge.publish(next,
             if (isTunnelActive(next))
-                prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
+                prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L, error)
         VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
         PhantomQuickTileService.notifyStateChanged(applicationContext)

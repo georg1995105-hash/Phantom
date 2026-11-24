@@ -228,7 +228,7 @@ internal fun ConnectionPage(status: String,
                 }
                 Text(when (status) {
                     "connected" -> "Подключено"
-                    "degraded" -> "Связь не подтверждена"
+                    "degraded" -> vpnVerificationLabel(error != null)
                     "starting" -> "Подключение…"
                     "error" -> "Соединение не установлено"
                     else -> "Отключено"
@@ -310,17 +310,23 @@ private fun Caption(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
 }
 
-/** Remote subscriptions always precede individual keys, on phone, tablet and TV.
- * Pinning only changes the order inside its own category.
+/** Pending HTTPS proof is not a failed connection. Actual failures remain visible. */
+internal fun vpnVerificationLabel(hasFailure: Boolean): String =
+    if (hasFailure) "Связь не подтверждена" else "Проверка связи…"
+
+/** Remote subscriptions precede single keys. Explicit pins win within their
+ * category, then the selected owner, with the remaining import order stable.
  */
 internal fun orderedSubscriptions(
     subscriptions: List<Subscription>,
     pinnedId: String?,
+    selectedOwnerId: String? = null,
 ): List<Subscription> = subscriptions.sortedWith(
     compareByDescending<Subscription> {
         it.source.startsWith("https://", ignoreCase = true) ||
             it.source.startsWith("http://", ignoreCase = true)
     }.thenByDescending { it.id == pinnedId }
+        .thenByDescending { it.id == selectedOwnerId }
 )
 
 /** Identical subscription titles are distinguished without exposing private URLs. */
@@ -353,8 +359,8 @@ internal fun ServersPage(
     val expansion = rememberSubscriptionExpansionStore()
     var details by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var inspectedServer by remember { mutableStateOf<ServerProfile?>(null) }
-    val groups = remember(subscriptions, pinnedId, favorites) {
-        orderedSubscriptions(subscriptions, pinnedId).map { owner ->
+    val groups = remember(subscriptions, pinnedId, selected?.first?.id, favorites) {
+        orderedSubscriptions(subscriptions, pinnedId, selected?.first?.id).map { owner ->
             owner to owner.servers.sortedWith(compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                 .thenByDescending { "${owner.id}:${it.id}" in favorites })
         }
@@ -398,6 +404,9 @@ internal fun ServersPage(
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 fontSize = 14.sp, lineHeight = 17.sp)
+                            if (owner.id == pinnedId) Icon(Icons.Default.PushPin,
+                                "Подписка закреплена", Modifier.padding(end = 4.dp).size(14.dp),
+                                tint = c.primary)
                         }
                         // Keep identical action order on phone, tablet and TV.
                         if (remote) IconButton(onClick = { onRefresh(owner) },
@@ -497,6 +506,8 @@ internal fun ServersPage(
                                     Modifier.size(20.dp), tint = c.primary)
                             }
                         }
+                        if (single && owner.id == pinnedId) Icon(Icons.Default.PushPin,
+                            "Ключ закреплён", Modifier.size(14.dp), tint = c.primary)
                         if (single) OwnerMenu(name) { manage(owner) }
                     }
                     if (single && owner.id !in probing) LaunchedEffect(owner.id, server.raw) { onAutoProbe(owner) }
