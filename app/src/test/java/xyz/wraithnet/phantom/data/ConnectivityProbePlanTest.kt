@@ -54,14 +54,14 @@ class ConnectivityProbePlanTest {
         assertEquals("local-secret", check.getJSONObject("settings")
             .getJSONArray("accounts").getJSONObject(0).getString("pass"))
         val tag = check.getString("tag")
-        assertTrue(root.getJSONObject("routing").getJSONArray("rules").let { rules ->
-            (0 until rules.length()).any { i ->
-                val rule = rules.getJSONObject(i)
-                val tags = rule.optJSONArray("inboundTag")
-                rule.optString("outboundTag") == "proxy" && tags != null &&
-                    (0 until tags.length()).any { j -> tags.getString(j) == tag }
-            }
-        })
+        assertTrue(tag.startsWith("phantom-check-"))
+        val general = root.getJSONObject("routing").getJSONArray("rules").getJSONObject(0)
+        // A basic share link routes ALL TCP/UDP inbounds through proxy, rather
+        // than restricting its rule to the Android TUN tag. The loopback HTTP
+        // check is covered by this same rule without a separate inboundTag.
+        assertEquals("proxy", general.getString("outboundTag"))
+        assertFalse(general.has("inboundTag"))
+        assertTrue(general.getString("network").contains("tcp"))
     }
 
     @Test fun smartProviderBalancerRemainsFailClosedDuringHttpCheck() {
