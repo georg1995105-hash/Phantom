@@ -141,6 +141,7 @@ class PhantomQuickTileService : TileService() {
         if (Build.VERSION.SDK_INT >= 29) {
             tile.subtitle = when {
                 !snapshot.available -> "Состояние VPN недоступно"
+                state == PhantomVpnService.STATUS_DEGRADED -> "Связь не подтверждена"
                 running -> "Подключено"
                 state == PhantomVpnService.STATUS_STARTING -> "Подключение…"
                 else -> "Отключено"
