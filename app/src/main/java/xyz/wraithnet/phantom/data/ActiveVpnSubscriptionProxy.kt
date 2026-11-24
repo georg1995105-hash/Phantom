@@ -28,6 +28,10 @@ internal object ActiveVpnSubscriptionProxy {
         active = Route(port, password, digest(profileRaw))
     }
 
+    internal fun currentDigest(): String? = active?.profileDigest
+
+    fun digestForProfile(profileRaw: String): String = digest(profileRaw)
+
     internal fun hasRoute(): Boolean = active != null
 
     internal fun forDigest(profileDigest: String): Route? =
