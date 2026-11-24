@@ -400,35 +400,40 @@ class DualCoreNativeSmokeTest {
                 PhantomVpnService.STATUS_CONNECTED, recovered?.status)
             // Regression: an invalid replacement profile must not kill an
             // already verified Xray TUN or the newly recovered Go worker.
-            val rejected = CountDownLatch(1)
-            val receiver = object : android.content.BroadcastReceiver() {
-                override fun onReceive(receiverContext: Context?, event: Intent?) {
-                    if (event?.getStringExtra(PhantomVpnService.EXTRA_ERROR)
-                        ?.contains("Нет исходящих соединений") == true) rejected.countDown()
+            for ((invalidProfile, expectedError) in listOf(
+                """{"outbounds":[]}""" to "Нет исходящих соединений",
+                "" to "Профиль сервера пуст",
+            )) {
+                val rejected = CountDownLatch(1)
+                val receiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(receiverContext: Context?, event: Intent?) {
+                        if (event?.getStringExtra(PhantomVpnService.EXTRA_ERROR)
+                            ?.contains(expectedError) == true) rejected.countDown()
+                    }
                 }
-            }
-            androidx.core.content.ContextCompat.registerReceiver(
-                context, receiver,
-                android.content.IntentFilter(PhantomVpnService.ACTION_STATUS),
-                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-            try {
-                context.startService(Intent(context, PhantomVpnService::class.java)
-                    .setAction(PhantomVpnService.ACTION_START)
-                    .putExtra(PhantomVpnService.EXTRA_PROFILE, """{"outbounds":[]}"""))
-                assertTrue("Invalid profile was not rejected", rejected.await(5, TimeUnit.SECONDS))
-                val afterReject = VpnRuntimeBridge.snapshot(context)
-                assertEquals("Invalid profile replaced Android TUN",
-                    initial.connectedSince, afterReject.connectedSince)
-                assertEquals("Invalid profile disconnected verified VPN",
-                    PhantomVpnService.STATUS_CONNECTED, afterReject.status)
-                assertEquals("Invalid profile relaunched sing-box", recoveredPid, workerPid())
-                val digest = requireNotNull(afterReject.profileDigest)
-                val activeRoute = requireNotNull(VpnRuntimeBridge.routeForDigest(context, digest))
-                assertTrue("Existing authenticated Xray proxy was lost",
-                    VpnRuntimeBridge.isActive(context, activeRoute))
-            } finally {
-                context.unregisterReceiver(receiver)
+                androidx.core.content.ContextCompat.registerReceiver(
+                    context, receiver,
+                    android.content.IntentFilter(PhantomVpnService.ACTION_STATUS),
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+                )
+                try {
+                    context.startService(Intent(context, PhantomVpnService::class.java)
+                        .setAction(PhantomVpnService.ACTION_START)
+                        .putExtra(PhantomVpnService.EXTRA_PROFILE, invalidProfile))
+                    assertTrue("Invalid profile was not rejected", rejected.await(5, TimeUnit.SECONDS))
+                    val afterReject = VpnRuntimeBridge.snapshot(context)
+                    assertEquals("Invalid profile replaced Android TUN",
+                        initial.connectedSince, afterReject.connectedSince)
+                    assertEquals("Invalid profile disconnected verified VPN",
+                        PhantomVpnService.STATUS_CONNECTED, afterReject.status)
+                    assertEquals("Invalid profile relaunched sing-box", recoveredPid, workerPid())
+                    val digest = requireNotNull(afterReject.profileDigest)
+                    val activeRoute = requireNotNull(VpnRuntimeBridge.routeForDigest(context, digest))
+                    assertTrue("Existing authenticated Xray proxy was lost",
+                        VpnRuntimeBridge.isActive(context, activeRoute))
+                } finally {
+                    context.unregisterReceiver(receiver)
+                }
             }
         } finally {
             context.startService(Intent(context, PhantomVpnService::class.java)

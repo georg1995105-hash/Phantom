@@ -203,13 +203,12 @@ class PhantomVpnService : VpnService() {
             }
             ACTION_START -> {
                 val profile = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
-                if (profile.isNotBlank()) {
-                    val epoch = commandEpoch.incrementAndGet()
-                    prefs.edit().putBoolean("vpn_requested", true).apply()
-                    ioScope.launch { mutex.withLock {
-                        if (epoch == commandEpoch.get()) startLocked(profile, epoch)
-                    } }
-                } else setState(STATUS_ERROR, "Сначала выберите сервер")
+                // Empty START is a rejected replacement, not a service state change.
+                val epoch = commandEpoch.incrementAndGet()
+                prefs.edit().putBoolean("vpn_requested", true).apply()
+                ioScope.launch { mutex.withLock {
+                    if (epoch == commandEpoch.get()) startLocked(profile, epoch)
+                } }
             }
             ACTION_BOOT_START -> {
                 val last = prefs.getString("vpn_last_profile", "").orEmpty()
@@ -236,39 +235,38 @@ class PhantomVpnService : VpnService() {
     }
 
     private fun startLocked(raw: String, command: Long? = null) {
-        if (revokedByAndroid) return
+        fun commandCurrent() = !revokedByAndroid &&
+            (command == null || command == commandEpoch.get())
+        if (!commandCurrent()) return
         // Resolve cross-process settings BEFORE touching an existing live tunnel.
         // A dead UI/settings process must not turn a working VPN into an outage.
         val settings = try {
             VpnSettingsBridge.read(this)
         } catch (_: Exception) {
-            if (running) sendStatus(state, "Новые настройки VPN не получены")
+            if (!commandCurrent()) return
+            if (running) rejectLiveReplacement("Новые настройки VPN не получены")
             else setState(STATUS_ERROR, "Не удалось получить настройки VPN")
             return
         }
+        if (!commandCurrent()) return
         // A malformed replacement profile must NEVER tear down a healthy tunnel.
         // Validate the entire Java-side adapter before stopping the old Xray/TUN.
         val prepared = try {
             VpnProfilePreflight.prepare(raw, settings.dns, settings.fragmentation)
         } catch (e: Exception) {
+            if (!commandCurrent()) return
             val reason = e.message ?: "Некорректный профиль VPN"
             if (running) {
-                sendStatus(state, reason)
-                // An invalid START/RELOAD still advances commandEpoch. Resume
-                // verification/recovery of the original session under that epoch.
-                if (singBoxPinnedPort != null && singBoxSession == null) {
-                    singBoxRecoveryJob?.cancel()
-                    singBoxRecoveryJob = null
-                    scheduleSingBoxRecovery()
-                } else if (state == STATUS_DEGRADED) {
-                    verifyCurrentTunnel()
-                }
+                rejectLiveReplacement(reason)
             } else {
                 prefs.edit().putBoolean("vpn_requested", false).apply()
                 setState(STATUS_ERROR, reason)
             }
             return
         }
+        // STOP/revoke/new START can arrive during settings IPC or preflight.
+        // Do not tear down the existing TUN for a superseded command.
+        if (!commandCurrent()) return
         val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
         try {
@@ -362,6 +360,21 @@ class PhantomVpnService : VpnService() {
     }
 
 
+
+    /** Called under the lifecycle mutex after a rejected START/RELOAD. */
+    private fun rejectLiveReplacement(reason: String) {
+        sendStatus(state, reason)
+        // Both settings IPC failure and profile rejection advance commandEpoch.
+        // Re-arm work for the original session; never restart Xray or Android TUN.
+        if (singBoxPinnedPort != null && singBoxSession == null) {
+            singBoxRecoveryJob?.cancel()
+            singBoxRecoveryJob = null
+            scheduleSingBoxRecovery()
+        } else if (state == STATUS_DEGRADED &&
+            runCatching { physicalRoute() }.getOrNull() != null) {
+            verifyCurrentTunnel()
+        }
+    }
 
     /**
      * Only the current worker may signal its death. Keep the existing Xray
