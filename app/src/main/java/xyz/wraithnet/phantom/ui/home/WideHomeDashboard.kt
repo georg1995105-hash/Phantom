@@ -130,10 +130,14 @@ internal fun WideHomeDashboard(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(17.dp)) {
-                    val active = status == "connected"
+                    val active = status == "connected" || status == "degraded"
+                    val verified = status == "connected"
                     val connecting = status == "starting"
-                    val ring = if (active) scheme.primary.copy(alpha = .72f)
-                        else scheme.outline.copy(alpha = .72f)
+                    val ring = when {
+                        verified -> scheme.primary.copy(alpha = .72f)
+                        active -> scheme.tertiary.copy(alpha = .72f)
+                        else -> scheme.outline.copy(alpha = .72f)
+                    }
                     Box(
                         modifier = Modifier.size(if (tv) 112.dp else 106.dp)
                             .focusRequester(powerFocus)
@@ -176,6 +180,7 @@ internal fun WideHomeDashboard(
                                 Spacer(Modifier.height(4.dp))
                                 Text(when (status) {
                                     "connected" -> "Подключено"
+                                    "degraded" -> "Нет проверки"
                                     "starting" -> "Подключение"
                                     "error" -> "Ошибка"
                                     else -> "Отключено"
@@ -211,7 +216,7 @@ internal fun WideHomeDashboard(
                             if (upload >= 0) Text("↑ " + sizeLabel(upload),
                                 fontSize = 11.sp, color = scheme.onSurfaceVariant)
                         }
-                        if (status == "error" && onShowError != null)
+                        if (status in setOf("error", "degraded") && onShowError != null)
                             TextButton(onClick = onShowError, modifier = Modifier.tvFocusRing()) {
                                 Text("Причина ошибки")
                             }
