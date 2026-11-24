@@ -30,7 +30,7 @@ jobs:
   build:
     # The reviewed PR branch may be released on the owner's explicit manual action.
     # No merge to main or release on PR push is implied.
-    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/qa/universal-hardening-20261120' && github.actor == 'georg1995105-hash') || (github.ref == 'refs/heads/fix/tuic-ota-recovery-20261121' && github.actor == 'georg1995105-hash' && inputs.release_tag == '')
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/qa/universal-hardening-20261120' && github.actor == 'georg1995105-hash') || (github.ref == 'refs/heads/fix/tuic-ota-recovery-20261121' && github.actor == 'georg1995105-hash' && inputs.release_tag == '') || (github.ref == 'refs/heads/qa/reliability-integration-20261124' && github.actor == 'georg1995105-hash' && inputs.release_tag == '')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
