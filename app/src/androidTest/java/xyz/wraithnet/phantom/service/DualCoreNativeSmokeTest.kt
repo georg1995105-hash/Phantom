@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import android.os.Process
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -295,6 +296,161 @@ class DualCoreNativeSmokeTest {
         } finally {
             runCatching { first.stop() }
             second.stop()
+        }
+    }
+
+
+    /**
+     * A hard :singbox process crash must not require replacing Xray's SOCKS
+     * destination. Real native libbox must rebind the exact old port in a
+     * fresh PID; otherwise the live Android TUN would stay black-holed.
+     */
+    @Test fun crashedNativeWorkerReclaimsOriginalSocksPort() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val link = "tuic://00000000-0000-0000-0000-000000000001:testPassword@" +
+            "127.0.0.1:25443?sni=example.org&alpn=h3"
+        val first = SingBoxBridge(context)
+        var oldPid = -1
+        var pinnedPort = -1
+        try {
+            pinnedPort = first.start(link)
+            oldPid = first.workerPid
+            assertTrue("First SOCKS listener missing", LocalSocks5Probe.check(pinnedPort).ready)
+            Process.killProcess(oldPid)
+            repeat(50) {
+                if (workerAliveForTest(oldPid)) Thread.sleep(50)
+            }
+            assertTrue("Killed native Go process did not exit", !workerAliveForTest(oldPid))
+        } finally {
+            first.stop()
+        }
+
+        val second = SingBoxBridge(context)
+        try {
+            val recoveredPort = second.start(link, requestedSocksPort = pinnedPort)
+            assertTrue("Xray SOCKS destination changed after restart",
+                recoveredPort == pinnedPort)
+            assertTrue("New Go runtime must have a different PID",
+                second.workerPid != oldPid)
+            repeat(4) {
+                assertTrue("Recovered SOCKS listener failed negotiation",
+                    LocalSocks5Probe.check(recoveredPort).ready)
+            }
+        } finally {
+            second.stop()
+        }
+    }
+
+
+    /**
+     * End-to-end Android VpnService proof using the isolated local TUIC peer:
+     * terminate :singbox while HTTPS is verified, then require a new native
+     * worker and the SAME Android VPN connected-since epoch.
+     */
+    @Test fun liveVpnAutomaticallyRecoversKilledWorkerWithoutReplacingTun() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val assets = instrumentation.context.assets
+        org.junit.Assume.assumeTrue("Requires CI TUIC protocol peer",
+            "peers.json" in assets.list("").orEmpty())
+        val permission = instrumentation.uiAutomation.executeShellCommand(
+            "appops set ${context.packageName} ACTIVATE_VPN allow")
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(permission).use { it.readBytes() }
+        assertTrue("VPN permission missing", android.net.VpnService.prepare(context) == null)
+        val tuic = org.json.JSONObject(assets.open("peers.json").bufferedReader()
+            .use { it.readText() }).getString("tuic")
+        fun workerPid(): Int = context.getSystemService(
+            android.app.ActivityManager::class.java).runningAppProcesses.orEmpty()
+            .firstOrNull { it.processName == "${context.packageName}:singbox" }?.pid ?: -1
+        fun awaitVerified(timeoutMs: Long): VpnRuntimeBridge.Snapshot {
+            val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+            var last = VpnRuntimeBridge.snapshot(context)
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                last = VpnRuntimeBridge.snapshot(context)
+                if (last.status == PhantomVpnService.STATUS_CONNECTED &&
+                    last.connectedSince > 0L) return last
+                Thread.sleep(200)
+            }
+            error("VPN did not verify HTTPS through native TUIC; state=${last.status}")
+        }
+        val start = Intent(context, PhantomVpnService::class.java)
+            .setAction(PhantomVpnService.ACTION_START)
+            .putExtra(PhantomVpnService.EXTRA_PROFILE, tuic)
+        context.startForegroundService(start)
+        try {
+            val initial = awaitVerified(25_000)
+            var pid = workerPid()
+            assertTrue("No isolated :singbox worker PID", pid > 0)
+            Process.killProcess(pid)
+            val deadline = android.os.SystemClock.elapsedRealtime() + 35_000L
+            var recoveredPid = -1
+            var recovered: VpnRuntimeBridge.Snapshot? = null
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                recoveredPid = workerPid()
+                recovered = VpnRuntimeBridge.snapshot(context)
+                if (recoveredPid > 0 && recoveredPid != pid &&
+                    recovered.status == PhantomVpnService.STATUS_CONNECTED) break
+                Thread.sleep(200)
+            }
+            assertTrue("Worker was not restarted in a new OS process",
+                recoveredPid > 0 && recoveredPid != pid)
+            assertEquals("Recovery destroyed/re-established the Android TUN",
+                initial.connectedSince, recovered?.connectedSince)
+            assertEquals("Recovered SOCKS did not restore verified HTTPS",
+                PhantomVpnService.STATUS_CONNECTED, recovered?.status)
+            // Regression: an invalid replacement profile must not kill an
+            // already verified Xray TUN or the newly recovered Go worker.
+            fun assertRejectedReplacement(invalidProfile: String, expectedError: String) {
+                val rejected = CountDownLatch(1)
+                val receiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(receiverContext: Context?, event: Intent?) {
+                        if (event?.getStringExtra(PhantomVpnService.EXTRA_ERROR)
+                            ?.contains(expectedError) == true) rejected.countDown()
+                    }
+                }
+                androidx.core.content.ContextCompat.registerReceiver(
+                    context, receiver,
+                    android.content.IntentFilter(PhantomVpnService.ACTION_STATUS),
+                    androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+                )
+                try {
+                    context.startService(Intent(context, PhantomVpnService::class.java)
+                        .setAction(PhantomVpnService.ACTION_START)
+                        .putExtra(PhantomVpnService.EXTRA_PROFILE, invalidProfile))
+                    assertTrue("Invalid profile was not rejected", rejected.await(5, TimeUnit.SECONDS))
+                    val afterReject = VpnRuntimeBridge.snapshot(context)
+                    assertEquals("Invalid profile replaced Android TUN",
+                        initial.connectedSince, afterReject.connectedSince)
+                    assertEquals("Invalid profile disconnected verified VPN",
+                        PhantomVpnService.STATUS_CONNECTED, afterReject.status)
+                    assertEquals("Invalid profile relaunched sing-box", recoveredPid, workerPid())
+                    val digest = requireNotNull(afterReject.profileDigest)
+                    val activeRoute = requireNotNull(VpnRuntimeBridge.routeForDigest(context, digest))
+                    assertTrue("Existing authenticated Xray proxy was lost",
+                        VpnRuntimeBridge.isActive(context, activeRoute))
+                } finally {
+                    context.unregisterReceiver(receiver)
+                }
+            }
+            assertRejectedReplacement("""{"outbounds":[]}""", "Нет исходящих соединений")
+            assertRejectedReplacement("", "Профиль сервера пуст")
+
+            // A valid transport with an invalid per-app allowlist must likewise
+            // be rejected before touching the already verified VPN.
+            val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            val oldMode = prefs.getString("app_route_mode", null)
+            val oldPackages = prefs.getStringSet("app_route_packages", null)?.toSet()
+            try {
+                assertTrue(prefs.edit().putString("app_route_mode", "only")
+                    .putStringSet("app_route_packages", emptySet()).commit())
+                assertRejectedReplacement(tuic, "Выберите хотя бы одно приложение для VPN")
+            } finally {
+                assertTrue(prefs.edit().putString("app_route_mode", oldMode)
+                    .putStringSet("app_route_packages", oldPackages).commit())
+            }
+        } finally {
+            context.startService(Intent(context, PhantomVpnService::class.java)
+                .setAction(PhantomVpnService.ACTION_STOP))
         }
     }
 

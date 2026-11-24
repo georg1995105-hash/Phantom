@@ -20,6 +20,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -83,8 +85,8 @@ internal fun WideHomeDashboard(
     var selectedForJson by remember { mutableStateOf<ServerProfile?>(null) }
     val expansion = rememberSubscriptionExpansionStore()
     var showDetails by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
-    val sortedGroups = remember(subscriptions, pinnedId, favorites) {
-        orderedSubscriptions(subscriptions, pinnedId).map { owner ->
+    val sortedGroups = remember(subscriptions, pinnedId, selected?.first?.id, favorites) {
+        orderedSubscriptions(subscriptions, pinnedId, selected?.first?.id).map { owner ->
             owner to owner.servers.sortedWith(
                 compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                     .thenByDescending { (owner.id + ":" + it.id) in favorites })
@@ -109,12 +111,17 @@ internal fun WideHomeDashboard(
             }
         }
     }
+    // Tablet uses the phone's continuous subscription surfaces, but the
+    // scroller stays lazy even with hundreds of servers. Cap content width,
+    // not the window, so landscape does not stretch text across the screen.
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
     LazyColumn(
         state = scroll,
-        modifier = Modifier.fillMaxSize(),
+        modifier = if (tv) Modifier.fillMaxSize()
+            else Modifier.widthIn(max = 840.dp).fillMaxSize(),
         contentPadding = PaddingValues(
             horizontal = if (tv) 12.dp else 18.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+        verticalArrangement = Arrangement.spacedBy(if (tv) 9.dp else 0.dp)
     ) {
         item(key = "wide-home-status") {
             if (!tv) {
@@ -130,10 +137,14 @@ internal fun WideHomeDashboard(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(17.dp)) {
-                    val active = status == "connected"
+                    val active = status == "connected" || status == "degraded"
+                    val verified = status == "connected"
                     val connecting = status == "starting"
-                    val ring = if (active) scheme.primary.copy(alpha = .72f)
-                        else scheme.outline.copy(alpha = .72f)
+                    val ring = when {
+                        verified -> scheme.primary.copy(alpha = .72f)
+                        active -> scheme.tertiary.copy(alpha = .72f)
+                        else -> scheme.outline.copy(alpha = .72f)
+                    }
                     Box(
                         modifier = Modifier.size(if (tv) 112.dp else 106.dp)
                             .focusRequester(powerFocus)
@@ -176,6 +187,7 @@ internal fun WideHomeDashboard(
                                 Spacer(Modifier.height(4.dp))
                                 Text(when (status) {
                                     "connected" -> "Подключено"
+                                    "degraded" -> if (onShowError == null) "Проверка…" else "Нет проверки"
                                     "starting" -> "Подключение"
                                     "error" -> "Ошибка"
                                     else -> "Отключено"
@@ -211,7 +223,7 @@ internal fun WideHomeDashboard(
                             if (upload >= 0) Text("↑ " + sizeLabel(upload),
                                 fontSize = 11.sp, color = scheme.onSurfaceVariant)
                         }
-                        if (status == "error" && onShowError != null)
+                        if (status in setOf("error", "degraded") && onShowError != null)
                             TextButton(onClick = onShowError, modifier = Modifier.tvFocusRing()) {
                                 Text("Причина ошибки")
                             }
@@ -219,6 +231,7 @@ internal fun WideHomeDashboard(
                 }
             }
         }
+        if (!tv) item(key = "tablet-status-gap") { Spacer(Modifier.height(12.dp)) }
         // Selected country and subscription already identify the server list.
         // Keep the wide layout clean without a count or redundant heading.
         if (sortedGroups.isEmpty()) item(key = "wide-empty") {
@@ -238,8 +251,12 @@ internal fun WideHomeDashboard(
                 owner.source.startsWith("http://", true)
             item(key = "wide-group:" + owner.id) {
                 Surface(
-                    shape = RoundedCornerShape(14.dp), color = scheme.surface,
-                    border = BorderStroke(1.dp, scheme.outline.copy(alpha = .22f))
+                    modifier = if (tv) Modifier else Modifier.fillMaxWidth()
+                        .testTag("tablet-subscription-header:" + owner.id)
+                        .groupSurface(first = true, last = !visible || profiles.isEmpty()),
+                    shape = if (tv) RoundedCornerShape(14.dp) else RectangleShape,
+                    color = if (tv) scheme.surface else Color.Transparent,
+                    border = if (tv) BorderStroke(1.dp, scheme.outline.copy(alpha = .22f)) else null
                 ) {
                     Column(Modifier.fillMaxWidth()) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -264,13 +281,23 @@ internal fun WideHomeDashboard(
                                 Spacer(Modifier.width(7.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(title, fontWeight = FontWeight.SemiBold,
-                                        maxLines = if (tv) 4 else 1, overflow = TextOverflow.Ellipsis,
-                                        fontSize = 14.sp)
-                                    if (remote) Text(
-                                        "Обновление · " + intervalLabel(
-                                            owner.customIntervalSeconds ?: owner.updateIntervalSeconds),
-                                        color = scheme.onSurfaceVariant, fontSize = 10.sp)
+                                        maxLines = if (tv) 4 else 2, overflow = TextOverflow.Ellipsis,
+                                        fontSize = if (tv) 14.sp else 15.sp)
+                                    if (remote) {
+                                        val interval = intervalLabel(
+                                            owner.customIntervalSeconds ?: owner.updateIntervalSeconds)
+                                        val label = if (tv || owner.updatedAt <= 0) "Обновление · " + interval
+                                            else "Обновлено " + android.text.format.DateFormat.getTimeFormat(
+                                                androidx.compose.ui.platform.LocalContext.current
+                                            ).format(java.util.Date(owner.updatedAt)) + " · " + interval
+                                        Text(label, color = scheme.onSurfaceVariant,
+                                            fontSize = if (tv) 10.sp else 11.sp,
+                                            maxLines = if (tv) 2 else 1, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
+                                if (owner.id == pinnedId) Icon(Icons.Default.PushPin,
+                                    if (remote) "Подписка закреплена" else "Ключ закреплён",
+                                    Modifier.padding(end = 4.dp).size(14.dp), tint = scheme.primary)
                             }
                             if (remote) IconButton(
                                 onClick = { onRefresh(owner) },
@@ -338,7 +365,7 @@ internal fun WideHomeDashboard(
                     LaunchedEffect(owner.id, owner.servers) { onProbe(owner) }
                 }
             }
-            if (visible && profiles.isNotEmpty()) item(key = "wide-group-divider:" + owner.id) {
+            if (tv && visible && profiles.isNotEmpty()) item(key = "wide-group-divider:" + owner.id) {
                 HorizontalDivider(
                     modifier = Modifier.fillMaxWidth()
                         .padding(horizontal = 13.dp, vertical = 2.dp),
@@ -348,7 +375,14 @@ internal fun WideHomeDashboard(
             }
             if (visible) {
                 profiles.chunked(gridColumns).forEachIndexed { index, pair ->
-                    item(key = "wide-row:" + owner.id + ":" + index) {
+                    item(key = if (tv) "wide-row:" + owner.id + ":" + index
+                        else "tablet-row:" + owner.id + ":" + pair.first().id) {
+                        Column(if (tv) Modifier.fillMaxWidth() else Modifier.fillMaxWidth()
+                            .testTag("tablet-subscription-row:" + owner.id + ":" + pair.first().id)
+                            .groupSurface(first = false, last = index == profiles.lastIndex)) {
+                        if (!tv) HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            color = scheme.outline.copy(alpha = .22f))
                         Row(Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             pair.forEach { server ->
@@ -357,15 +391,15 @@ internal fun WideHomeDashboard(
                                     selected?.second?.id == server.id
                                 val shape = RoundedCornerShape(13.dp)
                                 Surface(
-                                    shape = shape,
-                                    border = BorderStroke(if (active) 2.dp else 1.dp,
+                                    shape = if (tv) shape else RectangleShape,
+                                    border = if (tv) BorderStroke(if (active) 2.dp else 1.dp,
                                         if (active) scheme.primary.copy(alpha = .7f)
-                                        else scheme.outline.copy(alpha = .24f)),
+                                        else scheme.outline.copy(alpha = .24f)) else null,
                                     color = if (active) scheme.primaryContainer.copy(alpha = .40f)
-                                        else scheme.surface,
+                                        else if (tv) scheme.surface else Color.Transparent,
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 59.dp else 63.dp),
+                                    Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 59.dp else 58.dp),
                                         verticalAlignment = Alignment.CenterVertically) {
                                         Row(
                                             Modifier.weight(1f)
@@ -382,7 +416,7 @@ internal fun WideHomeDashboard(
                                             Spacer(Modifier.width(8.dp))
                                             Column(Modifier.weight(1f)) {
                                                 Text(displayServerName(server),
-                                                    fontSize = 13.sp,
+                                                    fontSize = if (tv) 13.sp else 14.sp,
                                                     fontWeight = if (active) FontWeight.SemiBold
                                                         else FontWeight.Medium,
                                                     maxLines = if (tv) 4 else 1,
@@ -392,11 +426,15 @@ internal fun WideHomeDashboard(
                                                     maxLines = if (tv) 3 else 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     color = scheme.onSurfaceVariant)
-                                                Text(SubscriptionPingText.display(
+                                                if (tv) Text(SubscriptionPingText.display(
                                                     latency[id], measuring[id] == server.raw),
                                                     fontSize = 10.sp,
                                                     color = scheme.onSurfaceVariant)
                                             }
+                                            if (!tv) Text(SubscriptionPingText.display(
+                                                latency[id], measuring[id] == server.raw),
+                                                modifier = Modifier.padding(horizontal = 10.dp),
+                                                fontSize = 12.sp, color = scheme.onSurfaceVariant)
                                         }
                                         IconButton(onClick = { onFavorite(id) },
                                             modifier = Modifier.size(36.dp).tvFocusRing()) {
@@ -421,9 +459,11 @@ internal fun WideHomeDashboard(
                             }
                             repeat(gridColumns - pair.size) { Spacer(Modifier.weight(1f)) }
                         }
+                        }
                     }
                 }
             }
+            if (!tv) item(key = "tablet-gap:" + owner.id) { Spacer(Modifier.height(12.dp)) }
         }
         item(key = "wide-import-and-qr") {
             Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp)) {
@@ -479,6 +519,7 @@ internal fun WideHomeDashboard(
                 }
             }
         }
+    }
     }
     selectedForJson?.let { profile ->
         ServerConfigSheet(profile) { selectedForJson = null }

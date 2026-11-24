@@ -154,8 +154,10 @@ internal fun ConnectionPage(status: String,
     val ownerView = LocalView.current
     var powerFocused by remember { mutableStateOf(false) }
     val connected = status == "connected"
+    val degraded = status == "degraded"
+    val active = connected || degraded
     val starting = status == "starting"
-    val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
+    val ring by animateColorAsState(if (connected || starting) c.primary else if (degraded) c.tertiary else c.outline, label = "connection")
     BoxWithConstraints(if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
         val gap = if (embedded) 5.dp else if (!hasSubscriptions) 12.dp
             else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
@@ -181,13 +183,13 @@ internal fun ConnectionPage(status: String,
                         CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(Icons.Default.PowerSettingsNew, when {
-                            connected -> "Отключить VPN"
+                            active -> "Отключить VPN"
                             else -> "Подключить VPN"
                         }, Modifier.size(if (embedded) 44.dp else 52.dp),
                             tint = c.onSurface)
                     }
                     // Only the power control shows the connection timer.
-                    if (connected) {
+                    if (active) {
                         Spacer(Modifier.height(3.dp))
                         Text(String.format(Locale.ROOT, "%02d:%02d:%02d",
                             seconds / 3600, seconds / 60 % 60, seconds % 60),
@@ -226,6 +228,7 @@ internal fun ConnectionPage(status: String,
                 }
                 Text(when (status) {
                     "connected" -> "Подключено"
+                    "degraded" -> vpnVerificationLabel(error != null)
                     "starting" -> "Подключение…"
                     "error" -> "Соединение не установлено"
                     else -> "Отключено"
@@ -307,17 +310,23 @@ private fun Caption(text: String) {
     Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
 }
 
-/** Remote subscriptions always precede individual keys, on phone, tablet and TV.
- * Pinning only changes the order inside its own category.
+/** Pending HTTPS proof is not a failed connection. Actual failures remain visible. */
+internal fun vpnVerificationLabel(hasFailure: Boolean): String =
+    if (hasFailure) "Связь не подтверждена" else "Проверка связи…"
+
+/** Remote subscriptions precede single keys. Explicit pins win within their
+ * category, then the selected owner, with the remaining import order stable.
  */
 internal fun orderedSubscriptions(
     subscriptions: List<Subscription>,
     pinnedId: String?,
+    selectedOwnerId: String? = null,
 ): List<Subscription> = subscriptions.sortedWith(
     compareByDescending<Subscription> {
         it.source.startsWith("https://", ignoreCase = true) ||
             it.source.startsWith("http://", ignoreCase = true)
     }.thenByDescending { it.id == pinnedId }
+        .thenByDescending { it.id == selectedOwnerId }
 )
 
 /** Identical subscription titles are distinguished without exposing private URLs. */
@@ -350,8 +359,8 @@ internal fun ServersPage(
     val expansion = rememberSubscriptionExpansionStore()
     var details by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var inspectedServer by remember { mutableStateOf<ServerProfile?>(null) }
-    val groups = remember(subscriptions, pinnedId, favorites) {
-        orderedSubscriptions(subscriptions, pinnedId).map { owner ->
+    val groups = remember(subscriptions, pinnedId, selected?.first?.id, favorites) {
+        orderedSubscriptions(subscriptions, pinnedId, selected?.first?.id).map { owner ->
             owner to owner.servers.sortedWith(compareByDescending<ServerProfile>(ProfileSelection::isProviderAutomatic)
                 .thenByDescending { "${owner.id}:${it.id}" in favorites })
         }
@@ -395,6 +404,9 @@ internal fun ServersPage(
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 fontSize = 14.sp, lineHeight = 17.sp)
+                            if (owner.id == pinnedId) Icon(Icons.Default.PushPin,
+                                "Подписка закреплена", Modifier.padding(end = 4.dp).size(14.dp),
+                                tint = c.primary)
                         }
                         // Keep identical action order on phone, tablet and TV.
                         if (remote) IconButton(onClick = { onRefresh(owner) },
@@ -494,6 +506,8 @@ internal fun ServersPage(
                                     Modifier.size(20.dp), tint = c.primary)
                             }
                         }
+                        if (single && owner.id == pinnedId) Icon(Icons.Default.PushPin,
+                            "Ключ закреплён", Modifier.size(14.dp), tint = c.primary)
                         if (single) OwnerMenu(name) { manage(owner) }
                     }
                     if (single && owner.id !in probing) LaunchedEffect(owner.id, server.raw) { onAutoProbe(owner) }
@@ -510,7 +524,7 @@ internal fun ServersPage(
 
 // Draw one continuous outline while keeping individual server rows lazy.
 @Composable
-private fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
+internal fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
     val c = MaterialTheme.colorScheme
     val radius = 18.dp
     val shape = RoundedCornerShape(if (first) radius else 0.dp, if (first) radius else 0.dp,

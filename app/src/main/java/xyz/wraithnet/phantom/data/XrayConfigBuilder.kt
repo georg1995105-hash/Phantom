@@ -120,7 +120,8 @@ object XrayConfigBuilder {
         // Only the Android resolver at our own TUN gateway gets this adapter.
         // Its upstream queries retain the provider's DNS tags, order, routing and fallbacks.
         val rules = JSONArray().put(JSONObject().put("type", "field").put("ip", JSONArray().put(TUN_RESOLVER))
-            .put("port", 53).put("inboundTag", JSONArray().put("tun")).put("outboundTag", resolver))
+            .put("port", 53).put("inboundTag", JSONArray().put(root.getJSONArray("inbounds").getJSONObject(0).getString("tag")))
+            .put("outboundTag", resolver))
         routing.optJSONArray("rules")?.let { original ->
             for (i in 0 until original.length()) rules.put(original.get(i))
         }
@@ -243,38 +244,74 @@ object XrayConfigBuilder {
     }
 
     /** Preserve complete Xray JSON from any provider, replacing local inbounds with TUN. */
-    private fun buildJson(raw: String): String {
+    internal fun buildJson(raw: String): String {
         val input = JSONObject(raw)
         val root = if (input.has("outbounds")) input else JSONObject()
             .put("outbounds", JSONArray().put(input))
         val outbounds = root.optJSONArray("outbounds")
         require(outbounds != null && outbounds.length() > 0) { "Нет исходящих соединений в Xray JSON" }
-        // Preserve inbound-based routing rules when migrating local SOCKS/HTTP
-        // inbounds to Android's single TUN inbound.
+        // Android exposes one TUN. Never merge distinct inbound routing policies.
+        // An explicit provider TUN is authoritative; otherwise the local proxy
+        // inbounds must agree on every inboundTag predicate before adaptation.
         val oldInbounds = root.optJSONArray("inbounds")
         val clientProtocols = listOf("tun", "socks", "mixed", "http")
         val clients = (0 until (oldInbounds?.length() ?: 0)).mapNotNull { oldInbounds?.optJSONObject(it) }
             .filter { it.optString("protocol").lowercase() in clientProtocols }
-        val clientTags = clients.map { it.optString("tag") }.filter { it.isNotBlank() }.toSet()
-        val sniffing = clients.sortedBy { clientProtocols.indexOf(it.optString("protocol").lowercase()) }
-            .firstNotNullOfOrNull { it.optJSONObject("sniffing") }
-            ?: JSONObject().put("enabled", true)
-                .put("destOverride", JSONArray().put("http").put("tls").put("quic"))
-        val tun = JSONObject().put("tag", "tun").put("port", 0).put("protocol", "tun")
-            .put("settings", JSONObject().put("name", "tun0").put("mtu", 1400))
-            .put("sniffing", sniffing)
-        root.optJSONObject("routing")?.optJSONArray("rules")?.let { rules ->
+        val explicitTuns = clients.filter { it.optString("protocol").equals("tun", ignoreCase = true) }
+        require(explicitTuns.size <= 1) { "Xray JSON содержит несколько TUN-входов: маршрут неоднозначен" }
+        val rules = root.optJSONObject("routing")?.optJSONArray("rules") ?: JSONArray()
+        val selected = explicitTuns.singleOrNull()
+            ?: clients.minByOrNull { clientProtocols.indexOf(it.optString("protocol").lowercase()) }
+        if (explicitTuns.isEmpty() && selected != null) {
             for (i in 0 until rules.length()) {
-                val rule = rules.optJSONObject(i) ?: continue
-                val tags = rule.optJSONArray("inboundTag") ?: continue
-                val inboundTags = (0 until tags.length()).map { tags.optString(it) }
-                if (inboundTags.any { it in clientTags }) {
-                    rule.put("inboundTag", JSONArray(inboundTags.map {
-                        if (it in clientTags) "tun" else it
-                    }.distinct()))
+                val tags = rules.optJSONObject(i)?.optJSONArray("inboundTag") ?: continue
+                fun matches(inbound: JSONObject): Boolean =
+                    (0 until tags.length()).any { tags.optString(it) == inbound.optString("tag") }
+                require(clients.all { matches(it) == matches(selected) }) {
+                    "Xray JSON задаёт разные маршруты для локальных входов. Нужен явный TUN-вход"
                 }
             }
         }
+        val sourceTag = selected?.optString("tag").orEmpty()
+        val dns = root.optJSONObject("dns")
+        val dnsTags = mutableSetOf<String>()
+        dns?.optString("tag")?.takeIf(String::isNotBlank)?.let(dnsTags::add)
+        val dnsServers = dns?.optJSONArray("servers") ?: JSONArray()
+        for (i in 0 until dnsServers.length()) {
+            dnsServers.optJSONObject(i)?.optString("tag")?.takeIf(String::isNotBlank)?.let(dnsTags::add)
+        }
+        val reservedTags = mutableSetOf<String>().apply {
+            addAll(dnsTags)
+            for (i in 0 until (oldInbounds?.length() ?: 0)) {
+                oldInbounds?.optJSONObject(i)?.optString("tag")?.takeIf(String::isNotBlank)?.let(::add)
+            }
+            for (i in 0 until rules.length()) {
+                val tags = rules.optJSONObject(i)?.optJSONArray("inboundTag") ?: continue
+                for (j in 0 until tags.length()) add(tags.optString(j))
+            }
+        }
+        require(sourceTag.isBlank() || sourceTag !in dnsTags) {
+            "Xray JSON использует общий тег для DNS и клиентского входа"
+        }
+        val tunTag = sourceTag.ifBlank {
+            if ((oldInbounds?.length() ?: 0) == 0 && "tun" !in dnsTags) "tun"
+            else generateSequence(0) { it + 1 }.map { if (it == 0) "tun" else "phantom-tun-$it" }
+                .first { it !in reservedTags }
+        }
+        // Preserve an explicitly configured TUN's options, including userLevel.
+        // Only interface identity and MTU are Android-owned.
+        val sniffing = selected?.optJSONObject("sniffing")
+            ?: JSONObject().put("enabled", true)
+                .put("destOverride", JSONArray().put("http").put("tls").put("quic"))
+        val tunSettings = if (explicitTuns.isNotEmpty())
+            explicitTuns.single().optJSONObject("settings") ?: JSONObject()
+            else JSONObject()
+        val tun = JSONObject().put("tag", tunTag).put("port", 0).put("protocol", "tun")
+            .put("settings", tunSettings.put("name", "tun0").put("mtu", 1400))
+            .put("sniffing", sniffing)
+        // Keep the provider routing array byte-for-byte semantically unchanged.
+        // Removed local listeners are not opened on Android; their tags must
+        // never be aliased onto the chosen TUN.
         root.put("inbounds", JSONArray().put(tun))
         // Fail clearly on profiles created for removed transport networks.
         // Do not rewrite third-party profiles: that could alter their security semantics.
@@ -286,16 +323,8 @@ object XrayConfigBuilder {
                     "Нужна серверная конфигурация XHTTP/H3 или Hysteria2."
             }
         }
-        // Keep UDP QUIC sessions alive on idle mobile networks.
-        for (i in 0 until outbounds.length()) {
-            val outbound = outbounds.optJSONObject(i) ?: continue
-            if (outbound.optString("protocol") != "hysteria") continue
-            val stream = outbound.optJSONObject("streamSettings") ?: continue
-            val mask = stream.optJSONObject("finalmask") ?: JSONObject()
-            val quic = mask.optJSONObject("quicParams") ?: JSONObject()
-            if (!quic.has("keepAlivePeriod")) quic.put("keepAlivePeriod", 15)
-            stream.put("finalmask", mask.put("quicParams", quic))
-        }
+        // Full provider JSON owns its transport tuning. Share links still get
+        // Phantom's defaults, but imported outbounds must not be rewritten.
         if (!root.has("log")) root.put("log", JSONObject().put("loglevel", "warning"))
         return enableTrafficStats(root).toString()
     }

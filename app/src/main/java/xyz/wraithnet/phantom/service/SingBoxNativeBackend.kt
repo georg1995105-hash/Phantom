@@ -14,6 +14,7 @@ import io.nekohasekai.libbox.SetupOptions
 import io.nekohasekai.libbox.SystemProxyStatus
 import java.lang.reflect.InvocationHandler
 import java.lang.reflect.Proxy
+import java.net.InetAddress
 import java.net.ServerSocket
 import xyz.wraithnet.phantom.BuildConfig
 import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
@@ -147,7 +148,12 @@ internal class SingBoxNativeBackend(
             }
         } as CommandServerHandler
 
-    fun start(raw: String, probePassword: String? = null, pinned: android.net.Network? = null): Int {
+    fun start(
+        raw: String,
+        probePassword: String? = null,
+        pinned: android.net.Network? = null,
+        requestedSocksPort: Int? = null,
+    ): Int {
         check(server == null) { "sing-box уже запущен" }
         initialize(context, dataDirectory)
         // Never announce a usable SOCKS listener with an empty physical network table.
@@ -156,7 +162,16 @@ internal class SingBoxNativeBackend(
             it.name.equals("hasNext", ignoreCase = true)
         }.invoke(available) as Boolean
         check(hasNext) { "Android не обнаружил физическую сеть для TUIC/AnyTLS" }
-        val port = ServerSocket(0).use { it.localPort }
+        // Recovery reclaims the exact SOCKS port already held by Xray.
+        // If it cannot be bound, fail closed instead of changing the route.
+        val port = if (requestedSocksPort == null) {
+            ServerSocket(0, 1, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        } else {
+            require(requestedSocksPort in 1024..65535) { "Неверный порт восстановления sing-box" }
+            ServerSocket(requestedSocksPort, 1, InetAddress.getByName("127.0.0.1")).use {
+                it.localPort
+            }
+        }
         val resolvedIp = networkEnvironment.resolveOutboundAddress(raw, pinned)
         val config = SingBoxBridgeConfig.fromShareLink(raw, port, resolvedIp, probePassword,
             autoDetectInterface = protectSocket != null)

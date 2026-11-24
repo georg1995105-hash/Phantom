@@ -1,6 +1,8 @@
 package xyz.wraithnet.phantom.data
 
 import java.security.MessageDigest
+import android.content.Context
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 
 /**
  * Local authenticated HTTP proxy attached to the *running* Xray/TUN session.
@@ -25,6 +27,22 @@ internal object ActiveVpnSubscriptionProxy {
         require(port in 1024..65535 && password.isNotBlank() && profileRaw.isNotBlank())
         active = Route(port, password, digest(profileRaw))
     }
+
+    internal fun currentDigest(): String? = active?.profileDigest
+
+    fun digestForProfile(profileRaw: String): String = digest(profileRaw)
+
+    internal fun hasRoute(): Boolean = active != null
+
+    internal fun forDigest(profileDigest: String): Route? =
+        active?.takeIf { it.profileDigest == profileDigest }
+
+    fun forProfile(context: Context, profileRaw: String): Route? =
+        if (profileRaw.isBlank()) null
+        else VpnRuntimeBridge.routeForDigest(context, digest(profileRaw))
+
+    fun isActive(context: Context, route: Route): Boolean =
+        VpnRuntimeBridge.isActive(context, route)
 
     fun forProfile(profileRaw: String): Route? {
         if (profileRaw.isBlank()) return null

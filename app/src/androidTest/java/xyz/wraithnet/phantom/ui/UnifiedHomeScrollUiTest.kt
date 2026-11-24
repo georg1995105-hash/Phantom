@@ -15,6 +15,7 @@ import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.ui.home.orderedSubscriptions
+import xyz.wraithnet.phantom.ui.home.vpnVerificationLabel
 
 @RunWith(AndroidJUnit4::class)
 class UnifiedHomeScrollUiTest {
@@ -27,6 +28,22 @@ class UnifiedHomeScrollUiTest {
         val keyB = Subscription("solo-b", "PL VLESS", "vless://id@host.example:443", emptyList())
         val result = orderedSubscriptions(listOf(keyA, remoteA, keyB, remoteB), keyA.id)
         assertEquals(listOf(remoteA.id, remoteB.id, keyA.id, keyB.id), result.map { it.id })
+    }
+
+    @Test fun selectedRemoteOwnerRisesUnlessAnotherRemoteOwnerIsPinned() {
+        val a = Subscription("a", "A", "https://a.example/sub", emptyList())
+        val b = Subscription("b", "B", "https://b.example/sub", emptyList())
+        val key = Subscription("key", "Key", "vless://test", emptyList())
+        val list = listOf(key, a, b)
+        assertEquals(listOf(b, a, key), orderedSubscriptions(list, null, b.id))
+        assertEquals(listOf(a, b, key), orderedSubscriptions(list, a.id, b.id))
+        assertEquals(listOf(b, a, key), orderedSubscriptions(list, key.id, b.id))
+        assertEquals(listOf(a, b, key), orderedSubscriptions(list, null, key.id))
+    }
+
+    @Test fun pendingHttpsVerificationIsNotPresentedAsFailure() {
+        assertEquals("Проверка связи…", vpnVerificationLabel(false))
+        assertEquals("Связь не подтверждена", vpnVerificationLabel(true))
     }
 
     @Test fun phoneHasOneScrollingPageWithCompleteIndependentServerGroups() {

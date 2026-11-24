@@ -8,6 +8,12 @@ import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Build
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import androidx.compose.ui.graphics.toArgb
 import xyz.wraithnet.phantom.ui.theme.themeScheme
 import androidx.work.Constraints
@@ -39,6 +45,7 @@ import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 
 class MainActivity : ComponentActivity() {
     private var pendingProfile: String? = null
+    private var statusGeneration = 0L
     private val vpnStatus = mutableStateOf(PhantomVpnService.STATUS_DISCONNECTED)
     private val vpnError = mutableStateOf("")
     private val downloadBytes = mutableLongStateOf(-1L)
@@ -66,12 +73,13 @@ class MainActivity : ComponentActivity() {
                 uploadBytes.longValue = intent.getLongExtra(PhantomVpnService.EXTRA_UPLOAD_BYTES, -1L)
                 return
             }
+            statusGeneration++
             vpnStatus.value = intent?.getStringExtra(PhantomVpnService.EXTRA_STATUS)
                 ?: PhantomVpnService.STATUS_ERROR
             vpnError.value = intent?.getStringExtra(PhantomVpnService.EXTRA_ERROR).orEmpty()
             connectedSinceElapsed.longValue = intent?.getLongExtra(
                 PhantomVpnService.EXTRA_CONNECTED_SINCE, 0L) ?: 0L
-            if (vpnStatus.value != PhantomVpnService.STATUS_CONNECTED) {
+            if (!PhantomVpnService.isTunnelActive(vpnStatus.value)) {
                 downloadBytes.longValue = -1L
                 uploadBytes.longValue = -1L
             }
@@ -175,18 +183,42 @@ class MainActivity : ComponentActivity() {
         refreshVersion.intValue++
         val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
         prefs.edit().putBoolean("ui_visible", true).apply()
-        if (prefs.getBoolean("vpn_running", false)) {
-            startService(Intent(this, PhantomVpnService::class.java)
-                .setAction(PhantomVpnService.ACTION_QUERY))
-            startService(Intent(this, PhantomVpnService::class.java)
-                .setAction(PhantomVpnService.ACTION_TRAFFIC_ON))
+        // Query the process that owns the native core. Preferences are not a
+        // reliable cross-process status source after a UI or VPN process death.
+        val generation = statusGeneration
+        lifecycleScope.launch {
+            val snapshot = withContext(Dispatchers.IO) {
+                VpnRuntimeBridge.snapshot(applicationContext)
+            }
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+            if (!snapshot.available) {
+                if (statusGeneration == generation) vpnError.value = "Состояние VPN временно недоступно"
+                return@launch
+            }
+            if (statusGeneration == generation) {
+                vpnStatus.value = snapshot.status
+                connectedSinceElapsed.longValue = snapshot.connectedSince
+                vpnError.value = snapshot.error
+                if (!snapshot.running) {
+                    downloadBytes.longValue = -1L
+                    uploadBytes.longValue = -1L
+                }
+            }
+            if (snapshot.status != PhantomVpnService.STATUS_DISCONNECTED) {
+                startService(Intent(this@MainActivity, PhantomVpnService::class.java)
+                    .setAction(PhantomVpnService.ACTION_QUERY))
+            }
+            if (snapshot.running) {
+                startService(Intent(this@MainActivity, PhantomVpnService::class.java)
+                    .setAction(PhantomVpnService.ACTION_TRAFFIC_ON))
+            }
         }
     }
 
     override fun onPause() {
         val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
         prefs.edit().putBoolean("ui_visible", false).apply()
-        if (prefs.getBoolean("vpn_running", false)) {
+        if (PhantomVpnService.isTunnelActive(vpnStatus.value)) {
             runCatching {
                 startService(Intent(this, PhantomVpnService::class.java)
                     .setAction(PhantomVpnService.ACTION_TRAFFIC_OFF))

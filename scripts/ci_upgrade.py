@@ -164,8 +164,8 @@ if PACKAGE in adb("shell", "pm", "list", "packages", PACKAGE):
     adb("uninstall", PACKAGE)
 install_apk(old, "-g")
 previous_code, previous_name = installed_version()
-assert previous_code > 0 and re.fullmatch(r"\d+\.\d+\.\d+", previous_name), (
-    f"Unexpected previous stable package version: {previous_code} / {previous_name}"
+assert previous_code == 55 and previous_name == "0.3.28", (
+    f"OTA must test the currently published 0.3.28 (55), got {previous_code}/{previous_name}"
 )
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
@@ -178,10 +178,8 @@ tap("Светлая")
 adb("shell", "input", "keyevent", "4")
 node("Светлая")
 tap("Главная")
-# The previous signed baseline (0.3.13) has a separate Servers tab.
-# Only the NEW version places server groups directly on Home. Verify
-# favorites on the legacy screen before updating, then on new Home after.
-tap("Вкладка Серверы")
+# The published 0.3.28 already uses the unified Home server list.
+# Assert that its persisted favorite survives the 0.3.29 in-place upgrade.
 visible_after_scroll("В избранное", max_swipes=10)
 tap("В избранное")
 tap("Главная")

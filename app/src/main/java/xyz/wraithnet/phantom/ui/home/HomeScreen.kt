@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.SubscriptionRefreshErrors
 import xyz.wraithnet.phantom.data.LatencyProbe
@@ -464,13 +465,13 @@ fun HomeScreen(
         // The subscription can belong to ANY provider. The country being tested
         // is the selected, actually running VPN profile, not the subscription owner.
         val activeNode = selected
-        val checkingNode = !quiet && vpnStatus == PhantomVpnService.STATUS_CONNECTED
+        val checkingNode = !quiet && PhantomVpnService.isTunnelActive(vpnStatus)
         val message = try {
             if (!quiet && vpnStatus == PhantomVpnService.STATUS_STARTING) {
                 error("Подключение VPN ещё не завершено")
             }
             val vpnRoute = if (checkingNode) {
-                ActiveVpnSubscriptionProxy.forProfile(activeNode?.raw.orEmpty())
+                ActiveVpnSubscriptionProxy.forProfile(context, activeNode?.raw.orEmpty())
                     ?: error("Запущенная нода не соответствует выбранной")
             } else null
             // Never silently use the physical network when an active-node
@@ -480,7 +481,7 @@ fun HomeScreen(
                 manual = !quiet)
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
-            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(context, vpnRoute)) {
                 error("VPN сменился во время обновления")
             }
             val updated = parsed.copy(
@@ -811,17 +812,24 @@ fun HomeScreen(
     }
 
     // TV and real tablets have their own wide Home, not a stretched phone page.
-    val wideTablet = !isTelevision() &&
+    val tv = isTelevision()
+    val wideTablet = !tv &&
         LocalConfiguration.current.smallestScreenWidthDp >= 600
     val onServerPicked: (Subscription, ServerProfile) -> Unit = { owner, server ->
                             if (ProtocolSupport.isSupported(server.scheme)) {
                                 val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
-                                    vpnStatus == "connected" && prefs.getString("vpn_last_profile", null) != server.raw
+                                    PhantomVpnService.isTunnelActive(vpnStatus) &&
+                                        VpnRuntimeBridge.snapshot(context).profileDigest !=
+                                            ActiveVpnSubscriptionProxy.digestForProfile(server.raw)
+                                val ownerChanged = selectedMatch?.first?.id != owner.id
                                 softTap()
                                 selectedId = server.id
                                 selectedSubId = owner.id
                                 prefs.edit().putString("selected_server_id", server.id)
                                     .putString("selected_subscription_id", owner.id).apply()
+                                if (ownerChanged && !tv && !wideTablet) {
+                                    scope.launch { unifiedHomeListState.scrollToItem(0) }
+                                }
                                 scope.launch {
                                     persist { current ->
                                         current.map { item ->
@@ -832,12 +840,11 @@ fun HomeScreen(
                                         }
                                     }
                                 }
-                                if (changed && vpnStatus in setOf("connected", "starting")) onStartVpn(server.raw)
+                                if (changed && vpnStatus in setOf("connected", "degraded", "starting")) onStartVpn(server.raw)
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                         }
     BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
-    val tv = isTelevision()
     LaunchedEffect(tv, tab) {
         if (tv && tab == Destination.SERVERS) tab = Destination.HOME
     }
@@ -916,7 +923,7 @@ fun HomeScreen(
                             onToggle = {
                                 softTap()
                                 when {
-                                    vpnStatus == "connected" -> onStopVpn()
+                                    PhantomVpnService.isTunnelActive(vpnStatus) -> onStopVpn()
                                     selected == null -> showImportMenu = true
                                     else -> onStartVpn(selected.raw)
                                 }
@@ -933,7 +940,7 @@ fun HomeScreen(
                             onImport = { showImportMenu = true },
                             onPairQr = if (tv) ({ showTvPairing = true }) else null,
                             onScanQr = if (!tv && qrCameraAvailable) ::scanQr else null,
-                            onShowError = if (vpnStatus == "error" && vpnError.isNotBlank())
+                            onShowError = if (vpnStatus in setOf("error", "degraded") && vpnError.isNotBlank())
                                 ({ showErrorDetails = true }) else null,
                             onOpenUrl = ::openUrl,
                         )
@@ -962,12 +969,12 @@ fun HomeScreen(
                                                     toggle = {
                                                         softTap()
                                                         when {
-                                                            vpnStatus == "connected" -> onStopVpn()
+                                                            PhantomVpnService.isTunnelActive(vpnStatus) -> onStopVpn()
                                                             selected == null -> { showImportMenu = true }
                                                             else -> onStartVpn(selected.raw)
                                                         }
                                                     },
-                                                    error = if (vpnStatus == "error" && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
+                                                    error = if (vpnStatus in setOf("error", "degraded") && vpnError.isNotBlank()) ({ showErrorDetails = true }) else null,
                                                     hasSubscriptions = subscriptions.isNotEmpty(),
                                                     tvFocusEpoch = refreshVersion,
                                                     tvModalVisible = showTvPairing || showImportMenu ||
@@ -1453,7 +1460,7 @@ fun HomeScreen(
                     else "Удалить подписку?") },
             text = { Text("Конфигурация будет удалена с устройства.") },
             confirmButton = { TextButton(onClick = {
-                if (selectedMatch?.first?.id == id && vpnStatus == "connected") onStopVpn()
+                if (selectedMatch?.first?.id == id && PhantomVpnService.isTunnelActive(vpnStatus)) onStopVpn()
                 scope.launch {
                     try {
                         persist { current -> current.filterNot { sub -> sub.id == id } }
@@ -1843,7 +1850,7 @@ private fun PhantomSettings(
                     Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         keepActive = !keepActive
                         prefs.edit().putBoolean("keep_active", keepActive).apply()
-                        if (prefs.getBoolean("vpn_running", false)) {
+                        if (VpnRuntimeBridge.snapshot(context).running) {
                             context.startService(Intent(context, PhantomVpnService::class.java)
                                 .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                         }
@@ -1861,7 +1868,7 @@ private fun PhantomSettings(
                         Switch(checked = keepActive, onCheckedChange = if (tv) null else { enabled ->
                             keepActive = enabled
                             prefs.edit().putBoolean("keep_active", enabled).apply()
-                            if (prefs.getBoolean("vpn_running", false)) {
+                            if (VpnRuntimeBridge.snapshot(context).running) {
                                 context.startService(Intent(context, PhantomVpnService::class.java)
                                     .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
                             }

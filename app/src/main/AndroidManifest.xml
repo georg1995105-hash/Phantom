@@ -103,8 +103,20 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <!-- App-private Binder bridges. The runtime lives with VPN, while
+             fresh preferences are read from the default app process. -->
+        <provider
+            android:name=".service.VpnRuntimeProvider"
+            android:authorities="${applicationId}.vpn-runtime"
+            android:process=":vpn"
+            android:exported="false" />
+        <provider
+            android:name=".service.VpnSettingsProvider"
+            android:authorities="${applicationId}.vpn-settings"
+            android:exported="false" />
         <service
             android:name=".service.PhantomVpnService"
+            android:process=":vpn"
             android:exported="false"
             android:foregroundServiceType="specialUse"
             android:permission="android.permission.BIND_VPN_SERVICE">

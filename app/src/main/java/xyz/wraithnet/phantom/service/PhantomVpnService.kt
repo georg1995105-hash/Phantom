@@ -34,7 +34,6 @@ import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
-import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import xyz.wraithnet.phantom.data.TrafficBytes
@@ -43,7 +42,7 @@ import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.ConnectivityProbePlan
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
-import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
+import xyz.wraithnet.phantom.data.VpnProfilePreflight
 import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.MainActivity
 
@@ -57,19 +56,35 @@ class PhantomVpnService : VpnService() {
     private var controller: CoreController? = null
     private var singBoxBridge: SingBoxBridge? = null
     private var singBoxSession: Any? = null
+    private var singBoxPinnedPort: Int? = null
+    private var singBoxRaw: String? = null
+    private var singBoxRecoveryJob: Job? = null
+    private var singBoxRecoveryAttempts = 0
     private var wakeLock: PowerManager.WakeLock? = null
     private var sessionBytes: TrafficBytes? = null
     private var trafficJob: Job? = null
+    private var verificationJob: Job? = null
+    private var verificationSession: Any? = null
+    // Store only in memory while this native session is alive; never persist credentials.
+    private data class VerificationTarget(
+        val config: String,
+        val port: Int,
+        val password: String,
+        val singBoxPort: Int?,
+    )
+    private var verificationTarget: VerificationTarget? = null
     private var handoverJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var lastPhysicalRoute: String? = null
 
     @Volatile private var running = false
     @Volatile private var state = STATUS_DISCONNECTED
+    @Volatile private var lastStatusError = ""
     @Volatile private var revokedByAndroid = false
 
     override fun onCreate() {
         super.onCreate()
+        VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Phantom VPN"))
@@ -84,8 +99,10 @@ class PhantomVpnService : VpnService() {
         val cm = getSystemService(ConnectivityManager::class.java)
         val network = cm.activeNetwork ?: return null
         val capabilities = cm.getNetworkCapabilities(network) ?: return null
+        // NET_CAPABILITY_VALIDATED is Android's external Internet test, not
+        // proof the requested VPN server is reachable. Requiring it prevented
+        // boot recovery on usable but unvalidated/censored mobile networks.
         if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
             !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return null
         return network.toString()
     }
@@ -95,16 +112,39 @@ class PhantomVpnService : VpnService() {
         handoverJob = ioScope.launch {
             delay(1600L)
             mutex.withLock {
-                if (revokedByAndroid || !prefs.getBoolean("vpn_requested", false)) return@withLock
-                val route = runCatching { physicalRoute() }.getOrNull() ?: return@withLock
-                if (route == lastPhysicalRoute) return@withLock
-                val previous = lastPhysicalRoute
-                val profile = prefs.getString("vpn_last_profile", "").orEmpty()
-                if (profile.isBlank()) return@withLock
-                // First boot or a real Wi-Fi/mobile handover; do not restart on
-                // unrelated network callbacks or repeated capability updates.
-                if (previous == null && running) lastPhysicalRoute = route
-                else startLocked(profile, commandEpoch.get())
+                if (revokedByAndroid) return@withLock
+                val route = runCatching { physicalRoute() }.getOrNull()
+                when (PhysicalHandoverPolicy.decide(
+                    requested = prefs.getBoolean("vpn_requested", false),
+                    running = running,
+                    currentRoute = route,
+                    previousRoute = lastPhysicalRoute,
+                )) {
+                    PhysicalHandoverPolicy.Decision.IGNORE -> Unit
+                    PhysicalHandoverPolicy.Decision.NETWORK_LOST -> {
+                        // Fail closed: retain TUN while the physical route is unavailable.
+                        lastPhysicalRoute = null
+                        verificationSession = null
+                        verificationJob?.cancel()
+                        setState(STATUS_DEGRADED, "Нет физического подключения к сети")
+                        updateNotification("VPN · ожидание сети")
+                    }
+                    PhysicalHandoverPolicy.Decision.PRESERVE_TUN -> {
+                        lastPhysicalRoute = route
+                        // The old HTTPS result cannot prove the new network's egress.
+                        setState(STATUS_DEGRADED)
+                        updateNotification("VPN · проверка после смены сети")
+                        if (singBoxPinnedPort != null && singBoxSession == null) {
+                            scheduleSingBoxRecovery()
+                        } else {
+                            verifyCurrentTunnel()
+                        }
+                    }
+                    PhysicalHandoverPolicy.Decision.BOOTSTRAP -> {
+                        val profile = prefs.getString("vpn_last_profile", "").orEmpty()
+                        if (profile.isNotBlank()) startLocked(profile, commandEpoch.get())
+                    }
+                }
             }
         }
     }
@@ -163,13 +203,12 @@ class PhantomVpnService : VpnService() {
             }
             ACTION_START -> {
                 val profile = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
-                if (profile.isNotBlank()) {
-                    val epoch = commandEpoch.incrementAndGet()
-                    prefs.edit().putBoolean("vpn_requested", true).apply()
-                    ioScope.launch { mutex.withLock {
-                        if (epoch == commandEpoch.get()) startLocked(profile, epoch)
-                    } }
-                } else setState(STATUS_ERROR, "Сначала выберите сервер")
+                // Empty START is a rejected replacement, not a service state change.
+                val epoch = commandEpoch.incrementAndGet()
+                prefs.edit().putBoolean("vpn_requested", true).apply()
+                ioScope.launch { mutex.withLock {
+                    if (epoch == commandEpoch.get()) startLocked(profile, epoch)
+                } }
             }
             ACTION_BOOT_START -> {
                 val last = prefs.getString("vpn_last_profile", "").orEmpty()
@@ -196,35 +235,66 @@ class PhantomVpnService : VpnService() {
     }
 
     private fun startLocked(raw: String, command: Long? = null) {
-        if (revokedByAndroid) return
+        fun commandCurrent() = !revokedByAndroid &&
+            (command == null || command == commandEpoch.get())
+        if (!commandCurrent()) return
+        // Resolve cross-process settings BEFORE touching an existing live tunnel.
+        // A dead UI/settings process must not turn a working VPN into an outage.
+        val settings = try {
+            VpnSettingsBridge.read(this)
+        } catch (_: Exception) {
+            if (!commandCurrent()) return
+            if (running) rejectLiveReplacement("Новые настройки VPN не получены")
+            else setState(STATUS_ERROR, "Не удалось получить настройки VPN")
+            return
+        }
+        if (!commandCurrent()) return
+        // A malformed replacement profile must NEVER tear down a healthy tunnel.
+        // Validate the entire Java-side adapter before stopping the old Xray/TUN.
+        val (prepared, tunBuilder) = try {
+            val profile = VpnProfilePreflight.prepare(raw, settings.dns, settings.fragmentation)
+            // Builder configuration does not establish an interface. Resolve
+            // per-app policy now, including removed/empty allowlists, before
+            // stopping the old VPN. Never turn an invalid setting into an outage.
+            val builder = Builder()
+                .setSession("Phantom")
+                .setMtu(1400)
+                .addAddress("10.111.0.2", 30)
+                .addRoute("0.0.0.0", 0)
+                .addAddress("fd00:1111::2", 64)
+                .addRoute("::", 0)
+            AppRouting.apply(this, builder, settings.routeMode, settings.applications)
+            profile to builder
+        } catch (e: Exception) {
+            if (!commandCurrent()) return
+            val reason = e.message ?: "Некорректный профиль VPN"
+            if (running) {
+                rejectLiveReplacement(reason)
+            } else {
+                prefs.edit().putBoolean("vpn_requested", false).apply()
+                setState(STATUS_ERROR, reason)
+            }
+            return
+        }
+        // STOP/revoke/new START can arrive during settings IPC or preflight.
+        // Do not tear down the existing TUN for a superseded command.
+        if (!commandCurrent()) return
         val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
         try {
             check(previousClosed) {
                 "Старое ядро sing-box не завершилось. Подключение остановлено во избежание сбоя"
             }
-            require(raw.isNotBlank()) { "Профиль сервера пуст" }
-            val scheme = if (raw.trimStart().startsWith("{")) "xray"
-                else raw.substringBefore(':').lowercase()
-            val dns = VpnDnsSettings.load(this)
-            check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
-            val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
+            val scheme = prepared.scheme
+            val dns = settings.dns
             var singBoxPort: Int? = null
-            val baseConfig = if (SingBoxBridgeConfig.requiresSingBox(profile)) {
+            val baseConfig = if (prepared.usesSingBox) {
                 // sing-box handles the native TUIC/AnyTLS transport, while Xray
                 // keeps Android TUN and all existing per-app VPN routing.
                 val session = Any()
                 singBoxSession = session
                 val engine = SingBoxBridge(this) {
-                    ioScope.launch {
-                        mutex.withLock {
-                            if (singBoxSession === session) {
-                                stopLocked(false)
-                                setState(STATUS_ERROR, "Процесс sing-box неожиданно завершился")
-                                updateNotification("Ошибка движка VPN")
-                            }
-                        }
-                    }
+                    onSingBoxUnexpectedExit(session)
                 }
                 singBoxBridge = engine
                 // Validate only local SOCKS readiness before Android TUN exists.
@@ -234,25 +304,16 @@ class PhantomVpnService : VpnService() {
                 singBoxPort = socksPort
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
-                XrayConfigBuilder.build(profile)
+                checkNotNull(prepared.xrayConfig)
             }
-            val config = dns.applyToXray(FragmentationOptions.load(this).apply(baseConfig))
+            val config = dns.applyToXray(settings.fragmentation.apply(baseConfig))
             val providerDns = if (scheme == "xray" && dns.mode == VpnDnsSettings.Mode.DEFAULT)
                 XrayConfigBuilder.withProviderTunDns(config) else null
             val systemDns = if (providerDns == null) dns.addresses() else listOf(XrayConfigBuilder.TUN_RESOLVER)
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
-            val tun = Builder()
-                .setSession("Phantom")
-                .setMtu(1400)
-                .addAddress("10.111.0.2", 30)
-                .addRoute("0.0.0.0", 0)
-                .addAddress("fd00:1111::2", 64)
-                .addRoute("::", 0)
-                .also { builder ->
-                    systemDns.forEach { builder.addDnsServer(it) }
-                    AppRouting.apply(this, builder)
-                }
+            val tun = tunBuilder
+                .also { builder -> systemDns.forEach { builder.addDnsServer(it) } }
                 .establish() ?: error("Android не создал VPN-интерфейс")
             vpnInterface = tun
 
@@ -269,33 +330,221 @@ class PhantomVpnService : VpnService() {
                 providerDns ?: config, subscriptionProxyPort, password)
             active.startLoop(runningConfig, tun.fd)
 
-            // A started core (or a successful raw TCP ping) is not proof of VPN traffic.
-            // Probe HTTPS through the authenticated local Xray inbound for EVERY
-            // protocol. CoreController.measureDelay has no inbound tag and can
-            // measure a different route than Android applications actually use.
-            val checks = ConnectivityProbePlan.forConfig(runningConfig)
+            // HTTPS verification must not hold the VPN lifecycle mutex. The
+            // TUN and native core are already installed; verification below
+            // runs in a cancellable background session after startup returns.
+            check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
+            check(command == null || command == commandEpoch.get()) {
+                "Подключение заменено новым действием"
+            }
+            sessionBytes = TrafficBytes()
+            running = true
+            singBoxRaw = if (singBoxPort != null) raw else null
+            singBoxPinnedPort = singBoxPort
+            singBoxRecoveryAttempts = 0
+            ActiveVpnSubscriptionProxy.publish(subscriptionProxyPort, password, raw)
+            prefs.edit().putString("vpn_last_profile", raw)
+                .putBoolean("vpn_running", true)
+                .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
+            configureWakeLock(settings.keepActive)
+            lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
+            setState(STATUS_DEGRADED)
+            updateNotification("VPN · проверка соединения")
+            if (settings.uiVisible) startTrafficReports()
+            verificationTarget = VerificationTarget(
+                runningConfig, subscriptionProxyPort, password, singBoxPort)
+            verifyCurrentTunnel()
+        } catch (e: Exception) {
+            stopLocked(false)
+            if (revokedByAndroid) setState(STATUS_DISCONNECTED)
+            else setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
+            updateNotification("Ошибка подключения")
+        }
+    }
+
+
+
+    /** Called under the lifecycle mutex after a rejected START/RELOAD. */
+    private fun rejectLiveReplacement(reason: String) {
+        sendStatus(state, reason)
+        // Both settings IPC failure and profile rejection advance commandEpoch.
+        // Re-arm work for the original session; never restart Xray or Android TUN.
+        if (singBoxPinnedPort != null && singBoxSession == null) {
+            singBoxRecoveryJob?.cancel()
+            singBoxRecoveryJob = null
+            scheduleSingBoxRecovery()
+        } else if (state == STATUS_DEGRADED &&
+            runCatching { physicalRoute() }.getOrNull() != null) {
+            verifyCurrentTunnel()
+        }
+    }
+
+    /**
+     * Only the current worker may signal its death. Keep the existing Xray
+     * TUN and revoke stale HTTPS proof before attempting recovery.
+     */
+    private fun onSingBoxUnexpectedExit(session: Any) {
+        ioScope.launch {
+            mutex.withLock {
+                if (singBoxSession !== session) return@withLock
+                singBoxSession = null
+                val oldBridge = singBoxBridge
+                singBoxBridge = null
+                val retired = runCatching { oldBridge?.stop() }.isSuccess
+                if (running && controller != null && vpnInterface != null && !revokedByAndroid) {
+                    verificationSession = null
+                    verificationJob?.cancel()
+                    setState(STATUS_DEGRADED, "Процесс sing-box завершился")
+                    updateNotification("VPN · восстановление транспорта")
+                    if (retired) scheduleSingBoxRecovery()
+                    else {
+                        singBoxRecoveryAttempts = SingBoxRecoveryPolicy.MAX_ATTEMPTS
+                        setState(STATUS_DEGRADED,
+                            "Старый sing-box не завершён; требуется ручное переподключение")
+                    }
+                } else if (!revokedByAndroid) {
+                    stopLocked(false)
+                    setState(STATUS_ERROR, "Процесс sing-box завершился при запуске")
+                    updateNotification("Ошибка движка VPN")
+                }
+            }
+        }
+    }
+
+    /** Call under the VPN lifecycle mutex only. */
+    private fun scheduleSingBoxRecovery() {
+        if (singBoxRecoveryJob?.isActive == true ||
+            singBoxRecoveryAttempts >= SingBoxRecoveryPolicy.MAX_ATTEMPTS) return
+        if (singBoxRaw.isNullOrBlank() || singBoxPinnedPort == null ||
+            runCatching { physicalRoute() }.getOrNull() == null) return
+        val epoch = commandEpoch.get()
+        singBoxRecoveryJob = ioScope.launch { recoverSingBox(epoch) }
+    }
+
+    private fun canRecoverSingBox(epoch: Long): Boolean = SingBoxRecoveryPolicy.canAttempt(
+        running = running,
+        requested = prefs.getBoolean("vpn_requested", false),
+        revoked = revokedByAndroid,
+        sameEpoch = epoch == commandEpoch.get(),
+        coreAndTunAlive = controller != null && vpnInterface != null,
+        workerAbsent = singBoxSession == null,
+        hasProfileAndPinnedPort = !singBoxRaw.isNullOrBlank() && singBoxPinnedPort != null,
+        hasPhysicalNetwork = runCatching { physicalRoute() }.getOrNull() != null,
+        attempts = singBoxRecoveryAttempts,
+    )
+
+    /**
+     * Bounded recovery on a fresh :singbox Go process and EXACTLY the old
+     * local SOCKS port. Never destroys Xray or TUN. An explicit command
+     * invalidates the epoch and cancels all pending attempts.
+     */
+    private suspend fun recoverSingBox(epoch: Long) {
+        while (true) {
+            val nextAttempt = mutex.withLock {
+                if (canRecoverSingBox(epoch)) singBoxRecoveryAttempts else null
+            } ?: return
+            delay(SingBoxRecoveryPolicy.delayBeforeAttemptMs(nextAttempt))
+            val outcome = mutex.withLock {
+                if (!canRecoverSingBox(epoch)) return@withLock 0
+                singBoxRecoveryAttempts++
+                val raw = checkNotNull(singBoxRaw)
+                val pinnedPort = checkNotNull(singBoxPinnedPort)
+                val session = Any()
+                val bridge = SingBoxBridge(this@PhantomVpnService) {
+                    onSingBoxUnexpectedExit(session)
+                }
+                singBoxSession = session
+                singBoxBridge = bridge
+                try {
+                    val restoredPort = bridge.start(raw, pinnedPort)
+                    check(restoredPort == pinnedPort) {
+                        "sing-box изменил порт, закреплённый за Xray"
+                    }
+                    check(!revokedByAndroid && epoch == commandEpoch.get() &&
+                        prefs.getBoolean("vpn_requested", false)) {
+                        "Сеанс VPN заменён новой командой"
+                    }
+                    setState(STATUS_DEGRADED)
+                    updateNotification("VPN · проверка после восстановления")
+                    verifyCurrentTunnel()
+                    // Release the completed retry owner while still holding
+                    // the mutex. A worker that crashes immediately afterwards
+                    // must be allowed to schedule its next bounded attempt.
+                    singBoxRecoveryJob = null
+                    1
+                } catch (_: Exception) {
+                    if (singBoxSession === session) {
+                        singBoxSession = null
+                        singBoxBridge = null
+                    }
+                    val exited = runCatching { bridge.stop() }.isSuccess
+                    // Android revoke and queued STOP/RELOAD win even if a native
+                    // Binder start finished while the lifecycle mutex was held.
+                    if (!running || revokedByAndroid || epoch != commandEpoch.get() ||
+                        !prefs.getBoolean("vpn_requested", false)) return@withLock 0
+                    if (!exited) singBoxRecoveryAttempts = SingBoxRecoveryPolicy.MAX_ATTEMPTS
+                    val exhausted = singBoxRecoveryAttempts >= SingBoxRecoveryPolicy.MAX_ATTEMPTS
+                    setState(STATUS_DEGRADED, if (!exited)
+                        "Старый процесс sing-box не завершился; автоматический запуск остановлен"
+                    else if (exhausted)
+                        "sing-box не восстановлен за три попытки; требуется ручное подключение"
+                    else "Повторная попытка восстановления sing-box")
+                    updateNotification(if (exhausted) "VPN · восстановление не удалось"
+                        else "VPN · повторное восстановление")
+                    2
+                }
+            }
+            if (outcome != 2) return
+        }
+    }
+
+    /** Invalidate previous proof and verify through the live TUN's local route. */
+    private fun verifyCurrentTunnel() {
+        val target = verificationTarget ?: return
+        val session = Any()
+        verificationSession = session
+        scheduleVerification(session, target.config, target.port, target.password,
+            target.singBoxPort, commandEpoch.get())
+    }
+
+    /**
+     * Probes an authenticated inbound which inherits the Android TUN routing
+     * policy. Never hold [mutex] while external websites are unavailable:
+     * STOP, profile changes, and worker failure must remain responsive.
+     *
+     * All outbound failures leave the native TUN installed (fail-closed). A
+     * result is published only for the exact live session and command epoch;
+     * stale replies after STOP/RELOAD can never resurrect Connected.
+     */
+    private fun scheduleVerification(
+        session: Any,
+        config: String,
+        port: Int,
+        password: String,
+        singBoxPort: Int?,
+        epoch: Long,
+    ) {
+        verificationJob?.cancel()
+        verificationJob = ioScope.launch {
+            val checks = runCatching { ConnectivityProbePlan.forConfig(config) }
+                .getOrDefault(emptyList())
             var verified = false
             var checked = 0
             var failure = "контрольный HTTPS-адрес не подтвердил ответ"
             for (step in checks) {
-                check(command == null || command == commandEpoch.get()) {
-                    "Запрос подключения заменён новым действием"
-                }
-                if (step.pauseBeforeMs > 0L) SystemClock.sleep(step.pauseBeforeMs)
-                check(command == null || command == commandEpoch.get()) {
-                    "Запрос подключения заменён новым действием"
-                }
+                if (!isActive || revokedByAndroid || epoch != commandEpoch.get()) return@launch
+                if (step.pauseBeforeMs > 0L) delay(step.pauseBeforeMs)
+                if (!isActive || revokedByAndroid || epoch != commandEpoch.get()) return@launch
                 checked++
                 val result = runCatching {
-                    measureHttp(subscriptionProxyPort, password, step.url, step.timeoutMs,
+                    measureHttp(port, password, step.url, step.timeoutMs,
                         expectedStatus = step.expectedStatus)
                 }
                 if ((result.getOrNull() ?: -1L) > 0L) {
                     verified = true
                     break
                 }
-                // Never propagate a URL, Xray config, credential or raw exception
-                // into the UI or the local diagnostic history.
+                // No URLs, credentials, or arbitrary native exception messages.
                 failure = when (val error = result.exceptionOrNull()) {
                     is java.net.SocketTimeoutException,
                     is java.io.InterruptedIOException -> "тайм-аут HTTPS"
@@ -307,48 +556,28 @@ class PhantomVpnService : VpnService() {
                     else -> "ошибка проверки HTTPS"
                 }
             }
-            require(verified) {
-                if (SingBoxBridgeConfig.requiresSingBox(profile)) {
-                    val port = singBoxPort
-                    val local = port?.let { LocalSocks5Probe.check(it) }
-                    when {
-                        port == null -> "Не получен SOCKS5-порт sing-box."
-                        local?.ready != true ->
-                            "Локальный SOCKS5 перестал отвечать: " +
-                                (local?.reason ?: "нет данных") +
-                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
-                        else -> {
-                            val upstream = SocksHttpsProbe.check(port)
-                            if (upstream.delayMs > 0L)
-                                "TUIC передаёт HTTPS, но Xray не пропускает его через VPN."
-                            else "TUIC/AnyTLS не передаёт HTTPS: " + upstream.failure +
-                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
-                        }
-                    }
-                } else "Xray запущен, но HTTPS через VPN не подтвердился " +
-                    "($checked проверок; $failure). Проверьте сервер или маршрут."
+            if (!isActive || revokedByAndroid || epoch != commandEpoch.get()) return@launch
+            val diagnosis = if (verified) "" else if (singBoxPort != null) {
+                // Native worker health is a separate signal. Avoid another
+                // long external probe on the startup critical path.
+                val local = LocalSocks5Probe.check(singBoxPort)
+                if (!local.ready) "Локальный SOCKS5 sing-box недоступен: " +
+                    (local.reason ?: "не отвечает")
+                else "TUIC/AnyTLS и Xray запущены, но HTTPS через VPN не подтвердился " +
+                    "($checked проверок; $failure)"
+            } else "Xray запущен, но HTTPS через VPN не подтвердился " +
+                "($checked проверок; $failure)"
+            mutex.withLock {
+                if (!VpnVerificationPolicy.canCommit(
+                    running = running,
+                    revoked = revokedByAndroid,
+                    sessionMatches = verificationSession === session,
+                    epochMatches = epoch == commandEpoch.get(),
+                    jobActive = isActive,
+                )) return@withLock
+                setState(VpnTunnelHealth.afterHttpsProbes(verified), diagnosis)
+                updateNotification(if (verified) "VPN подключён" else "VPN · связь не подтверждена")
             }
-
-            check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
-            check(command == null || command == commandEpoch.get()) {
-                "Подключение заменено новым действием"
-            }
-            sessionBytes = TrafficBytes()
-            running = true
-            ActiveVpnSubscriptionProxy.publish(subscriptionProxyPort, password, raw)
-            prefs.edit().putString("vpn_last_profile", raw)
-                .putBoolean("vpn_running", true)
-                .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
-            configureWakeLock()
-            lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
-            setState(STATUS_CONNECTED)
-            updateNotification("VPN подключён")
-            if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
-        } catch (e: Exception) {
-            stopLocked(false)
-            if (revokedByAndroid) setState(STATUS_DISCONNECTED)
-            else setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
-            updateNotification("Ошибка подключения")
         }
     }
 
@@ -357,6 +586,15 @@ class PhantomVpnService : VpnService() {
      * The next profile must not begin until the former Go worker has exited.
      */
     private fun stopLocked(report: Boolean = true): Boolean {
+        singBoxRecoveryJob?.cancel()
+        singBoxRecoveryJob = null
+        singBoxRecoveryAttempts = 0
+        singBoxRaw = null
+        singBoxPinnedPort = null
+        verificationSession = null
+        verificationTarget = null
+        verificationJob?.cancel()
+        verificationJob = null
         ActiveVpnSubscriptionProxy.clear()
         running = false
         trafficJob?.cancel()
@@ -408,9 +646,9 @@ class PhantomVpnService : VpnService() {
         }
     }
 
-    private fun configureWakeLock() {
+    private fun configureWakeLock(enabled: Boolean = VpnSettingsBridge.read(this).keepActive) {
         releaseWakeLock()
-        if (!running || !prefs.getBoolean("keep_active", false)) return
+        if (!running || !enabled) return
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:vpn-keep-active").apply {
             setReferenceCounted(false)
@@ -435,18 +673,22 @@ class PhantomVpnService : VpnService() {
     private fun setState(next: String, error: String = "") {
         // Persist and publish the real service state BEFORE asking SystemUI to redraw.
         state = next
+        lastStatusError = error
         prefs.edit().putString("vpn_status", next).apply()
+        VpnRuntimeBridge.publish(next,
+            if (isTunnelActive(next))
+                prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L, error)
         VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
         PhantomQuickTileService.notifyStateChanged(applicationContext)
     }
 
-    private fun sendStatus(status: String, error: String = "") {
+    private fun sendStatus(status: String, error: String = lastStatusError) {
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName)
                 .putExtra(EXTRA_STATUS, status).putExtra(EXTRA_ERROR, error)
                 .putExtra(EXTRA_CONNECTED_SINCE,
-                    if (status == STATUS_CONNECTED) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
+                    if (isTunnelActive(status)) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
         )
     }
 
@@ -495,8 +737,15 @@ class PhantomVpnService : VpnService() {
         // deferred coroutines can be cancelled by onDestroy before they run.
         revokedByAndroid = true
         commandEpoch.incrementAndGet()
+        // The revoked service must ignore late worker-death Binder callbacks.
+        singBoxSession = null
+        singBoxRecoveryJob?.cancel()
+        singBoxRecoveryJob = null
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
+        verificationSession = null
+        verificationTarget = null
+        verificationJob?.cancel()
         ActiveVpnSubscriptionProxy.clear()
         running = false
         prefs.edit().putBoolean("vpn_running", false)
@@ -506,6 +755,12 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        singBoxRecoveryJob?.cancel()
+        singBoxRecoveryJob = null
+        verificationSession = null
+        verificationTarget = null
+        verificationJob?.cancel()
+        VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         ActiveVpnSubscriptionProxy.clear()
         if (::prefs.isInitialized) {
             running = false
@@ -560,6 +815,8 @@ class PhantomVpnService : VpnService() {
         const val EXTRA_STATUS = "status"
         const val EXTRA_ERROR = "error"
         const val STATUS_CONNECTED = "connected"
+        const val STATUS_DEGRADED = "degraded"
+        fun isTunnelActive(status: String): Boolean = VpnTunnelHealth.isActive(status)
         const val STATUS_STARTING = "starting"
         const val STATUS_DISCONNECTED = "disconnected"
         const val STATUS_ERROR = "error"
