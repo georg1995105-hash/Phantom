@@ -86,8 +86,10 @@ class PhantomVpnService : VpnService() {
         val cm = getSystemService(ConnectivityManager::class.java)
         val network = cm.activeNetwork ?: return null
         val capabilities = cm.getNetworkCapabilities(network) ?: return null
+        // NET_CAPABILITY_VALIDATED is Android's external Internet test, not
+        // proof the requested VPN server is reachable. Requiring it prevented
+        // boot recovery on usable but unvalidated/censored mobile networks.
         if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
-            !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) ||
             !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return null
         return network.toString()
     }
