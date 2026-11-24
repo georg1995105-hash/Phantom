@@ -16,7 +16,8 @@ import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
  * UI death does not affect the VPN process; VPN process death clears its RAM.
  */
 internal object VpnRuntimeBridge {
-    data class Snapshot(val status: String, val connectedSince: Long, val available: Boolean = true) {
+    data class Snapshot(val status: String, val connectedSince: Long, val available: Boolean = true,
+        val profileDigest: String? = null) {
         val running: Boolean get() = PhantomVpnService.isTunnelActive(status)
     }
 
@@ -41,6 +42,7 @@ internal object VpnRuntimeBridge {
         Snapshot(
             data.getString("status") ?: PhantomVpnService.STATUS_DISCONNECTED,
             data.getLong("since", 0L),
+            profileDigest = data.getString("digest"),
         )
     }.getOrDefault(Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L, available = false))
 
@@ -77,6 +79,7 @@ class VpnRuntimeProvider : ContentProvider() {
             Bundle().apply {
                 putString("status", s.status)
                 putLong("since", s.connectedSince)
+                putString("digest", ActiveVpnSubscriptionProxy.currentDigest())
             }
         }
         "route" -> {
