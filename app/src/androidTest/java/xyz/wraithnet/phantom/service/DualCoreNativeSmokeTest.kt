@@ -400,10 +400,7 @@ class DualCoreNativeSmokeTest {
                 PhantomVpnService.STATUS_CONNECTED, recovered?.status)
             // Regression: an invalid replacement profile must not kill an
             // already verified Xray TUN or the newly recovered Go worker.
-            for ((invalidProfile, expectedError) in listOf(
-                """{"outbounds":[]}""" to "Нет исходящих соединений",
-                "" to "Профиль сервера пуст",
-            )) {
+            fun assertRejectedReplacement(invalidProfile: String, expectedError: String) {
                 val rejected = CountDownLatch(1)
                 val receiver = object : android.content.BroadcastReceiver() {
                     override fun onReceive(receiverContext: Context?, event: Intent?) {
@@ -434,6 +431,22 @@ class DualCoreNativeSmokeTest {
                 } finally {
                     context.unregisterReceiver(receiver)
                 }
+            }
+            assertRejectedReplacement("""{"outbounds":[]}""", "Нет исходящих соединений")
+            assertRejectedReplacement("", "Профиль сервера пуст")
+
+            // A valid transport with an invalid per-app allowlist must likewise
+            // be rejected before touching the already verified VPN.
+            val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            val oldMode = prefs.getString("app_route_mode", null)
+            val oldPackages = prefs.getStringSet("app_route_packages", null)?.toSet()
+            try {
+                assertTrue(prefs.edit().putString("app_route_mode", "only")
+                    .putStringSet("app_route_packages", emptySet()).commit())
+                assertRejectedReplacement(tuic, "Выберите хотя бы одно приложение для VPN")
+            } finally {
+                assertTrue(prefs.edit().putString("app_route_mode", oldMode)
+                    .putStringSet("app_route_packages", oldPackages).commit())
             }
         } finally {
             context.startService(Intent(context, PhantomVpnService::class.java)

@@ -95,15 +95,32 @@ class ActiveVpnRefreshNetworkTest {
                     assertEquals(1, selected.requestCount)
                     assertEquals("/subscription", selected.takeRequest(1, TimeUnit.SECONDS)?.path)
 
-                    context.startService(Intent(context, PhantomVpnService::class.java)
-                        .setAction(PhantomVpnService.ACTION_STOP))
-                    val stopDeadline = SystemClock.elapsedRealtime() + 10_000L
-                    while (VpnRuntimeBridge.isActive(context, owned) &&
-                        SystemClock.elapsedRealtime() < stopDeadline) Thread.sleep(100)
-                    assertFalse("STOP did not revoke proxy credentials",
-                        VpnRuntimeBridge.isActive(context, owned))
+                    // Deterministically revoke the session after the response
+                    // has arrived, but before the downloader accepts its body.
+                    selected.enqueue(MockResponse().setBody("stale response"))
+                    try {
+                        runBlocking {
+                            PhantomHttp.get(context, url, vpnRoute = owned,
+                                manual = true, callTimeoutMs = 3_000L) { response ->
+                                val body = response.body!!.string()
+                                assertEquals("stale response", body)
+                                context.startService(Intent(context, PhantomVpnService::class.java)
+                                    .setAction(PhantomVpnService.ACTION_STOP))
+                                val stopDeadline = SystemClock.elapsedRealtime() + 10_000L
+                                while (VpnRuntimeBridge.isActive(context, owned) &&
+                                    SystemClock.elapsedRealtime() < stopDeadline) Thread.sleep(100)
+                                assertFalse("STOP did not revoke proxy credentials",
+                                    VpnRuntimeBridge.isActive(context, owned))
+                                body
+                            }
+                        }
+                        fail("Response from a revoked route must not be accepted")
+                    } catch (expected: IOException) {
+                        assertEquals("Выбранная нода VPN отключена или изменена", expected.message)
+                    }
                     assertRejected(owned)
-                    assertEquals(1, selected.requestCount)
+                    assertEquals(2, selected.requestCount)
+                    assertEquals(0, destination.requestCount)
                 } finally {
                     ActiveVpnSubscriptionProxy.clear()
                     context.startService(Intent(context, PhantomVpnService::class.java)

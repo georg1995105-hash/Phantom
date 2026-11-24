@@ -251,8 +251,20 @@ class PhantomVpnService : VpnService() {
         if (!commandCurrent()) return
         // A malformed replacement profile must NEVER tear down a healthy tunnel.
         // Validate the entire Java-side adapter before stopping the old Xray/TUN.
-        val prepared = try {
-            VpnProfilePreflight.prepare(raw, settings.dns, settings.fragmentation)
+        val (prepared, tunBuilder) = try {
+            val profile = VpnProfilePreflight.prepare(raw, settings.dns, settings.fragmentation)
+            // Builder configuration does not establish an interface. Resolve
+            // per-app policy now, including removed/empty allowlists, before
+            // stopping the old VPN. Never turn an invalid setting into an outage.
+            val builder = Builder()
+                .setSession("Phantom")
+                .setMtu(1400)
+                .addAddress("10.111.0.2", 30)
+                .addRoute("0.0.0.0", 0)
+                .addAddress("fd00:1111::2", 64)
+                .addRoute("::", 0)
+            AppRouting.apply(this, builder, settings.routeMode, settings.applications)
+            profile to builder
         } catch (e: Exception) {
             if (!commandCurrent()) return
             val reason = e.message ?: "Некорректный профиль VPN"
@@ -300,17 +312,8 @@ class PhantomVpnService : VpnService() {
             val systemDns = if (providerDns == null) dns.addresses() else listOf(XrayConfigBuilder.TUN_RESOLVER)
             // The VPN's own sockets must not recursively enter the VPN TUN.
             // The app is intentionally excluded; user apps still route via VPN.
-            val tun = Builder()
-                .setSession("Phantom")
-                .setMtu(1400)
-                .addAddress("10.111.0.2", 30)
-                .addRoute("0.0.0.0", 0)
-                .addAddress("fd00:1111::2", 64)
-                .addRoute("::", 0)
-                .also { builder ->
-                    systemDns.forEach { builder.addDnsServer(it) }
-                    AppRouting.apply(this, builder, settings.routeMode, settings.applications)
-                }
+            val tun = tunBuilder
+                .also { builder -> systemDns.forEach { builder.addDnsServer(it) } }
                 .establish() ?: error("Android не создал VPN-интерфейс")
             vpnInterface = tun
 

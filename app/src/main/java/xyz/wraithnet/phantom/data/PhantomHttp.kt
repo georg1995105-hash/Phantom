@@ -226,7 +226,13 @@ object PhantomHttp {
                 if (request.url.isHttps && !it.request.url.isHttps) {
                     throw IOException("Небезопасная переадресация HTTPS отклонена")
                 }
-                return@withContext read(it)
+                val result = read(it)
+                // Headers may have arrived before STOP or a profile switch;
+                // do not accept a stale subscription after its body is read.
+                if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(context, vpnRoute)) {
+                    throw IOException("Выбранная нода VPN отключена или изменена")
+                }
+                return@withContext result
             }
         }
         error("Повторные попытки соединения исчерпаны")
