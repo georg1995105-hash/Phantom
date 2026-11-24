@@ -218,7 +218,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
         prefs.edit().putBoolean("ui_visible", false).apply()
-        if (vpnStatus.value == PhantomVpnService.STATUS_CONNECTED) {
+        if (PhantomVpnService.isTunnelActive(vpnStatus.value)) {
             runCatching {
                 startService(Intent(this, PhantomVpnService::class.java)
                     .setAction(PhantomVpnService.ACTION_TRAFFIC_OFF))

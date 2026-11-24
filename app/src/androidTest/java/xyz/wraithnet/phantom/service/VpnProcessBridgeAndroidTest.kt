@@ -64,7 +64,8 @@ class VpnProcessBridgeAndroidTest {
         assertNull(VpnRuntimeBridge.routeForDigest(context, randomDigest))
         val current = VpnRuntimeBridge.snapshot(context)
         assertTrue(current.status in setOf(
-            PhantomVpnService.STATUS_CONNECTED, PhantomVpnService.STATUS_STARTING,
+            PhantomVpnService.STATUS_CONNECTED, PhantomVpnService.STATUS_DEGRADED,
+            PhantomVpnService.STATUS_STARTING,
             PhantomVpnService.STATUS_DISCONNECTED, PhantomVpnService.STATUS_ERROR,
         ))
     }
