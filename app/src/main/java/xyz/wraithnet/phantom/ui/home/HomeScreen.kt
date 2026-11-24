@@ -98,7 +98,6 @@ import xyz.wraithnet.phantom.data.SubscriptionParser
 import xyz.wraithnet.phantom.data.SubscriptionMutations
 import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
-import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import java.text.SimpleDateFormat
