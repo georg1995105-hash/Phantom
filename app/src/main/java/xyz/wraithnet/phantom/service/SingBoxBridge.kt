@@ -43,7 +43,7 @@ internal class SingBoxBridge(
     private var bound = false
     private var startedLease = false
 
-    fun start(raw: String): Int {
+    fun start(raw: String, requestedSocksPort: Int? = null): Int {
         check(Looper.myLooper() != Looper.getMainLooper()) {
             "Нельзя запускать sing-box с главного потока Android"
         }
@@ -122,6 +122,7 @@ internal class SingBoxBridge(
             command.data = android.os.Bundle().apply {
                 putString(SingBoxWorkerService.KEY_PROFILE, raw)
                 putString(SingBoxWorkerService.KEY_SESSION, sessionId)
+                requestedSocksPort?.let { putInt(SingBoxWorkerService.KEY_SOCKS_PORT, it) }
             }
             command.replyTo = receiver
             binder.send(command)

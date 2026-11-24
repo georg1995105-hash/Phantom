@@ -298,4 +298,46 @@ class DualCoreNativeSmokeTest {
         }
     }
 
+
+    /**
+     * A hard :singbox process crash must not require replacing Xray's SOCKS
+     * destination. Real native libbox must rebind the exact old port in a
+     * fresh PID; otherwise the live Android TUN would stay black-holed.
+     */
+    @Test fun crashedNativeWorkerReclaimsOriginalSocksPort() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val link = "tuic://00000000-0000-0000-0000-000000000001:testPassword@" +
+            "127.0.0.1:25443?sni=example.org&alpn=h3"
+        val first = SingBoxBridge(context)
+        var oldPid = -1
+        var pinnedPort = -1
+        try {
+            pinnedPort = first.start(link)
+            oldPid = first.workerPid
+            assertTrue("First SOCKS listener missing", LocalSocks5Probe.check(pinnedPort).ready)
+            Process.killProcess(oldPid)
+            repeat(50) {
+                if (workerAliveForTest(oldPid)) Thread.sleep(50)
+            }
+            assertTrue("Killed native Go process did not exit", !workerAliveForTest(oldPid))
+        } finally {
+            first.stop()
+        }
+
+        val second = SingBoxBridge(context)
+        try {
+            val recoveredPort = second.start(link, requestedSocksPort = pinnedPort)
+            assertTrue("Xray SOCKS destination changed after restart",
+                recoveredPort == pinnedPort)
+            assertTrue("New Go runtime must have a different PID",
+                second.workerPid != oldPid)
+            repeat(4) {
+                assertTrue("Recovered SOCKS listener failed negotiation",
+                    LocalSocks5Probe.check(recoveredPort).ready)
+            }
+        } finally {
+            second.stop()
+        }
+    }
+
 }

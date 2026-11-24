@@ -95,6 +95,7 @@ class SingBoxWorkerService : VpnService() {
                 MSG_START -> {
                     val raw = message.data.getString(KEY_PROFILE).orEmpty()
                     val id = message.data.getString(KEY_SESSION).orEmpty()
+                    val requestedSocksPort = message.data.getInt(KEY_SOCKS_PORT, 0).takeIf { it != 0 }
                     val recipient = message.replyTo
                     if (!submit {
                         try {
@@ -105,7 +106,7 @@ class SingBoxWorkerService : VpnService() {
                             check(activeSessionId == null) {
                                 "Предыдущий сеанс sing-box ещё завершается"
                             }
-                            val port = backend.start(raw)
+                            val port = backend.start(raw, requestedSocksPort = requestedSocksPort)
                             activeSessionId = id
                             lastStopReason = "запущен"
                             if (destroyed) {
@@ -230,6 +231,7 @@ class SingBoxWorkerService : VpnService() {
         const val MSG_PONG = 6
         const val MSG_STOPPED = 7
         const val KEY_PROFILE = "profile"
+        const val KEY_SOCKS_PORT = "socks_port"
         const val KEY_SESSION = "session"
         const val KEY_ERROR = "error"
         const val KEY_STOP_REASON = "stop_reason"

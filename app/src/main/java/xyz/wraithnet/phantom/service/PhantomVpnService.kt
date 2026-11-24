@@ -57,6 +57,10 @@ class PhantomVpnService : VpnService() {
     private var controller: CoreController? = null
     private var singBoxBridge: SingBoxBridge? = null
     private var singBoxSession: Any? = null
+    private var singBoxPinnedPort: Int? = null
+    private var singBoxRaw: String? = null
+    private var singBoxRecoveryJob: Job? = null
+    private var singBoxRecoveryAttempts = 0
     private var wakeLock: PowerManager.WakeLock? = null
     private var sessionBytes: TrafficBytes? = null
     private var trafficJob: Job? = null
@@ -131,7 +135,11 @@ class PhantomVpnService : VpnService() {
                         // The old HTTPS result cannot prove the new network's egress.
                         setState(STATUS_DEGRADED, "Проверка VPN после смены сети")
                         updateNotification("VPN · проверка после смены сети")
-                        verifyCurrentTunnel()
+                        if (singBoxPinnedPort != null && singBoxSession == null) {
+                            scheduleSingBoxRecovery()
+                        } else {
+                            verifyCurrentTunnel()
+                        }
                     }
                     PhysicalHandoverPolicy.Decision.BOOTSTRAP -> {
                         val profile = prefs.getString("vpn_last_profile", "").orEmpty()
@@ -258,29 +266,7 @@ class PhantomVpnService : VpnService() {
                 val session = Any()
                 singBoxSession = session
                 val engine = SingBoxBridge(this) {
-                    ioScope.launch {
-                        mutex.withLock {
-                            if (singBoxSession === session) {
-                                // Losing the transport worker is not permission
-                                // to remove Android's already-established TUN.
-                                // Preserve the Xray->SOCKS path (which now fails
-                                // closed) until the user explicitly reconnects.
-                                singBoxSession = null
-                                val failedBridge = singBoxBridge
-                                singBoxBridge = null
-                                runCatching { failedBridge?.stop() }
-                                if (running && controller != null && vpnInterface != null &&
-                                    !revokedByAndroid) {
-                                    setState(STATUS_DEGRADED, "Движок sing-box завершился")
-                                    updateNotification("VPN · восстановите соединение")
-                                } else {
-                                    stopLocked(false)
-                                    setState(STATUS_ERROR, "Процесс sing-box неожиданно завершился")
-                                    updateNotification("Ошибка движка VPN")
-                                }
-                            }
-                        }
-                    }
+                    onSingBoxUnexpectedExit(session)
                 }
                 singBoxBridge = engine
                 // Validate only local SOCKS readiness before Android TUN exists.
@@ -334,6 +320,9 @@ class PhantomVpnService : VpnService() {
             }
             sessionBytes = TrafficBytes()
             running = true
+            singBoxRaw = if (singBoxPort != null) raw else null
+            singBoxPinnedPort = singBoxPort
+            singBoxRecoveryAttempts = 0
             ActiveVpnSubscriptionProxy.publish(subscriptionProxyPort, password, raw)
             prefs.edit().putString("vpn_last_profile", raw)
                 .putBoolean("vpn_running", true)
@@ -354,6 +343,122 @@ class PhantomVpnService : VpnService() {
         }
     }
 
+
+
+    /**
+     * Only the current worker may signal its death. Keep the existing Xray
+     * TUN and revoke stale HTTPS proof before attempting recovery.
+     */
+    private fun onSingBoxUnexpectedExit(session: Any) {
+        ioScope.launch {
+            mutex.withLock {
+                if (singBoxSession !== session) return@withLock
+                singBoxSession = null
+                val oldBridge = singBoxBridge
+                singBoxBridge = null
+                val retired = runCatching { oldBridge?.stop() }.isSuccess
+                if (running && controller != null && vpnInterface != null && !revokedByAndroid) {
+                    verificationSession = null
+                    verificationJob?.cancel()
+                    setState(STATUS_DEGRADED, "Процесс sing-box завершился")
+                    updateNotification("VPN · восстановление транспорта")
+                    if (retired) scheduleSingBoxRecovery()
+                    else {
+                        singBoxRecoveryAttempts = SingBoxRecoveryPolicy.MAX_ATTEMPTS
+                        setState(STATUS_DEGRADED,
+                            "Старый sing-box не завершён; требуется ручное переподключение")
+                    }
+                } else {
+                    stopLocked(false)
+                    setState(STATUS_ERROR, "Процесс sing-box завершился при запуске")
+                    updateNotification("Ошибка движка VPN")
+                }
+            }
+        }
+    }
+
+    /** Call under the VPN lifecycle mutex only. */
+    private fun scheduleSingBoxRecovery() {
+        if (singBoxRecoveryJob?.isActive == true ||
+            singBoxRecoveryAttempts >= SingBoxRecoveryPolicy.MAX_ATTEMPTS) return
+        if (singBoxRaw.isNullOrBlank() || singBoxPinnedPort == null ||
+            runCatching { physicalRoute() }.getOrNull() == null) return
+        val epoch = commandEpoch.get()
+        singBoxRecoveryJob = ioScope.launch { recoverSingBox(epoch) }
+    }
+
+    private fun canRecoverSingBox(epoch: Long): Boolean = SingBoxRecoveryPolicy.canAttempt(
+        running = running,
+        requested = prefs.getBoolean("vpn_requested", false),
+        revoked = revokedByAndroid,
+        sameEpoch = epoch == commandEpoch.get(),
+        coreAndTunAlive = controller != null && vpnInterface != null,
+        workerAbsent = singBoxSession == null,
+        hasProfileAndPinnedPort = !singBoxRaw.isNullOrBlank() && singBoxPinnedPort != null,
+        hasPhysicalNetwork = runCatching { physicalRoute() }.getOrNull() != null,
+        attempts = singBoxRecoveryAttempts,
+    )
+
+    /**
+     * Bounded recovery on a fresh :singbox Go process and EXACTLY the old
+     * local SOCKS port. Never destroys Xray or TUN. An explicit command
+     * invalidates the epoch and cancels all pending attempts.
+     */
+    private suspend fun recoverSingBox(epoch: Long) {
+        while (true) {
+            val nextAttempt = mutex.withLock {
+                if (canRecoverSingBox(epoch)) singBoxRecoveryAttempts else null
+            } ?: return
+            delay(SingBoxRecoveryPolicy.delayBeforeAttemptMs(nextAttempt))
+            val outcome = mutex.withLock {
+                if (!canRecoverSingBox(epoch)) return@withLock 0
+                singBoxRecoveryAttempts++
+                val raw = checkNotNull(singBoxRaw)
+                val pinnedPort = checkNotNull(singBoxPinnedPort)
+                val session = Any()
+                val bridge = SingBoxBridge(this@PhantomVpnService) {
+                    onSingBoxUnexpectedExit(session)
+                }
+                singBoxSession = session
+                singBoxBridge = bridge
+                try {
+                    val restoredPort = bridge.start(raw, pinnedPort)
+                    check(restoredPort == pinnedPort) {
+                        "sing-box изменил порт, закреплённый за Xray"
+                    }
+                    check(!revokedByAndroid && epoch == commandEpoch.get() &&
+                        prefs.getBoolean("vpn_requested", false)) {
+                        "Сеанс VPN заменён новой командой"
+                    }
+                    setState(STATUS_DEGRADED, "Транспорт восстановлен; проверка HTTPS")
+                    updateNotification("VPN · проверка после восстановления")
+                    verifyCurrentTunnel()
+                    // Release the completed retry owner while still holding
+                    // the mutex. A worker that crashes immediately afterwards
+                    // must be allowed to schedule its next bounded attempt.
+                    singBoxRecoveryJob = null
+                    1
+                } catch (_: Exception) {
+                    if (singBoxSession === session) {
+                        singBoxSession = null
+                        singBoxBridge = null
+                    }
+                    val exited = runCatching { bridge.stop() }.isSuccess
+                    if (!exited) singBoxRecoveryAttempts = SingBoxRecoveryPolicy.MAX_ATTEMPTS
+                    val exhausted = singBoxRecoveryAttempts >= SingBoxRecoveryPolicy.MAX_ATTEMPTS
+                    setState(STATUS_DEGRADED, if (!exited)
+                        "Старый процесс sing-box не завершился; автоматический запуск остановлен"
+                    else if (exhausted)
+                        "sing-box не восстановлен за три попытки; требуется ручное подключение"
+                    else "Повторная попытка восстановления sing-box")
+                    updateNotification(if (exhausted) "VPN · восстановление не удалось"
+                        else "VPN · повторное восстановление")
+                    2
+                }
+            }
+            if (outcome != 2) return
+        }
+    }
 
     /** Invalidate previous proof and verify through the live TUN's local route. */
     private fun verifyCurrentTunnel() {
@@ -443,6 +548,11 @@ class PhantomVpnService : VpnService() {
      * The next profile must not begin until the former Go worker has exited.
      */
     private fun stopLocked(report: Boolean = true): Boolean {
+        singBoxRecoveryJob?.cancel()
+        singBoxRecoveryJob = null
+        singBoxRecoveryAttempts = 0
+        singBoxRaw = null
+        singBoxPinnedPort = null
         verificationSession = null
         verificationTarget = null
         verificationJob?.cancel()
@@ -589,6 +699,8 @@ class PhantomVpnService : VpnService() {
         // deferred coroutines can be cancelled by onDestroy before they run.
         revokedByAndroid = true
         commandEpoch.incrementAndGet()
+        singBoxRecoveryJob?.cancel()
+        singBoxRecoveryJob = null
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
         verificationSession = null
@@ -603,6 +715,8 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        singBoxRecoveryJob?.cancel()
+        singBoxRecoveryJob = null
         verificationSession = null
         verificationTarget = null
         verificationJob?.cancel()
