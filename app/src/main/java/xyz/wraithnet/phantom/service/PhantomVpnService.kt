@@ -41,6 +41,7 @@ import xyz.wraithnet.phantom.data.TrafficBytes
 import xyz.wraithnet.phantom.data.TrafficRates
 import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
+import xyz.wraithnet.phantom.data.ConnectivityProbePlan
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
 import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
 import xyz.wraithnet.phantom.R
@@ -263,31 +264,47 @@ class PhantomVpnService : VpnService() {
             // only explicit manual subscription requests use this proxy.
             val subscriptionProxyPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
                 .use { it.localPort }
-            val checkPort = subscriptionProxyPort.takeIf { scheme == "xray" }
             val password = UUID.randomUUID().toString()
             val runningConfig = XrayConfigBuilder.withConnectivityCheck(
                 providerDns ?: config, subscriptionProxyPort, password)
             active.startLoop(runningConfig, tun.fd)
 
-            // Core startup alone is not proof of Internet access.
-            // Measure via the configured Xray outbound, not device networking.
+            // A started core (or a successful raw TCP ping) is not proof of VPN traffic.
+            // Probe HTTPS through the authenticated local Xray inbound for EVERY
+            // protocol. CoreController.measureDelay has no inbound tag and can
+            // measure a different route than Android applications actually use.
+            val checks = ConnectivityProbePlan.forConfig(runningConfig)
             var verified = false
-            for (endpoint in listOf(
-                "https://www.gstatic.com/generate_204",
-                "https://cp.cloudflare.com/generate_204",
-                "https://example.com/",
-            )) {
+            var checked = 0
+            var failure = "контрольный HTTPS-адрес не подтвердил ответ"
+            for (step in checks) {
                 check(command == null || command == commandEpoch.get()) {
                     "Запрос подключения заменён новым действием"
                 }
-                val value = runCatching {
-                    if (checkPort == null) active.measureDelay(endpoint)
-                    else measureHttp(checkPort, password, endpoint, 4_000,
-                        expectedStatus = if (endpoint.endsWith("/generate_204")) 204 else 200)
-                }.getOrDefault(-1L)
-                if (value >= 0L) {
+                if (step.pauseBeforeMs > 0L) SystemClock.sleep(step.pauseBeforeMs)
+                check(command == null || command == commandEpoch.get()) {
+                    "Запрос подключения заменён новым действием"
+                }
+                checked++
+                val result = runCatching {
+                    measureHttp(subscriptionProxyPort, password, step.url, step.timeoutMs,
+                        expectedStatus = step.expectedStatus)
+                }
+                if ((result.getOrNull() ?: -1L) > 0L) {
                     verified = true
                     break
+                }
+                // Never propagate a URL, Xray config, credential or raw exception
+                // into the UI or the local diagnostic history.
+                failure = when (val error = result.exceptionOrNull()) {
+                    is java.net.SocketTimeoutException,
+                    is java.io.InterruptedIOException -> "тайм-аут HTTPS"
+                    is java.net.UnknownHostException -> "ошибка DNS"
+                    is javax.net.ssl.SSLException -> "ошибка TLS"
+                    is java.net.ConnectException -> "локальный HTTP-прокси не отвечает"
+                    is java.io.IOException -> "обрыв HTTPS-соединения"
+                    null -> "неверный ответ контрольного HTTPS-адреса"
+                    else -> "ошибка проверки HTTPS"
                 }
             }
             require(verified) {
@@ -308,7 +325,8 @@ class PhantomVpnService : VpnService() {
                                 "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
                         }
                     }
-                } else "Туннель запущен, но интернет через сервер не отвечает. Выберите другой сервер."
+                } else "Xray запущен, но HTTPS через VPN не подтвердился " +
+                    "($checked проверок; $failure). Проверьте сервер или маршрут."
             }
 
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
