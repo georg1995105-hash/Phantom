@@ -1031,6 +1031,18 @@ fun HomeScreen(
                         favorites = prefs.getStringSet("favorite_servers", emptySet()).orEmpty().toSet()
                         runCatching { PhantomThemeMode.valueOf(prefs.getString("theme", "FOREST") ?: "FOREST") }
                             .getOrNull()?.let(onThemeChange)
+                        PhantomAutoUpdateWorker.schedule(context.applicationContext)
+                        otaDownloadJob?.cancel()
+                        availableUpdate = null
+                        otaFile = null
+                        resumeInstallAfterPermission = false
+                        otaTransferMode = ""
+                        showOtaSheet = false
+                        otaDismissed = false
+                        otaManuallyRequested = false
+                        lastOtaCheck = 0L
+                        lastOtaAttempt = 0L
+                        otaChannelEpoch++
                         tab = Destination.HOME
                         scope.launch { snackbar.showSnackbar("Резервная копия восстановлена") }
                     })

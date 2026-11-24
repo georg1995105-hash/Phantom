@@ -1,7 +1,7 @@
 package xyz.wraithnet.phantom.data
 
 import android.content.Context
-import android.content.SharedPreferences
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -12,7 +12,8 @@ import org.json.JSONObject
 object PhantomBackup {
     const val MAX_SIZE = 5_000_000
     private const val FORMAT = "phantom-backup"
-    private const val VERSION = 1
+    private const val VERSION = 2
+    private const val EXPANSION_PREFIX = "subscription_server_expanded_v1:"
 
     private val textKeys = setOf(
         "theme", "selected_subscription_id", "selected_server_id", "pinned_sub_id",
@@ -20,16 +21,22 @@ object PhantomBackup {
         VpnDnsSettings.MODE_KEY, VpnDnsSettings.PRIMARY_KEY, VpnDnsSettings.SECONDARY_KEY
     )
     private val booleanKeys = setOf(
-        "keep_active", "fragmentation_enabled", "connect_on_boot", PhantomHttp.DNS_FALLBACK_KEY
+        "keep_active", "fragmentation_enabled", "connect_on_boot", PhantomHttp.DNS_FALLBACK_KEY,
+        "auto_apk_updates", PhantomUpdates.BETA_UPDATES_PREF, "auto_tuic_ping"
     )
+    private const val TIMEOUT_KEY = "ping_timeout_seconds"
     private val setKeys = listOf("app_route_packages", "favorite_servers")
 
     data class Snapshot(
         val subscriptions: JSONArray,
         val settings: JSONObject,
         val deviceId: String?,
+        val version: Int = VERSION,
     ) {
         val count: Int get() = subscriptions.length()
+        val serverCount: Int get() = (0 until count).sumOf {
+            subscriptions.getJSONObject(it).getJSONArray("servers").length()
+        }
     }
 
     private fun verifySubscriptions(array: JSONArray) {
@@ -45,6 +52,7 @@ object PhantomBackup {
             }
             val servers = item.optJSONArray("servers")
                 ?: throw IllegalArgumentException("У подписки нет списка серверов")
+            require(servers.length() > 0) { "В архиве есть подписка без серверов" }
             count += servers.length()
             require(count <= 5000) { "Слишком много серверов в архиве" }
             for (j in 0 until servers.length()) {
@@ -67,6 +75,14 @@ object PhantomBackup {
             if (settings.has(key)) {
                 require(settings.opt(key) is Boolean) { "Некорректная настройка: $key" }
             }
+        }
+        if (settings.has(TIMEOUT_KEY)) {
+            require(settings.opt(TIMEOUT_KEY) is Int && settings.getInt(TIMEOUT_KEY) in 2..12) {
+                "Некорректный тайм-аут пинга"
+            }
+        }
+        for (key in settings.keys().asSequence().filter { it.startsWith(EXPANSION_PREFIX) }) {
+            require(key.length <= 512 && settings.opt(key) is Boolean) { "Некорректное состояние списка серверов" }
         }
         for (key in setKeys.filter(settings::has)) {
             val array = settings.optJSONArray(key)
@@ -114,7 +130,7 @@ object PhantomBackup {
         }
         val root = JSONObject(text.trim().removePrefix("\uFEFF"))
         require(root.optString("format") == FORMAT &&
-                root.optInt("version") == VERSION) {
+                root.optInt("version") in 1..VERSION) {
             "Файл не является совместимой резервной копией Phantom"
         }
         val subscriptions = root.optJSONArray("subscriptions")
@@ -125,7 +141,7 @@ object PhantomBackup {
         verifySettings(settings)
         val deviceId = root.optString("deviceId").takeIf { it.isNotBlank() }
         require(deviceId == null || deviceId.length <= 128) { "Недопустимый ID устройства" }
-        return Snapshot(subscriptions, settings, deviceId)
+        return Snapshot(subscriptions, settings, deviceId, root.getInt("version"))
     }
 
     /** Replacing matching ID/source records while preserving other local subscriptions. */
@@ -149,7 +165,6 @@ object PhantomBackup {
 
     fun capture(context: Context): String {
         val settingsPrefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-        val dataPrefs = context.getSharedPreferences("phantom_data", Context.MODE_PRIVATE)
         val settings = JSONObject()
         val all = settingsPrefs.all
         for (key in textKeys) {
@@ -163,11 +178,12 @@ object PhantomBackup {
         for (key in setKeys) {
             settingsPrefs.getStringSet(key, null)?.let { settings.put(key, JSONArray(it.sorted())) }
         }
-        return encode(
-            dataPrefs.getString("subscriptions", "[]") ?: "[]",
-            settings,
-            dataPrefs.getString("device_id", null)
-        )
+        (all[TIMEOUT_KEY] as? Int)?.let { settings.put(TIMEOUT_KEY, it) }
+        all.forEach { (key, value) ->
+            if (key.startsWith(EXPANSION_PREFIX) && value is Boolean) settings.put(key, value)
+        }
+        val (subscriptions, deviceId) = SubscriptionStore(context).backupSnapshot()
+        return encode(subscriptions, settings, deviceId)
     }
 
     /**
@@ -176,20 +192,41 @@ object PhantomBackup {
      */
     fun restore(context: Context, snapshot: Snapshot): Int {
         val settings = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-        require(!settings.getBoolean("vpn_running", false)) {
+        val runtime = VpnRuntimeBridge.snapshot(context)
+        require(runtime.available && !runtime.running) {
             "Отключите VPN перед восстановлением"
         }
         verifySubscriptions(snapshot.subscriptions)
         verifySettings(snapshot.settings)
-        val data = context.getSharedPreferences("phantom_data", Context.MODE_PRIVATE)
-        val previousJson = data.getString("subscriptions", "[]") ?: "[]"
-        val previousDeviceId = data.getString("device_id", null)
-        val merged = merge(JSONArray(previousJson), snapshot.subscriptions).toString()
-        val dataEdit = data.edit().putString("subscriptions", merged)
-        snapshot.deviceId?.let { dataEdit.putString("device_id", it) }
-        check(dataEdit.commit()) { "Не удалось сохранить подписки" }
-        try {
+        val oldSettings = settings.all
+        val knownKeys = textKeys + booleanKeys + setKeys + TIMEOUT_KEY
+        val keys = knownKeys + oldSettings.keys.filter { it.startsWith(EXPANSION_PREFIX) } +
+            snapshot.settings.keys().asSequence().filter { it.startsWith(EXPANSION_PREFIX) }.toList()
+        fun restorePreviousSettings() {
+            val rollback = settings.edit()
+            for (key in keys) {
+                when (val value = oldSettings[key]) {
+                    is String -> rollback.putString(key, value)
+                    is Boolean -> rollback.putBoolean(key, value)
+                    is Int -> rollback.putInt(key, value)
+                    is Set<*> -> rollback.putStringSet(key, value.filterIsInstance<String>().toSet())
+                    null -> rollback.remove(key)
+                }
+            }
+            check(rollback.commit()) { "Не удалось откатить настройки" }
+        }
+        val restored = SubscriptionStore(context).restoreBackup(snapshot.subscriptions, snapshot.deviceId) {
             val edit = settings.edit()
+            // v2 captures all supported preferences; missing values mean defaults.
+            // v1 lacked some keys: preserve current values for backward compatibility.
+            if (snapshot.version >= 2) {
+                for (key in knownKeys) if (!snapshot.settings.has(key)) edit.remove(key)
+                // Expansion belongs to each subscription. Preserve unrelated local groups.
+                for (i in 0 until snapshot.count) {
+                    val key = EXPANSION_PREFIX + snapshot.subscriptions.getJSONObject(i).getString("id")
+                    if (!snapshot.settings.has(key)) edit.remove(key)
+                }
+            }
             for (key in textKeys) {
                 if (snapshot.settings.has(key)) edit.putString(key, snapshot.settings.getString(key))
             }
@@ -198,17 +235,19 @@ object PhantomBackup {
             }
             for (key in setKeys.filter(snapshot.settings::has)) {
                 val list = snapshot.settings.getJSONArray(key)
-                edit.putStringSet(key, (0 until list.length())
-                    .map { list.getString(it) }.toSet())
+                edit.putStringSet(key, (0 until list.length()).map { list.getString(it) }.toSet())
             }
-            check(edit.commit()) { "Не удалось сохранить настройки" }
-        } catch (e: Exception) {
-            val rollback = data.edit().putString("subscriptions", previousJson)
-            if (previousDeviceId == null) rollback.remove("device_id")
-            else rollback.putString("device_id", previousDeviceId)
-            rollback.commit()
-            throw e
+            if (snapshot.settings.has(TIMEOUT_KEY)) edit.putInt(TIMEOUT_KEY, snapshot.settings.getInt(TIMEOUT_KEY))
+            for (key in snapshot.settings.keys().asSequence().filter { it.startsWith(EXPANSION_PREFIX) }) {
+                edit.putBoolean(key, snapshot.settings.getBoolean(key))
+            }
+            try {
+                check(edit.commit()) { "Не удалось сохранить настройки" }
+            } catch (failure: Exception) {
+                runCatching { restorePreviousSettings() }.exceptionOrNull()?.let(failure::addSuppressed)
+                throw failure
+            }
         }
-        return JSONArray(merged).length()
+        return restored.size
     }
 }

@@ -57,6 +57,37 @@ class SubscriptionStore(context: Context) {
 
     fun read(): List<Subscription> = synchronized(lock) { readLocked() }
 
+    /** Use the same serializer and recovery path as the live subscription list. */
+    internal fun backupSnapshot(): Pair<String, String?> = synchronized(lock) {
+        JSONArray(readLocked().map(::toJson)).toString() to prefs.getString("device_id", null)
+    }
+
+    /** Serialize against UI/Worker writes; restore all stored data on a failed settings commit. */
+    internal fun restoreBackup(incoming: JSONArray, deviceId: String?,
+        saveSettings: () -> Unit): List<Subscription> = synchronized(lock) {
+        val current = readLocked()
+        val oldJson = prefs.getString(CURRENT, null)
+        val oldPrevious = prefs.getString(PREVIOUS, null)
+        val oldDevice = prefs.getString("device_id", null)
+        val merged = PhantomBackup.merge(JSONArray(current.map(::toJson)), incoming)
+        val decoded = decode(merged.toString())
+        val editor = prefs.edit().putString(CURRENT, merged.toString())
+        if (oldJson != null) editor.putString(PREVIOUS, oldJson)
+        deviceId?.let { editor.putString("device_id", it) }
+        try {
+            check(editor.commit()) { "Не удалось сохранить подписки" }
+            saveSettings()
+        } catch (failure: Exception) {
+            val rollback = prefs.edit()
+            for ((key, value) in listOf(CURRENT to oldJson, PREVIOUS to oldPrevious, "device_id" to oldDevice)) {
+                if (value == null) rollback.remove(key) else rollback.putString(key, value)
+            }
+            if (!rollback.commit()) failure.addSuppressed(IllegalStateException("Не удалось откатить подписки"))
+            throw failure
+        }
+        decoded
+    }
+
     fun observeChanges(onChange: () -> Unit): () -> Unit {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == CURRENT) onChange()

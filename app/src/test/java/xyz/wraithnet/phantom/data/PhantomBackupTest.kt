@@ -66,6 +66,28 @@ class PhantomBackupTest {
         }
     }
 
+    @Test fun acceptsV1AndPreservesNewSettingsAndRawProfilesInV2() {
+        val input = JSONArray().put(subscription("one", "https://example.org/link"))
+        val settings = JSONObject().put("ping_timeout_seconds", 8)
+            .put("auto_tuic_ping", true).put("beta_apk_updates", true)
+            .put("subscription_server_expanded_v1:one", false)
+        val root = JSONObject(PhantomBackup.encode(input.toString(), settings, "device-123"))
+        val v2 = PhantomBackup.parse(root.toString())
+        assertEquals(2, v2.version)
+        assertEquals(1, v2.serverCount)
+        assertEquals(8, v2.settings.getInt("ping_timeout_seconds"))
+        assertFalse(v2.settings.getBoolean("subscription_server_expanded_v1:one"))
+        assertEquals(1, PhantomBackup.parse(root.put("version", 1).toString()).version)
+    }
+
+    @Test fun rejectsEmptyServerListsInsteadOfErasingProfiles() {
+        val input = JSONArray().put(subscription("one", "https://example.org/link")
+            .put("servers", JSONArray()))
+        assertThrows(IllegalArgumentException::class.java) {
+            PhantomBackup.encode(input.toString(), JSONObject(), null)
+        }
+    }
+
     @Test fun rejectsUnexpectedSettingsTypes() {
         val prefs = JSONObject().put("app_route_packages", "not an array")
         assertThrows(IllegalArgumentException::class.java) {
