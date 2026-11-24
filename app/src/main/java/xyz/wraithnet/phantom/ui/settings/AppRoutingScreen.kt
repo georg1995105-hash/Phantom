@@ -42,6 +42,7 @@ import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.AppRoutingTransfer
 import xyz.wraithnet.phantom.data.AppSelectionGroups
 import xyz.wraithnet.phantom.data.ConfigurationFiles
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import java.io.InputStreamReader
 
@@ -220,8 +221,7 @@ fun AppRoutingScreen(onBack: () -> Unit) {
                             return@Button
                         }
                         AppRouting.save(context, mode, selected)
-                        if (context.getSharedPreferences("phantom_preferences", 0)
-                                .getBoolean("vpn_running", false)) {
+                        if (VpnRuntimeBridge.snapshot(context).running) {
                             runCatching {
                                 context.startService(Intent(context, PhantomVpnService::class.java)
                                     .setAction(PhantomVpnService.ACTION_RELOAD))
