@@ -191,6 +191,10 @@ class MainActivity : ComponentActivity() {
                 VpnRuntimeBridge.snapshot(applicationContext)
             }
             if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+            if (!snapshot.available) {
+                if (statusGeneration == generation) vpnError.value = "Состояние VPN временно недоступно"
+                return@launch
+            }
             if (statusGeneration == generation) {
                 vpnStatus.value = snapshot.status
                 connectedSinceElapsed.longValue = snapshot.connectedSince
