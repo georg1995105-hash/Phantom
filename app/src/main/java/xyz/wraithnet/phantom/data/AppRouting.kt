@@ -27,9 +27,14 @@ object AppRouting {
             .putString(KEY_MODE, mode).putStringSet(KEY_PACKAGES, packages.toSet()).apply()
     }
 
-    fun apply(context: Context, builder: VpnService.Builder) {
-        val selected = packages(context).filter { it != context.packageName }.distinct()
-        when (mode(context)) {
+    fun apply(context: Context, builder: VpnService.Builder) =
+        apply(context, builder, mode(context), packages(context))
+
+    fun apply(context: Context, builder: VpnService.Builder,
+        selectedMode: String, selectedPackages: Set<String>) {
+        require(selectedMode in setOf(ALL, ONLY, EXCLUDE)) { "Недопустимый режим маршрутизации" }
+        val selected = selectedPackages.filter { it != context.packageName }.distinct()
+        when (selectedMode) {
             ONLY -> {
                 require(selected.isNotEmpty()) { "Выберите хотя бы одно приложение для VPN" }
                 var count = 0
@@ -46,7 +51,7 @@ object AppRouting {
             else -> {
                 // Xray's own sockets must bypass the VPN to avoid a feedback loop.
                 builder.addDisallowedApplication(context.packageName)
-                if (mode(context) == EXCLUDE) {
+                if (selectedMode == EXCLUDE) {
                     for (app in selected) {
                         try {
                             builder.addDisallowedApplication(app)
