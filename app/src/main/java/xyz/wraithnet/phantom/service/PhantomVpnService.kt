@@ -62,6 +62,14 @@ class PhantomVpnService : VpnService() {
     private var trafficJob: Job? = null
     private var verificationJob: Job? = null
     private var verificationSession: Any? = null
+    // Store only in memory while this native session is alive; never persist credentials.
+    private data class VerificationTarget(
+        val config: String,
+        val port: Int,
+        val password: String,
+        val singBoxPort: Int?,
+    )
+    private var verificationTarget: VerificationTarget? = null
     private var handoverJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var lastPhysicalRoute: String? = null
@@ -110,7 +118,21 @@ class PhantomVpnService : VpnService() {
                     previousRoute = lastPhysicalRoute,
                 )) {
                     PhysicalHandoverPolicy.Decision.IGNORE -> Unit
-                    PhysicalHandoverPolicy.Decision.PRESERVE_TUN -> lastPhysicalRoute = route
+                    PhysicalHandoverPolicy.Decision.NETWORK_LOST -> {
+                        // Fail closed: retain TUN while the physical route is unavailable.
+                        lastPhysicalRoute = null
+                        verificationSession = null
+                        verificationJob?.cancel()
+                        setState(STATUS_DEGRADED, "Нет физического подключения к сети")
+                        updateNotification("VPN · ожидание сети")
+                    }
+                    PhysicalHandoverPolicy.Decision.PRESERVE_TUN -> {
+                        lastPhysicalRoute = route
+                        // The old HTTPS result cannot prove the new network's egress.
+                        setState(STATUS_DEGRADED, "Проверка VPN после смены сети")
+                        updateNotification("VPN · проверка после смены сети")
+                        verifyCurrentTunnel()
+                    }
                     PhysicalHandoverPolicy.Decision.BOOTSTRAP -> {
                         val profile = prefs.getString("vpn_last_profile", "").orEmpty()
                         if (profile.isNotBlank()) startLocked(profile, commandEpoch.get())
@@ -321,10 +343,9 @@ class PhantomVpnService : VpnService() {
             setState(STATUS_DEGRADED)
             updateNotification("VPN · проверка соединения")
             if (settings.uiVisible) startTrafficReports()
-            val session = Any()
-            verificationSession = session
-            scheduleVerification(session, runningConfig, subscriptionProxyPort, password,
-                singBoxPort, commandEpoch.get())
+            verificationTarget = VerificationTarget(
+                runningConfig, subscriptionProxyPort, password, singBoxPort)
+            verifyCurrentTunnel()
         } catch (e: Exception) {
             stopLocked(false)
             if (revokedByAndroid) setState(STATUS_DISCONNECTED)
@@ -333,6 +354,15 @@ class PhantomVpnService : VpnService() {
         }
     }
 
+
+    /** Invalidate previous proof and verify through the live TUN's local route. */
+    private fun verifyCurrentTunnel() {
+        val target = verificationTarget ?: return
+        val session = Any()
+        verificationSession = session
+        scheduleVerification(session, target.config, target.port, target.password,
+            target.singBoxPort, commandEpoch.get())
+    }
 
     /**
      * Probes an authenticated inbound which inherits the Android TUN routing
@@ -414,6 +444,7 @@ class PhantomVpnService : VpnService() {
      */
     private fun stopLocked(report: Boolean = true): Boolean {
         verificationSession = null
+        verificationTarget = null
         verificationJob?.cancel()
         verificationJob = null
         ActiveVpnSubscriptionProxy.clear()
@@ -561,6 +592,7 @@ class PhantomVpnService : VpnService() {
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
         verificationSession = null
+        verificationTarget = null
         verificationJob?.cancel()
         ActiveVpnSubscriptionProxy.clear()
         running = false
@@ -572,6 +604,7 @@ class PhantomVpnService : VpnService() {
 
     override fun onDestroy() {
         verificationSession = null
+        verificationTarget = null
         verificationJob?.cancel()
         VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         ActiveVpnSubscriptionProxy.clear()

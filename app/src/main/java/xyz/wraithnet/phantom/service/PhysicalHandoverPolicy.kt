@@ -11,7 +11,7 @@ package xyz.wraithnet.phantom.service
  * restart oracle: blocked services must not kill an otherwise useful VPN.
  */
 internal object PhysicalHandoverPolicy {
-    enum class Decision { IGNORE, BOOTSTRAP, PRESERVE_TUN }
+    enum class Decision { IGNORE, BOOTSTRAP, PRESERVE_TUN, NETWORK_LOST }
 
     fun decide(
         requested: Boolean,
@@ -19,7 +19,10 @@ internal object PhysicalHandoverPolicy {
         currentRoute: String?,
         previousRoute: String?,
     ): Decision = when {
-        !requested || currentRoute == null || currentRoute == previousRoute -> Decision.IGNORE
+        !requested -> Decision.IGNORE
+        currentRoute == null -> if (running && previousRoute != null) Decision.NETWORK_LOST
+            else Decision.IGNORE
+        currentRoute == previousRoute -> Decision.IGNORE
         running -> Decision.PRESERVE_TUN
         else -> Decision.BOOTSTRAP
     }

@@ -24,10 +24,20 @@ class PhysicalHandoverPolicyTest {
         assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(true, true, "wifi", "wifi"))
     }
 
+    @Test fun lossOfPhysicalRoutePreservesTunAndRequiresNewProof() {
+        assertEquals(PhysicalHandoverPolicy.Decision.NETWORK_LOST,
+            PhysicalHandoverPolicy.decide(true, true, null, "wifi"))
+        assertEquals(PhysicalHandoverPolicy.Decision.NETWORK_LOST,
+            PhysicalHandoverPolicy.decide(true, true, null, "mobile"))
+        assertEquals(PhysicalHandoverPolicy.Decision.PRESERVE_TUN,
+            PhysicalHandoverPolicy.decide(true, true, "wifi", null))
+    }
+
     @Test fun offlineAndUserDisconnectNeverStartCore() {
-        assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(true, true, null, "wifi"))
+        assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(true, true, null, null))
         assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(true, false, null, null))
         assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(false, false, "wifi", "mobile"))
         assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(false, true, "wifi", "mobile"))
+        assertEquals(PhysicalHandoverPolicy.Decision.IGNORE, PhysicalHandoverPolicy.decide(false, true, null, "wifi"))
     }
 }
