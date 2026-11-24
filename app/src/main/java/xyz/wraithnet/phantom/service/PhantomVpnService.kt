@@ -66,6 +66,7 @@ class PhantomVpnService : VpnService() {
 
     @Volatile private var running = false
     @Volatile private var state = STATUS_DISCONNECTED
+    @Volatile private var lastStatusError = ""
     @Volatile private var revokedByAndroid = false
 
     override fun onCreate() {
@@ -307,7 +308,10 @@ class PhantomVpnService : VpnService() {
                     else -> "ошибка проверки HTTPS"
                 }
             }
-            require(verified) {
+            // Probe failure is not proof the native core/TUN failed. Preserve the
+            // established VPN interface (fail-closed for included applications)
+            // and expose an explicitly unverified state instead of tearing it down.
+            val verificationFailure = if (verified) "" else run {
                 if (SingBoxBridgeConfig.requiresSingBox(profile)) {
                     val port = singBoxPort
                     val local = port?.let { LocalSocks5Probe.check(it) }
@@ -341,8 +345,8 @@ class PhantomVpnService : VpnService() {
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock()
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
-            setState(STATUS_CONNECTED)
-            updateNotification("VPN подключён")
+            setState(if (verified) STATUS_CONNECTED else STATUS_DEGRADED, verificationFailure)
+            updateNotification(if (verified) "VPN подключён" else "VPN · связь не подтверждена")
             if (prefs.getBoolean("ui_visible", false)) startTrafficReports()
         } catch (e: Exception) {
             stopLocked(false)
@@ -435,18 +439,19 @@ class PhantomVpnService : VpnService() {
     private fun setState(next: String, error: String = "") {
         // Persist and publish the real service state BEFORE asking SystemUI to redraw.
         state = next
+        lastStatusError = error
         prefs.edit().putString("vpn_status", next).apply()
         VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
         PhantomQuickTileService.notifyStateChanged(applicationContext)
     }
 
-    private fun sendStatus(status: String, error: String = "") {
+    private fun sendStatus(status: String, error: String = lastStatusError) {
         sendBroadcast(
             Intent(ACTION_STATUS).setPackage(packageName)
                 .putExtra(EXTRA_STATUS, status).putExtra(EXTRA_ERROR, error)
                 .putExtra(EXTRA_CONNECTED_SINCE,
-                    if (status == STATUS_CONNECTED) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
+                    if (isTunnelActive(status)) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
         )
     }
 
@@ -560,6 +565,9 @@ class PhantomVpnService : VpnService() {
         const val EXTRA_STATUS = "status"
         const val EXTRA_ERROR = "error"
         const val STATUS_CONNECTED = "connected"
+        const val STATUS_DEGRADED = "degraded"
+        fun isTunnelActive(status: String): Boolean =
+            status == STATUS_CONNECTED || status == STATUS_DEGRADED
         const val STATUS_STARTING = "starting"
         const val STATUS_DISCONNECTED = "disconnected"
         const val STATUS_ERROR = "error"
