@@ -151,4 +151,65 @@ class TuicUdpBridgeIntegrationTest {
             bridge.stop()
         }
     }
+
+    /**
+     * Local peer integration: actual UDP DNS traverses the SAME live Xray
+     * core before and after killing the isolated sing-box Go process.
+     * Rebinding a different SOCKS port must never count as recovery.
+     */
+    @Test fun xrayUdpRouteSurvivesSingBoxProcessDeathOnPinnedPort() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val assets = instrumentation.context.assets
+        assumeTrue("Requires CI TUIC protocol peer", "peers.json" in assets.list("").orEmpty())
+        val context = instrumentation.targetContext
+        val permission = instrumentation.uiAutomation.executeShellCommand(
+            "appops set ${context.packageName} ACTIVATE_VPN allow")
+        ParcelFileDescriptor.AutoCloseInputStream(permission).use { it.readBytes() }
+        assertNull("VPN permission was not granted", VpnService.prepare(context))
+        val peer = JSONObject(assets.open("peers.json").bufferedReader().use { it.readText() })
+        val profile = SubscriptionParser.parse(peer.getString("tuic"), "tuic-recovery")
+            .servers.single()
+        val xraySocksPort = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+            .use { it.localPort }
+
+        XrayEnvironment.initialize(context)
+        val first = SingBoxBridge(context)
+        var second: SingBoxBridge? = null
+        var core: libv2ray.CoreController? = null
+        try {
+            val pinnedPort = first.start(profile.raw)
+            val cfg = JSONObject(XrayConfigBuilder.buildSocksBridge(pinnedPort))
+            cfg.getJSONArray("inbounds").getJSONObject(0)
+                .put("protocol", "socks")
+                .put("listen", "127.0.0.1")
+                .put("port", xraySocksPort)
+                .put("settings", JSONObject().put("auth", "noauth").put("udp", true))
+                .remove("sniffing")
+            val runningCore = Libv2ray.newCoreController(object : CoreCallbackHandler {
+                override fun startup() = 0L
+                override fun shutdown() = 0L
+                override fun onEmitStatus(code: Long, message: String) = 0L
+            })
+            core = runningCore
+            runningCore.startLoop(cfg.toString(), 0)
+            verifyUdpRoundTrip(xraySocksPort, 0x5201)
+
+            val deadPid = first.workerPid
+            assertTrue("Invalid worker PID", deadPid > 0)
+            android.os.Process.killProcess(deadPid)
+            first.stop() // Must retire old Go runtime before replacement.
+            val restored = SingBoxBridge(context)
+            second = restored
+            assertEquals("Xray's original SOCKS destination changed",
+                pinnedPort, restored.start(profile.raw, requestedSocksPort = pinnedPort))
+            assertTrue("Restart re-used the killed Android process",
+                deadPid != restored.workerPid)
+            verifyUdpRoundTrip(xraySocksPort, 0x5202)
+        } finally {
+            runCatching { core?.stopLoop() }
+            runCatching { second?.stop() }
+            runCatching { first.stop() }
+        }
+    }
+
 }

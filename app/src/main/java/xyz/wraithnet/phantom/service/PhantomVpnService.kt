@@ -368,7 +368,7 @@ class PhantomVpnService : VpnService() {
                         setState(STATUS_DEGRADED,
                             "Старый sing-box не завершён; требуется ручное переподключение")
                     }
-                } else {
+                } else if (!revokedByAndroid) {
                     stopLocked(false)
                     setState(STATUS_ERROR, "Процесс sing-box завершился при запуске")
                     updateNotification("Ошибка движка VPN")
@@ -444,6 +444,10 @@ class PhantomVpnService : VpnService() {
                         singBoxBridge = null
                     }
                     val exited = runCatching { bridge.stop() }.isSuccess
+                    // Android revoke and queued STOP/RELOAD win even if a native
+                    // Binder start finished while the lifecycle mutex was held.
+                    if (!running || revokedByAndroid || epoch != commandEpoch.get() ||
+                        !prefs.getBoolean("vpn_requested", false)) return@withLock 0
                     if (!exited) singBoxRecoveryAttempts = SingBoxRecoveryPolicy.MAX_ATTEMPTS
                     val exhausted = singBoxRecoveryAttempts >= SingBoxRecoveryPolicy.MAX_ATTEMPTS
                     setState(STATUS_DEGRADED, if (!exited)
@@ -699,6 +703,8 @@ class PhantomVpnService : VpnService() {
         // deferred coroutines can be cancelled by onDestroy before they run.
         revokedByAndroid = true
         commandEpoch.incrementAndGet()
+        // The revoked service must ignore late worker-death Binder callbacks.
+        singBoxSession = null
         singBoxRecoveryJob?.cancel()
         singBoxRecoveryJob = null
         prefs.edit().putBoolean("vpn_requested", false).apply()

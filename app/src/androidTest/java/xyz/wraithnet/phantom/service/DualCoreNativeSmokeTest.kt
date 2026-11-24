@@ -16,6 +16,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import android.os.Process
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -337,6 +338,69 @@ class DualCoreNativeSmokeTest {
             }
         } finally {
             second.stop()
+        }
+    }
+
+
+    /**
+     * End-to-end Android VpnService proof using the isolated local TUIC peer:
+     * terminate :singbox while HTTPS is verified, then require a new native
+     * worker and the SAME Android VPN connected-since epoch.
+     */
+    @Test fun liveVpnAutomaticallyRecoversKilledWorkerWithoutReplacingTun() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val assets = instrumentation.context.assets
+        org.junit.Assume.assumeTrue("Requires CI TUIC protocol peer",
+            "peers.json" in assets.list("").orEmpty())
+        val permission = instrumentation.uiAutomation.executeShellCommand(
+            "appops set ${context.packageName} ACTIVATE_VPN allow")
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(permission).use { it.readBytes() }
+        assertTrue("VPN permission missing", android.net.VpnService.prepare(context) == null)
+        val tuic = org.json.JSONObject(assets.open("peers.json").bufferedReader()
+            .use { it.readText() }).getString("tuic")
+        fun workerPid(): Int = context.getSystemService(
+            android.app.ActivityManager::class.java).runningAppProcesses.orEmpty()
+            .firstOrNull { it.processName == "${context.packageName}:singbox" }?.pid ?: -1
+        fun awaitVerified(timeoutMs: Long): VpnRuntimeBridge.Snapshot {
+            val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+            var last = VpnRuntimeBridge.snapshot(context)
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                last = VpnRuntimeBridge.snapshot(context)
+                if (last.status == PhantomVpnService.STATUS_CONNECTED &&
+                    last.connectedSince > 0L) return last
+                Thread.sleep(200)
+            }
+            error("VPN did not verify HTTPS through native TUIC; state=${last.status}")
+        }
+        val start = Intent(context, PhantomVpnService::class.java)
+            .setAction(PhantomVpnService.ACTION_START)
+            .putExtra(PhantomVpnService.EXTRA_PROFILE, tuic)
+        context.startForegroundService(start)
+        try {
+            val initial = awaitVerified(25_000)
+            var pid = workerPid()
+            assertTrue("No isolated :singbox worker PID", pid > 0)
+            Process.killProcess(pid)
+            val deadline = android.os.SystemClock.elapsedRealtime() + 35_000L
+            var recoveredPid = -1
+            var recovered: VpnRuntimeBridge.Snapshot? = null
+            while (android.os.SystemClock.elapsedRealtime() < deadline) {
+                recoveredPid = workerPid()
+                recovered = VpnRuntimeBridge.snapshot(context)
+                if (recoveredPid > 0 && recoveredPid != pid &&
+                    recovered.status == PhantomVpnService.STATUS_CONNECTED) break
+                Thread.sleep(200)
+            }
+            assertTrue("Worker was not restarted in a new OS process",
+                recoveredPid > 0 && recoveredPid != pid)
+            assertEquals("Recovery destroyed/re-established the Android TUN",
+                initial.connectedSince, recovered?.connectedSince)
+            assertEquals("Recovered SOCKS did not restore verified HTTPS",
+                PhantomVpnService.STATUS_CONNECTED, recovered?.status)
+        } finally {
+            context.startService(Intent(context, PhantomVpnService::class.java)
+                .setAction(PhantomVpnService.ACTION_STOP))
         }
     }
 
