@@ -34,7 +34,6 @@ import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
-import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.AppRouting
 import xyz.wraithnet.phantom.data.FragmentationOptions
 import xyz.wraithnet.phantom.data.TrafficBytes
@@ -43,7 +42,7 @@ import xyz.wraithnet.phantom.data.VpnDnsSettings
 import xyz.wraithnet.phantom.data.VpnEventLog
 import xyz.wraithnet.phantom.data.ConnectivityProbePlan
 import xyz.wraithnet.phantom.data.XrayConfigBuilder
-import xyz.wraithnet.phantom.data.SingBoxBridgeConfig
+import xyz.wraithnet.phantom.data.VpnProfilePreflight
 import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.MainActivity
 
@@ -247,20 +246,39 @@ class PhantomVpnService : VpnService() {
             else setState(STATUS_ERROR, "Не удалось получить настройки VPN")
             return
         }
+        // A malformed replacement profile must NEVER tear down a healthy tunnel.
+        // Validate the entire Java-side adapter before stopping the old Xray/TUN.
+        val prepared = try {
+            VpnProfilePreflight.prepare(raw, settings.dns, settings.fragmentation)
+        } catch (e: Exception) {
+            val reason = e.message ?: "Некорректный профиль VPN"
+            if (running) {
+                sendStatus(state, reason)
+                // An invalid START/RELOAD still advances commandEpoch. Resume
+                // verification/recovery of the original session under that epoch.
+                if (singBoxPinnedPort != null && singBoxSession == null) {
+                    singBoxRecoveryJob?.cancel()
+                    singBoxRecoveryJob = null
+                    scheduleSingBoxRecovery()
+                } else if (state == STATUS_DEGRADED) {
+                    verifyCurrentTunnel()
+                }
+            } else {
+                prefs.edit().putBoolean("vpn_requested", false).apply()
+                setState(STATUS_ERROR, reason)
+            }
+            return
+        }
         val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
         try {
             check(previousClosed) {
                 "Старое ядро sing-box не завершилось. Подключение остановлено во избежание сбоя"
             }
-            require(raw.isNotBlank()) { "Профиль сервера пуст" }
-            val scheme = if (raw.trimStart().startsWith("{")) "xray"
-                else raw.substringBefore(':').lowercase()
+            val scheme = prepared.scheme
             val dns = settings.dns
-            check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
-            val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
             var singBoxPort: Int? = null
-            val baseConfig = if (SingBoxBridgeConfig.requiresSingBox(profile)) {
+            val baseConfig = if (prepared.usesSingBox) {
                 // sing-box handles the native TUIC/AnyTLS transport, while Xray
                 // keeps Android TUN and all existing per-app VPN routing.
                 val session = Any()
@@ -276,7 +294,7 @@ class PhantomVpnService : VpnService() {
                 singBoxPort = socksPort
                 XrayConfigBuilder.buildSocksBridge(socksPort)
             } else {
-                XrayConfigBuilder.build(profile)
+                checkNotNull(prepared.xrayConfig)
             }
             val config = dns.applyToXray(settings.fragmentation.apply(baseConfig))
             val providerDns = if (scheme == "xray" && dns.mode == VpnDnsSettings.Mode.DEFAULT)
