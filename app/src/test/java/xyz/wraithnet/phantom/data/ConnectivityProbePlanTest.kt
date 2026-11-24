@@ -19,12 +19,13 @@ class ConnectivityProbePlanTest {
     }
 
     @Test fun smartBalancersWaitForObserverButNeverRetryIndefinitely() {
+        val balancer = JSONObject().put("tag", "smart-nl")
+            .put("selector", JSONArray().put("nl-direct").put("relay-fi"))
         val config = JSONObject()
-            .put("routing", JSONObject().put("balancers", JSONArray().put(
-                JSONObject().put("tag", "smart-nl")
-                    .put("selector", JSONArray().put("nl-direct").put("relay-fi"))))
-            .put("burstObservatory", JSONObject().put("subjectSelector",
-                JSONArray().put("nl-direct").put("relay-fi")))
+            .put("routing", JSONObject()
+                .put("balancers", JSONArray().put(balancer)))
+            .put("burstObservatory", JSONObject()
+                .put("subjectSelector", JSONArray().put("nl-direct").put("relay-fi")))
         val steps = ConnectivityProbePlan.forConfig(config.toString())
         assertEquals(6, steps.size)
         assertEquals(2, steps.count { it.pauseBeforeMs > 0L })
