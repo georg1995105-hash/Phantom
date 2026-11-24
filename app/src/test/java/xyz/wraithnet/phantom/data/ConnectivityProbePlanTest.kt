@@ -57,10 +57,9 @@ class ConnectivityProbePlanTest {
         assertTrue(root.getJSONObject("routing").getJSONArray("rules").let { rules ->
             (0 until rules.length()).any { i ->
                 val rule = rules.getJSONObject(i)
-                rule.optString("outboundTag") == "proxy" &&
-                    (0 until rule.getJSONArray("inboundTag").length()).any { j ->
-                        rule.getJSONArray("inboundTag").getString(j) == tag
-                    }
+                val tags = rule.optJSONArray("inboundTag")
+                rule.optString("outboundTag") == "proxy" && tags != null &&
+                    (0 until tags.length()).any { j -> tags.getString(j) == tag }
             }
         })
     }
