@@ -95,16 +95,27 @@ class PhantomVpnService : VpnService() {
         handoverJob = ioScope.launch {
             delay(1600L)
             mutex.withLock {
-                if (revokedByAndroid || !prefs.getBoolean("vpn_requested", false)) return@withLock
-                val route = runCatching { physicalRoute() }.getOrNull() ?: return@withLock
-                if (route == lastPhysicalRoute) return@withLock
-                val previous = lastPhysicalRoute
-                val profile = prefs.getString("vpn_last_profile", "").orEmpty()
-                if (profile.isBlank()) return@withLock
-                // First boot or a real Wi-Fi/mobile handover; do not restart on
-                // unrelated network callbacks or repeated capability updates.
-                if (previous == null && running) lastPhysicalRoute = route
-                else startLocked(profile, commandEpoch.get())
+                if (revokedByAndroid) return@withLock
+                val route = runCatching { physicalRoute() }.getOrNull()
+                when (PhysicalHandoverPolicy.decide(
+                    requested = prefs.getBoolean("vpn_requested", false),
+                    running = running,
+                    currentRoute = route,
+                    previousRoute = lastPhysicalRoute,
+                )) {
+                    PhysicalHandoverPolicy.Decision.IGNORE -> Unit
+                    PhysicalHandoverPolicy.Decision.PRESERVE_TUN -> {
+                        // Network callbacks are not evidence of a failed transport.
+                        // Keep Android TUN and live core intact. New outbound dials
+                        // use the app's new system-default physical network.
+                        // Explicit reload / engine crash handling owns recovery.
+                        lastPhysicalRoute = route
+                    }
+                    PhysicalHandoverPolicy.Decision.BOOTSTRAP -> {
+                        val profile = prefs.getString("vpn_last_profile", "").orEmpty()
+                        if (profile.isNotBlank()) startLocked(profile, commandEpoch.get())
+                    }
+                }
             }
         }
     }
