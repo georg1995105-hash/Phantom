@@ -285,7 +285,15 @@ fun HomeScreen(
             completed?.invoke(false)
             return
         }
-        val source = raw.trim()
+        val source = try {
+            SubscriptionQuickImport.unwrap(raw)
+        } catch (_: IllegalArgumentException) {
+            val warning = "Неверная ссылка добавления подписки"
+            if (importMode != null) importError = warning
+            else scope.launch { snackbar.showSnackbar(warning) }
+            completed?.invoke(false)
+            return
+        }
         if (subscriptions.any { it.source.trim() == source }) {
             val warning = "Эта подписка уже добавлена"
             if (importMode != null) importError = warning
@@ -406,13 +414,20 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(externalImport) {
+    LaunchedEffect(externalImport, importBusy) {
+        if (importBusy) return@LaunchedEffect
         externalImport?.takeIf { it.isNotBlank() }?.let { text ->
+            // A browser can open a link while a prior import is finishing.
+            // Consume it only when the existing pipeline can accept it.
+            onExternalImportConsumed()
             if (TvSubscriptionPairing.isPairingCode(text)) {
                 incomingPairCode = text
                 pairingSendError = null
-            } else add(text)
-            onExternalImportConsumed()
+            } else {
+                tab = Destination.HOME
+                showTvPairing = false
+                add(text)
+            }
         }
     }
 
