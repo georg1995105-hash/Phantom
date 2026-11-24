@@ -69,6 +69,7 @@ import kotlinx.coroutines.launch
 import xyz.wraithnet.phantom.data.ServerProfile
 import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
 import xyz.wraithnet.phantom.data.SubscriptionRefreshErrors
 import xyz.wraithnet.phantom.data.LatencyProbe
@@ -817,7 +818,9 @@ fun HomeScreen(
     val onServerPicked: (Subscription, ServerProfile) -> Unit = { owner, server ->
                             if (ProtocolSupport.isSupported(server.scheme)) {
                                 val changed = selectedMatch?.first?.id != owner.id || selected?.id != server.id ||
-                                    PhantomVpnService.isTunnelActive(vpnStatus) && prefs.getString("vpn_last_profile", null) != server.raw
+                                    PhantomVpnService.isTunnelActive(vpnStatus) &&
+                                        VpnRuntimeBridge.snapshot(context).profileDigest !=
+                                            ActiveVpnSubscriptionProxy.digestForProfile(server.raw)
                                 softTap()
                                 selectedId = server.id
                                 selectedSubId = owner.id
