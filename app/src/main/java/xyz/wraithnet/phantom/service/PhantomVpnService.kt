@@ -198,6 +198,15 @@ class PhantomVpnService : VpnService() {
 
     private fun startLocked(raw: String, command: Long? = null) {
         if (revokedByAndroid) return
+        // Resolve cross-process settings BEFORE touching an existing live tunnel.
+        // A dead UI/settings process must not turn a working VPN into an outage.
+        val settings = try {
+            VpnSettingsBridge.read(this)
+        } catch (_: Exception) {
+            if (running) sendStatus(STATUS_CONNECTED, "Новые настройки VPN не получены")
+            else setState(STATUS_ERROR, "Не удалось получить настройки VPN")
+            return
+        }
         val previousClosed = stopLocked(false)
         setState(STATUS_STARTING)
         try {
@@ -207,7 +216,6 @@ class PhantomVpnService : VpnService() {
             require(raw.isNotBlank()) { "Профиль сервера пуст" }
             val scheme = if (raw.trimStart().startsWith("{")) "xray"
                 else raw.substringBefore(':').lowercase()
-            val settings = VpnSettingsBridge.read(this)
             val dns = settings.dns
             check(dns.validate() == null) { dns.validate() ?: "Неверные DNS" }
             val profile = ServerProfile("runtime", "runtime", scheme, raw = raw)
