@@ -60,6 +60,8 @@ class PhantomVpnService : VpnService() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var sessionBytes: TrafficBytes? = null
     private var trafficJob: Job? = null
+    private var verificationJob: Job? = null
+    private var verificationSession: Any? = null
     private var handoverJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var lastPhysicalRoute: String? = null
@@ -301,68 +303,9 @@ class PhantomVpnService : VpnService() {
                 providerDns ?: config, subscriptionProxyPort, password)
             active.startLoop(runningConfig, tun.fd)
 
-            // A started core (or a successful raw TCP ping) is not proof of VPN traffic.
-            // Probe HTTPS through the authenticated local Xray inbound for EVERY
-            // protocol. CoreController.measureDelay has no inbound tag and can
-            // measure a different route than Android applications actually use.
-            val checks = ConnectivityProbePlan.forConfig(runningConfig)
-            var verified = false
-            var checked = 0
-            var failure = "контрольный HTTPS-адрес не подтвердил ответ"
-            for (step in checks) {
-                check(command == null || command == commandEpoch.get()) {
-                    "Запрос подключения заменён новым действием"
-                }
-                if (step.pauseBeforeMs > 0L) SystemClock.sleep(step.pauseBeforeMs)
-                check(command == null || command == commandEpoch.get()) {
-                    "Запрос подключения заменён новым действием"
-                }
-                checked++
-                val result = runCatching {
-                    measureHttp(subscriptionProxyPort, password, step.url, step.timeoutMs,
-                        expectedStatus = step.expectedStatus)
-                }
-                if ((result.getOrNull() ?: -1L) > 0L) {
-                    verified = true
-                    break
-                }
-                // Never propagate a URL, Xray config, credential or raw exception
-                // into the UI or the local diagnostic history.
-                failure = when (val error = result.exceptionOrNull()) {
-                    is java.net.SocketTimeoutException,
-                    is java.io.InterruptedIOException -> "тайм-аут HTTPS"
-                    is java.net.UnknownHostException -> "ошибка DNS"
-                    is javax.net.ssl.SSLException -> "ошибка TLS"
-                    is java.net.ConnectException -> "локальный HTTP-прокси не отвечает"
-                    is java.io.IOException -> "обрыв HTTPS-соединения"
-                    null -> "неверный ответ контрольного HTTPS-адреса"
-                    else -> "ошибка проверки HTTPS"
-                }
-            }
-            // A rejected control HTTPS site must not destroy a live TUN.
-            // Keep included Android applications inside VPN even if unverified.
-            val verificationFailure = if (verified) "" else run {
-                if (SingBoxBridgeConfig.requiresSingBox(profile)) {
-                    val port = singBoxPort
-                    val local = port?.let { LocalSocks5Probe.check(it) }
-                    when {
-                        port == null -> "Не получен SOCKS5-порт sing-box."
-                        local?.ready != true ->
-                            "Локальный SOCKS5 перестал отвечать: " +
-                                (local?.reason ?: "нет данных") +
-                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
-                        else -> {
-                            val upstream = SocksHttpsProbe.check(port)
-                            if (upstream.delayMs > 0L)
-                                "TUIC передаёт HTTPS, но Xray не пропускает его через VPN."
-                            else "TUIC/AnyTLS не передаёт HTTPS: " + upstream.failure +
-                                "; " + (singBoxBridge?.workerStatus() ?: "нет процесса")
-                        }
-                    }
-                } else "Xray запущен, но HTTPS через VPN не подтвердился " +
-                    "($checked проверок; $failure). Проверьте сервер или маршрут."
-            }
-
+            // HTTPS verification must not hold the VPN lifecycle mutex. The
+            // TUN and native core are already installed; verification below
+            // runs in a cancellable background session after startup returns.
             check(!revokedByAndroid) { "Android переключил VPN на другое приложение" }
             check(command == null || command == commandEpoch.get()) {
                 "Подключение заменено новым действием"
@@ -375,9 +318,13 @@ class PhantomVpnService : VpnService() {
                 .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
             configureWakeLock(settings.keepActive)
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
-            setState(VpnTunnelHealth.afterHttpsProbes(verified), verificationFailure)
-            updateNotification(if (verified) "VPN подключён" else "VPN · связь не подтверждена")
+            setState(STATUS_DEGRADED)
+            updateNotification("VPN · проверка соединения")
             if (settings.uiVisible) startTrafficReports()
+            val session = Any()
+            verificationSession = session
+            scheduleVerification(session, runningConfig, subscriptionProxyPort, password,
+                singBoxPort, commandEpoch.get())
         } catch (e: Exception) {
             stopLocked(false)
             if (revokedByAndroid) setState(STATUS_DISCONNECTED)
@@ -386,11 +333,89 @@ class PhantomVpnService : VpnService() {
         }
     }
 
+
+    /**
+     * Probes an authenticated inbound which inherits the Android TUN routing
+     * policy. Never hold [mutex] while external websites are unavailable:
+     * STOP, profile changes, and worker failure must remain responsive.
+     *
+     * All outbound failures leave the native TUN installed (fail-closed). A
+     * result is published only for the exact live session and command epoch;
+     * stale replies after STOP/RELOAD can never resurrect Connected.
+     */
+    private fun scheduleVerification(
+        session: Any,
+        config: String,
+        port: Int,
+        password: String,
+        singBoxPort: Int?,
+        epoch: Long,
+    ) {
+        verificationJob?.cancel()
+        verificationJob = ioScope.launch {
+            val checks = runCatching { ConnectivityProbePlan.forConfig(config) }
+                .getOrDefault(emptyList())
+            var verified = false
+            var checked = 0
+            var failure = "контрольный HTTPS-адрес не подтвердил ответ"
+            for (step in checks) {
+                if (!isActive || revokedByAndroid || epoch != commandEpoch.get()) return@launch
+                if (step.pauseBeforeMs > 0L) delay(step.pauseBeforeMs)
+                if (!isActive || revokedByAndroid || epoch != commandEpoch.get()) return@launch
+                checked++
+                val result = runCatching {
+                    measureHttp(port, password, step.url, step.timeoutMs,
+                        expectedStatus = step.expectedStatus)
+                }
+                if ((result.getOrNull() ?: -1L) > 0L) {
+                    verified = true
+                    break
+                }
+                // No URLs, credentials, or arbitrary native exception messages.
+                failure = when (val error = result.exceptionOrNull()) {
+                    is java.net.SocketTimeoutException,
+                    is java.io.InterruptedIOException -> "тайм-аут HTTPS"
+                    is java.net.UnknownHostException -> "ошибка DNS"
+                    is javax.net.ssl.SSLException -> "ошибка TLS"
+                    is java.net.ConnectException -> "локальный HTTP-прокси не отвечает"
+                    is java.io.IOException -> "обрыв HTTPS-соединения"
+                    null -> "неверный ответ контрольного HTTPS-адреса"
+                    else -> "ошибка проверки HTTPS"
+                }
+            }
+            if (!isActive || revokedByAndroid || epoch != commandEpoch.get()) return@launch
+            val diagnosis = if (verified) "" else if (singBoxPort != null) {
+                // Native worker health is a separate signal. Avoid another
+                // long external probe on the startup critical path.
+                val local = LocalSocks5Probe.check(singBoxPort)
+                if (!local.ready) "Локальный SOCKS5 sing-box недоступен: " +
+                    (local.reason ?: "не отвечает")
+                else "TUIC/AnyTLS и Xray запущены, но HTTPS через VPN не подтвердился " +
+                    "($checked проверок; $failure)"
+            } else "Xray запущен, но HTTPS через VPN не подтвердился " +
+                "($checked проверок; $failure)"
+            mutex.withLock {
+                if (!VpnVerificationPolicy.canCommit(
+                    running = running,
+                    revoked = revokedByAndroid,
+                    sessionMatches = verificationSession === session,
+                    epochMatches = epoch == commandEpoch.get(),
+                    jobActive = isActive,
+                )) return@withLock
+                setState(VpnTunnelHealth.afterHttpsProbes(verified), diagnosis)
+                updateNotification(if (verified) "VPN подключён" else "VPN · связь не подтверждена")
+            }
+        }
+    }
+
     /**
      * Tear down the dependency chain in order: isolated sing-box -> Xray -> TUN.
      * The next profile must not begin until the former Go worker has exited.
      */
     private fun stopLocked(report: Boolean = true): Boolean {
+        verificationSession = null
+        verificationJob?.cancel()
+        verificationJob = null
         ActiveVpnSubscriptionProxy.clear()
         running = false
         trafficJob?.cancel()
@@ -535,6 +560,8 @@ class PhantomVpnService : VpnService() {
         commandEpoch.incrementAndGet()
         prefs.edit().putBoolean("vpn_requested", false).apply()
         handoverJob?.cancel()
+        verificationSession = null
+        verificationJob?.cancel()
         ActiveVpnSubscriptionProxy.clear()
         running = false
         prefs.edit().putBoolean("vpn_running", false)
@@ -544,6 +571,8 @@ class PhantomVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        verificationSession = null
+        verificationJob?.cancel()
         VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         ActiveVpnSubscriptionProxy.clear()
         if (::prefs.isInitialized) {
