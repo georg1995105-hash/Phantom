@@ -470,7 +470,7 @@ fun HomeScreen(
                 error("Подключение VPN ещё не завершено")
             }
             val vpnRoute = if (checkingNode) {
-                ActiveVpnSubscriptionProxy.forProfile(activeNode?.raw.orEmpty())
+                ActiveVpnSubscriptionProxy.forProfile(context, activeNode?.raw.orEmpty())
                     ?: error("Запущенная нода не соответствует выбранной")
             } else null
             // Never silently use the physical network when an active-node
@@ -480,7 +480,7 @@ fun HomeScreen(
                 manual = !quiet)
             val parsed = SubscriptionParser.parse(remote.body,
                 item.customTitle ?: remote.title ?: item.title)
-            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(vpnRoute)) {
+            if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(context, vpnRoute)) {
                 error("VPN сменился во время обновления")
             }
             val updated = parsed.copy(
