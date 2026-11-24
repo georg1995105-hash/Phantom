@@ -60,7 +60,12 @@ class PhantomQuickTileService : TileService() {
     }
 
     private fun toggleVpn() {
-        if (VpnRuntimeBridge.snapshot(this).running) {
+        val runtime = VpnRuntimeBridge.snapshot(this)
+        if (!runtime.available) {
+            launchApplication(connect = false)
+            return
+        }
+        if (runtime.running) {
             runCatching {
                 startService(Intent(this, PhantomVpnService::class.java)
                     .setAction(PhantomVpnService.ACTION_STOP))
@@ -128,9 +133,14 @@ class PhantomQuickTileService : TileService() {
         val running = snapshot.running
         tile.label = "Phantom VPN"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_phantom)
-        tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.state = when {
+            !snapshot.available -> Tile.STATE_UNAVAILABLE
+            running -> Tile.STATE_ACTIVE
+            else -> Tile.STATE_INACTIVE
+        }
         if (Build.VERSION.SDK_INT >= 29) {
             tile.subtitle = when {
+                !snapshot.available -> "Состояние VPN недоступно"
                 running -> "Подключено"
                 state == PhantomVpnService.STATUS_STARTING -> "Подключение…"
                 else -> "Отключено"
