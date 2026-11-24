@@ -1,5 +1,9 @@
 package xyz.wraithnet.phantom.data
 
+import android.content.Intent
+import android.net.VpnService
+import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
@@ -11,6 +15,8 @@ import org.junit.runner.RunWith
 import java.io.IOException
 import java.net.InetAddress
 import java.util.concurrent.TimeUnit
+import xyz.wraithnet.phantom.service.PhantomVpnService
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 
 /**
  * The app's UID normally uses physical networking. Prove that a manual
@@ -22,35 +28,88 @@ class ActiveVpnRefreshNetworkTest {
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
     @Test fun explicitActiveCountryUsesAuthenticatedProxyRatherThanDirectInternet() {
-        val proxy = MockWebServer()
-        val destination = MockWebServer()
-        try {
-            proxy.start(InetAddress.getByName("127.0.0.1"), 0)
-            destination.start(InetAddress.getByName("127.0.0.1"), 0)
-            proxy.enqueue(MockResponse().setResponseCode(407)
-                .setHeader("Proxy-Authenticate", "Basic realm=\"phantom\""))
-            proxy.enqueue(MockResponse().setBody("through active profile"))
-            destination.enqueue(MockResponse().setBody("direct network: wrong"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val permission = instrumentation.uiAutomation.executeShellCommand(
+            "appops set ${context.packageName} ACTIVATE_VPN allow")
+        ParcelFileDescriptor.AutoCloseInputStream(permission).use { it.readBytes() }
+        assertNull("VPN permission missing", VpnService.prepare(context))
 
-            ActiveVpnSubscriptionProxy.publish(proxy.port, "secret-for-test", "vless://selected")
-            val route = requireNotNull(ActiveVpnSubscriptionProxy.forProfile("vless://selected"))
-            val body = runBlocking {
-                PhantomHttp.get(
-                    context, destination.url("/subscription").toString(),
-                    vpnRoute = route, manual = true, callTimeoutMs = 3_000L,
-                ) { response -> response.body!!.string() }
+        MockWebServer().use { selected ->
+            MockWebServer().use { destination ->
+                val loopback = InetAddress.getByName("127.0.0.1")
+                selected.start(loopback, 0)
+                destination.start(loopback, 0)
+                selected.enqueue(MockResponse().setBody("through active profile"))
+                destination.enqueue(MockResponse().setBody("direct network: wrong"))
+                val url = destination.url("/subscription").toString()
+                // Real isolated VpnService and Xray route. Only requests to the
+                // synthetic subscription port are redirected to the selected
+                // endpoint; direct requests reach a separate trap server.
+                val profile = """
+                    {"outbounds":[
+                        {"tag":"deny","protocol":"blackhole"},
+                        {"tag":"selected","protocol":"freedom",
+                         "settings":{"redirect":"127.0.0.1:${selected.port}"}}
+                    ],"routing":{"rules":[
+                        {"type":"field","network":"tcp","port":"${destination.port}",
+                         "outboundTag":"selected"},
+                        {"type":"field","network":"tcp,udp","outboundTag":"deny"}
+                    ]}}
+                """.trimIndent()
+                fun request(route: ActiveVpnSubscriptionProxy.Route) = runBlocking {
+                    PhantomHttp.get(context, url, vpnRoute = route,
+                        manual = true, callTimeoutMs = 3_000L) { it.body!!.string() }
+                }
+                fun assertRejected(route: ActiveVpnSubscriptionProxy.Route) {
+                    try {
+                        request(route)
+                        fail("Unowned VPN route must be rejected")
+                    } catch (expected: IOException) {
+                        assertEquals("Выбранная нода VPN отключена или изменена", expected.message)
+                    }
+                    assertEquals(0, destination.requestCount)
+                }
+                context.startForegroundService(Intent(context, PhantomVpnService::class.java)
+                    .setAction(PhantomVpnService.ACTION_START)
+                    .putExtra(PhantomVpnService.EXTRA_PROFILE, profile))
+                try {
+                    val deadline = SystemClock.elapsedRealtime() + 15_000L
+                    var route = ActiveVpnSubscriptionProxy.forProfile(context, profile)
+                    while (route == null && SystemClock.elapsedRealtime() < deadline) {
+                        Thread.sleep(100)
+                        route = ActiveVpnSubscriptionProxy.forProfile(context, profile)
+                    }
+                    val owned = requireNotNull(route) {
+                        "VPN process did not publish its authenticated route"
+                    }
+                    assertTrue(VpnRuntimeBridge.isActive(context, owned))
+                    assertNull(ActiveVpnSubscriptionProxy.forProfile(context, "vless://other"))
+                    // UI-process credentials must never override the IPC owner.
+                    ActiveVpnSubscriptionProxy.publish(destination.port, "fake", profile)
+                    val forged = requireNotNull(ActiveVpnSubscriptionProxy.forProfile(profile))
+                    assertRejected(forged)
+                    assertRejected(owned.copy(password = "wrong"))
+                    assertEquals(0, selected.requestCount)
+                    assertEquals("through active profile", request(owned))
+                    assertEquals(0, destination.requestCount)
+                    assertEquals(1, selected.requestCount)
+                    assertEquals("/subscription", selected.takeRequest(1, TimeUnit.SECONDS)?.path)
+
+                    context.startService(Intent(context, PhantomVpnService::class.java)
+                        .setAction(PhantomVpnService.ACTION_STOP))
+                    val stopDeadline = SystemClock.elapsedRealtime() + 10_000L
+                    while (VpnRuntimeBridge.isActive(context, owned) &&
+                        SystemClock.elapsedRealtime() < stopDeadline) Thread.sleep(100)
+                    assertFalse("STOP did not revoke proxy credentials",
+                        VpnRuntimeBridge.isActive(context, owned))
+                    assertRejected(owned)
+                    assertEquals(1, selected.requestCount)
+                } finally {
+                    ActiveVpnSubscriptionProxy.clear()
+                    context.startService(Intent(context, PhantomVpnService::class.java)
+                        .setAction(PhantomVpnService.ACTION_STOP))
+                }
             }
-            assertEquals("through active profile", body)
-            assertEquals(0, destination.requestCount)
-            assertEquals(2, proxy.requestCount)
-            proxy.takeRequest(1, TimeUnit.SECONDS)
-            val authenticated = requireNotNull(proxy.takeRequest(1, TimeUnit.SECONDS))
-            assertTrue(authenticated.getHeader("Proxy-Authorization").orEmpty().startsWith("Basic "))
-            assertTrue(authenticated.requestLine.contains("/subscription"))
-        } finally {
-            ActiveVpnSubscriptionProxy.clear()
-            proxy.shutdown()
-            destination.shutdown()
         }
     }
 
