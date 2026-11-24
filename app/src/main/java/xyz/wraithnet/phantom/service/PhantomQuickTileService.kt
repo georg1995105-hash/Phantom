@@ -125,7 +125,7 @@ class PhantomQuickTileService : TileService() {
     private fun renderState() {
         val tile = qsTile ?: return
         val prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
-        val state = prefs.getString("vpn_status", PhantomVpnService.STATUS_DISCONNECTED)
+        val state = prefs.getString("vpn_status", PhantomVpnService.STATUS_DISCONNECTED) ?: PhantomVpnService.STATUS_DISCONNECTED
         val running = prefs.getBoolean("vpn_running", false) &&
             PhantomVpnService.isTunnelActive(state)
         tile.label = "Phantom VPN"
