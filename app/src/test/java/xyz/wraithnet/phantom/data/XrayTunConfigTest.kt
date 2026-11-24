@@ -36,7 +36,8 @@ class XrayTunConfigTest {
         assertEquals("tun0", root.getJSONArray("inbounds").getJSONObject(0)
             .getJSONObject("settings").getString("name"))
         assertEquals("proxy", root.getJSONArray("outbounds").getJSONObject(0).getString("tag"))
-        assertEquals("tun", root.getJSONObject("routing").getJSONArray("rules")
+        assertEquals("socks", root.getJSONArray("inbounds").getJSONObject(0).getString("tag"))
+        assertEquals("socks", root.getJSONObject("routing").getJSONArray("rules")
             .getJSONObject(0).getJSONArray("inboundTag").getString(0))
     }
 
@@ -51,7 +52,7 @@ class XrayTunConfigTest {
         val routing = JSONObject(XrayConfigBuilder.build(profile)).getJSONObject("routing")
         val rules = routing.getJSONArray("rules")
         assertEquals("[\"monitor\"]", rules.getJSONObject(0).getJSONArray("inboundTag").toString())
-        assertEquals("[\"tun\"]", rules.getJSONObject(1).getJSONArray("inboundTag").toString())
+        assertEquals("[\"socks\",\"http\"]", rules.getJSONObject(1).getJSONArray("inboundTag").toString())
         assertEquals("auto", rules.getJSONObject(1).getString("balancerTag"))
         assertEquals("proxy-", routing.getJSONArray("balancers").getJSONObject(0)
             .getJSONArray("selector").getString(0))
@@ -84,7 +85,7 @@ class XrayTunConfigTest {
         val original = XrayConfigBuilder.build(SubscriptionParser.parse(full).servers.single())
         val config = JSONObject(XrayConfigBuilder.forLatency(original, 12345, "probe-password"))
         val inbound = config.getJSONArray("inbounds").getJSONObject(0)
-        assertEquals("tun", inbound.getString("tag"))
+        assertEquals("socks", inbound.getString("tag"))
         assertEquals("127.0.0.1", inbound.getString("listen"))
         assertEquals("http", inbound.getString("protocol"))
         assertEquals("probe-password", inbound.getJSONObject("settings")

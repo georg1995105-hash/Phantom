@@ -154,8 +154,10 @@ internal fun ConnectionPage(status: String,
     val ownerView = LocalView.current
     var powerFocused by remember { mutableStateOf(false) }
     val connected = status == "connected"
+    val degraded = status == "degraded"
+    val active = connected || degraded
     val starting = status == "starting"
-    val ring by animateColorAsState(if (connected || starting) c.primary else c.outline, label = "connection")
+    val ring by animateColorAsState(if (connected || starting) c.primary else if (degraded) c.tertiary else c.outline, label = "connection")
     BoxWithConstraints(if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
         val gap = if (embedded) 5.dp else if (!hasSubscriptions) 12.dp
             else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
@@ -181,13 +183,13 @@ internal fun ConnectionPage(status: String,
                         CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(Icons.Default.PowerSettingsNew, when {
-                            connected -> "Отключить VPN"
+                            active -> "Отключить VPN"
                             else -> "Подключить VPN"
                         }, Modifier.size(if (embedded) 44.dp else 52.dp),
                             tint = c.onSurface)
                     }
                     // Only the power control shows the connection timer.
-                    if (connected) {
+                    if (active) {
                         Spacer(Modifier.height(3.dp))
                         Text(String.format(Locale.ROOT, "%02d:%02d:%02d",
                             seconds / 3600, seconds / 60 % 60, seconds % 60),
@@ -226,6 +228,7 @@ internal fun ConnectionPage(status: String,
                 }
                 Text(when (status) {
                     "connected" -> "Подключено"
+                    "degraded" -> "Связь не подтверждена"
                     "starting" -> "Подключение…"
                     "error" -> "Соединение не установлено"
                     else -> "Отключено"
