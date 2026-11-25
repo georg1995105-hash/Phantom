@@ -17,19 +17,20 @@ import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
  */
 internal object VpnRuntimeBridge {
     data class Snapshot(val status: String, val connectedSince: Long, val available: Boolean = true,
-        val profileDigest: String? = null, val error: String = "") {
+        val profileDigest: String? = null, val error: String = "", val blocking: Boolean = false) {
         val running: Boolean get() = PhantomVpnService.isTunnelActive(status)
     }
 
     @Volatile private var actual = Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L)
 
-    fun publish(status: String, connectedSince: Long = 0L, error: String = "") {
-        actual = Snapshot(status, connectedSince, error = error)
+    fun publish(status: String, connectedSince: Long = 0L, error: String = "",
+        blocking: Boolean = false) {
+        actual = Snapshot(status, connectedSince, error = error, blocking = blocking)
     }
 
     internal fun localSnapshot(): Snapshot {
         val state = actual
-        return if (state.running && !ActiveVpnSubscriptionProxy.hasRoute()) {
+        return if (state.running && !state.blocking && !ActiveVpnSubscriptionProxy.hasRoute()) {
             Snapshot(PhantomVpnService.STATUS_DISCONNECTED, 0L)
         } else state
     }

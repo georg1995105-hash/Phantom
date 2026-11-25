@@ -29,6 +29,30 @@ internal object VpnSettingsBridge {
 
     private fun uri(context: Context) = Uri.parse("content://${context.packageName}.vpn-settings")
 
+    data class Persisted(val requested: Boolean, val lastProfile: String)
+
+    /** The default app process owns all durable preferences; :vpn never writes them. */
+    fun persisted(context: Context): Persisted {
+        val result = requireNotNull(
+            context.contentResolver.call(uri(context), "persisted", null, null)
+        ) { "Состояние VPN недоступно" }
+        return Persisted(result.getBoolean("requested", false),
+            result.getString("lastProfile").orEmpty())
+    }
+
+    fun persist(context: Context, requested: Boolean? = null, lastProfile: String? = null,
+        running: Boolean? = null, status: String? = null, since: Long? = null): Boolean {
+        val fields = Bundle().apply {
+            requested?.let { putBoolean("requested", it) }
+            lastProfile?.let { putString("lastProfile", it) }
+            running?.let { putBoolean("running", it) }
+            status?.let { putString("status", it) }
+            since?.let { putLong("since", it) }
+        }
+        return context.contentResolver.call(uri(context), "persist", null, fields)
+            ?.getBoolean("saved", false) == true
+    }
+
     fun read(context: Context): Snapshot {
         val b = requireNotNull(context.contentResolver.call(uri(context), "snapshot", null, null)) {
             "Не удалось получить настройки VPN из процесса приложения"
@@ -58,8 +82,31 @@ class VpnSettingsProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
-        if (method != "snapshot") return null
         val context = requireNotNull(context)
+        if (method == "persisted") {
+            val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            return Bundle().apply {
+                putBoolean("requested", prefs.getBoolean("vpn_requested", false))
+                putString("lastProfile", prefs.getString("vpn_last_profile", "").orEmpty())
+            }
+        }
+        if (method == "persist") {
+            val changes = extras ?: return Bundle().apply { putBoolean("saved", false) }
+            val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (changes.containsKey("requested"))
+                editor.putBoolean("vpn_requested", changes.getBoolean("requested"))
+            if (changes.containsKey("lastProfile"))
+                editor.putString("vpn_last_profile", changes.getString("lastProfile"))
+            if (changes.containsKey("running"))
+                editor.putBoolean("vpn_running", changes.getBoolean("running"))
+            if (changes.containsKey("status"))
+                editor.putString("vpn_status", changes.getString("status"))
+            if (changes.containsKey("since"))
+                editor.putLong("vpn_connected_since_elapsed", changes.getLong("since"))
+            return Bundle().apply { putBoolean("saved", editor.commit()) }
+        }
+        if (method != "snapshot") return null
         val dns = VpnDnsSettings.load(context)
         val fragment = FragmentationOptions.load(context)
         val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
