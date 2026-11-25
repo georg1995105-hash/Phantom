@@ -22,6 +22,7 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
         @Volatile var isForeground = false
             private set
         private var pendingConfirmation: Intent? = null
+        private var confirmationDispatched = false
         internal val installError = MutableStateFlow<String?>(null)
 
         fun setForeground(context: Context, visible: Boolean) {
@@ -29,14 +30,15 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
             if (visible) openPendingConfirmation(context)
         }
 
-        fun openPendingConfirmation(context: Context) {
-            if (!isForeground) return
-            val confirmation = pendingConfirmation ?: return
-            // The receiver and activity callbacks execute on Main. Keep the
-            // notification as a fallback if an OEM suppresses activity launch.
-            if (runCatching { context.startActivity(confirmation) }.isSuccess) {
-                pendingConfirmation = null
-            }
+        fun openPendingConfirmation(context: Context, force: Boolean = false): Boolean {
+            if (!isForeground) return false
+            val confirmation = pendingConfirmation ?: return false
+            if (confirmationDispatched && !force) return true
+            // Keep the OS-provided intent until a terminal result, so an explicit
+            // retry can reopen confirmation without staging another APK.
+            val opened = runCatching { context.startActivity(confirmation) }.isSuccess
+            if (opened) confirmationDispatched = true
+            return opened
         }
     }
 
@@ -46,6 +48,7 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
         when (status) {
             PackageInstaller.STATUS_SUCCESS -> {
                 pendingConfirmation = null
+                confirmationDispatched = false
                 installError.value = null
                 context.getSystemService(NotificationManager::class.java).cancel(827)
             }
@@ -57,12 +60,14 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
                 if (confirmation != null) {
                     confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     pendingConfirmation = confirmation
+                    confirmationDispatched = false
                     openPendingConfirmation(context)
                     notifyUser(context, "Подтвердите обновление Phantom", confirmation)
                 }
             }
             else -> {
                 pendingConfirmation = null
+                confirmationDispatched = false
                 installError.value = "Android не завершил установку (код $status). Можно повторить установку."
                 notifyUser(context, "Не удалось установить обновление Phantom", null)
             }

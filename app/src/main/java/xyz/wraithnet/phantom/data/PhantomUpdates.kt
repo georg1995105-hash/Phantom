@@ -4,6 +4,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.PackageInstaller
 import xyz.wraithnet.phantom.service.PhantomUpdateInstallReceiver
+import xyz.wraithnet.phantom.service.VpnRuntimeBridge
+import xyz.wraithnet.phantom.service.PhantomVpnService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.content.Intent
@@ -145,6 +147,18 @@ object PhantomUpdates {
 
     private val downloadMutex = Mutex()
     private val installMutex = Mutex()
+
+    internal fun automaticInstallSafe(status: String, available: Boolean): Boolean =
+        available && status == PhantomVpnService.STATUS_DISCONNECTED
+
+    internal fun automaticInstallAllowed(context: Context): Boolean {
+        if (!context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+                .getBoolean("auto_apk_updates", true)) return false
+        val snapshot = VpnRuntimeBridge.snapshot(context)
+        return automaticInstallSafe(snapshot.status, snapshot.available)
+    }
+
+    private class AutomaticInstallDeferred : Exception()
 
     internal fun retryDeltaAfter(error: Exception): Boolean = when (error) {
         is PhantomHttp.HttpStatusException -> error.status == 408 || error.status == 429 || error.status in 500..599
@@ -678,11 +692,12 @@ object PhantomUpdates {
      * The OS decides whether confirmation is required; never bypass it.
      */
     suspend fun openInstaller(context: Context, apk: File, release: PhantomRelease,
-        allowPermissionPrompt: Boolean = true): Boolean = withContext(Dispatchers.IO) {
+        allowPermissionPrompt: Boolean = true, requireIdleVpn: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         installMutex.lock()
         try {
             require(channelAllows(release, selectedChannel(context))) { "Канал обновлений изменён" }
             verifyReleaseFile(context, apk, release)
+            if (requireIdleVpn && !automaticInstallAllowed(context)) return@withContext false
             if (!context.packageManager.canRequestPackageInstalls()) {
                 if (allowPermissionPrompt) {
                     savePendingInstall(context, release)
@@ -700,10 +715,22 @@ object PhantomUpdates {
                 var sessionId = -1
                 try {
                     // Do not stage a second copy while Android is processing one.
-                    if (installer.mySessions.any { it.appPackageName == context.packageName && it.isCommitted }) {
+                    val existing = installer.mySessions.firstOrNull {
+                        it.appPackageName == context.packageName && it.isCommitted
+                    }
+                    if (existing != null) {
                         clearPendingInstall(context)
-                        withContext(Dispatchers.Main) {
-                            PhantomUpdateInstallReceiver.openPendingConfirmation(context)
+                        if (allowPermissionPrompt) withContext(Dispatchers.Main) {
+                            val opened = PhantomUpdateInstallReceiver.openPendingConfirmation(context, force = true)
+                            if (!opened && PhantomUpdateInstallReceiver.isForeground) {
+                                val detailsOpened = runCatching {
+                                    val intent = existing.createDetailsIntent() ?: return@runCatching false
+                                    context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    true
+                                }.getOrDefault(false)
+                                if (!detailsOpened) PhantomUpdateInstallReceiver.installError.value =
+                                    "Android уже обрабатывает обновление. Проверьте системное уведомление."
+                            }
                         }
                         return@withContext true
                     }
@@ -729,6 +756,7 @@ object PhantomUpdates {
                         }
                         job.ensureActive()
                         require(channelAllows(release, selectedChannel(context))) { "Канал обновлений изменён" }
+                        if (requireIdleVpn && !automaticInstallAllowed(context)) throw AutomaticInstallDeferred()
                         val callback = Intent(context, PhantomUpdateInstallReceiver::class.java)
                             .setAction(PhantomUpdateInstallReceiver.ACTION_RESULT)
                         val pending = PendingIntent.getBroadcast(context, sessionId, callback,
@@ -737,6 +765,9 @@ object PhantomUpdates {
                     }
                     clearPendingInstall(context)
                     return@withContext true
+                } catch (_: AutomaticInstallDeferred) {
+                    if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
+                    return@withContext false
                 } catch (cancel: CancellationException) {
                     if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
                     throw cancel
@@ -744,6 +775,7 @@ object PhantomUpdates {
                     if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
                 }
             }
+            if (requireIdleVpn) return@withContext false
             currentCoroutineContext().ensureActive()
             require(channelAllows(release, selectedChannel(context))) { "Канал обновлений изменён" }
             if (!PhantomUpdateInstallReceiver.isForeground) {

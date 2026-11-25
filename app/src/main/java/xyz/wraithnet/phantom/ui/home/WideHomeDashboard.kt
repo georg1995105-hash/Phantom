@@ -102,7 +102,7 @@ internal fun WideHomeDashboard(
         }
     }
     // After returning from pairing or import restore a real remote focus target.
-    LaunchedEffect(tv, focusEpoch, modalVisible, status == "starting") {
+    LaunchedEffect(tv, focusEpoch, modalVisible) {
         if (tv && !modalVisible) {
             // Cold Android TV startup and dialog dismissal can attach the
             // Compose focus target before the Activity window gains focus.

@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhantomUpdatesVersionTest {
+    @Test fun automaticInstallRequiresConfirmedIdleVpn() {
+        assertTrue(PhantomUpdates.automaticInstallSafe("disconnected", true))
+        assertFalse(PhantomUpdates.automaticInstallSafe("disconnected", false))
+        listOf("starting", "connected", "degraded", "error", "unknown").forEach {
+            assertFalse(PhantomUpdates.automaticInstallSafe(it, true))
+        }
+    }
+
     @Test fun deltaNetworkFailureIsDistinctFromInvalidPatch() {
         assertTrue(PhantomUpdates.retryDeltaAfter(java.io.IOException("connection lost")))
         assertTrue(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(503)))

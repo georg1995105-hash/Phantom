@@ -996,7 +996,8 @@ fun HomeScreen(
                             importing = importBusy,
                             focusEpoch = refreshVersion,
                             modalVisible = showTvPairing || showImportMenu ||
-                                importMode != null || qrSource != null || activeSubMenu != null,
+                                importMode != null || qrSource != null || activeSubMenu != null ||
+                                (showOtaSheet && availableUpdate != null),
                             onToggle = {
                                 softTap()
                                 when {

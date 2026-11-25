@@ -55,6 +55,35 @@ class AppUpdateSheetUiTest {
         }
     }
 
+    @Test fun tvDownloadCanBeMinimizedAndRestoredWithoutStopping() {
+        val release = PhantomRelease("9.0.0", "", "", 1234, "- Исправление")
+        var minimized by mutableStateOf(false)
+        var stopped = false
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val config = Configuration(activity.resources.configuration).apply {
+                    uiMode = (uiMode and Configuration.UI_MODE_TYPE_MASK.inv()) or
+                        Configuration.UI_MODE_TYPE_TELEVISION
+                }
+                activity.setContent {
+                    CompositionLocalProvider(LocalConfiguration provides config) {
+                        PhantomTheme {
+                            if (minimized) OtaCompactBanner(release.version, true, 40, 128L * 1024L,
+                                null, false, onOpen = { minimized = false })
+                            else AppUpdateSheet(release, true, 40, 128L * 1024L, false, null,
+                                onLater = {}, onUpdate = {}, onDownloadInBrowser = {},
+                                onCancelDownload = { stopped = true }, onMinimize = { minimized = true })
+                        }
+                    }
+                }
+            }
+            compose.awaitVisible(hasText("Свернуть")).performClick()
+            compose.awaitVisible(hasText("Обновление 9.0.0 · 40%", substring = true)).performClick()
+            compose.awaitVisible(hasText("Загрузка обновления · 40% · 128 КБ/с"))
+            compose.runOnIdle { assertTrue(!stopped) }
+        }
+    }
+
     @Test fun betaReleaseIsClearlyLabeledBeforeUserConfirmsInstall() {
         val release = PhantomRelease("0.3.25-beta.1", "", "", 1234,
             "- Тест новых функций", isBeta = true)
