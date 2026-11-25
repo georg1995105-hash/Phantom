@@ -580,6 +580,7 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
         if (!tv) {
             SubscriptionMetadataPanel(
                 traffic = listOfNotNull(traffic, limit).joinToString(" / ").ifBlank { "—" },
+                trafficTitle = if (traffic == null && limit != null) "Лимит" else "Трафик",
                 expiry = expiry, displayName = displayName, details = details,
                 toggle = toggle, account = account, support = support, openUrl = openUrl,
             )
@@ -667,7 +668,7 @@ private fun SubscriptionValuePill(value: String) {
 
 @Composable
 private fun SubscriptionMetadataPanel(
-    traffic: String, expiry: Long?, displayName: String, details: Boolean,
+    traffic: String, trafficTitle: String, expiry: Long?, displayName: String, details: Boolean,
     toggle: () -> Unit, account: String?, support: String?, openUrl: (String) -> Unit,
 ) {
     val c = MaterialTheme.colorScheme
@@ -684,48 +685,56 @@ private fun SubscriptionMetadataPanel(
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         shape = RoundedCornerShape(10.dp), color = c.subscriptionPanelColor(),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (account != null) IconButton(
-                onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
-            ) {
-                Icon(Icons.Default.Info, "Кабинет $displayName",
-                    Modifier.size(18.dp), tint = c.primary)
-            }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Storage, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Трафик", fontSize = 11.sp, color = c.onSurfaceVariant)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Retain both provider actions on narrow phones; decorative icons yield first.
+        val compact = maxWidth < 310.dp
+            Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
+                if (account != null) IconButton(
+                    onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
+                ) {
+                    Icon(Icons.Default.Info, "Кабинет $displayName",
+                        Modifier.size(18.dp), tint = c.primary)
                 }
-                SubscriptionValuePill(traffic)
-            }
-            Box(Modifier.width(1.dp).height(32.dp).background(c.outline.copy(alpha = .55f)))
-            Column(
-                Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
-                    .clickable(onClick = toggle)
-                    .semantics { contentDescription = "Подробнее о $displayName" },
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.DateRange, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
-                    Spacer(Modifier.width(4.dp))
-                    Text(date, fontSize = 11.sp, lineHeight = 14.sp,
-                        modifier = Modifier.weight(1f), color = c.onSurfaceVariant, maxLines = 2)
-                    Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        null, Modifier.size(14.dp), tint = c.primary)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!compact) {
+                            Icon(Icons.Default.Storage, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(trafficTitle, fontSize = 11.sp, color = c.onSurfaceVariant)
+                    }
+                    SubscriptionValuePill(traffic)
                 }
-                Spacer(Modifier.height(3.dp))
-                SubscriptionValuePill(remaining)
-            }
-            if (support != null) IconButton(
-                onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()
-            ) {
-                val host = android.net.Uri.parse(support).host?.lowercase()
-                Icon(if (host in setOf("t.me", "telegram.me"))
-                    Icons.Default.Send else Icons.Default.SupportAgent,
-                    "Поддержка $displayName", Modifier.size(18.dp), tint = c.primary)
+                Box(Modifier.width(1.dp).height(32.dp).background(c.outline.copy(alpha = .55f)))
+                Column(
+                    Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
+                        .clickable(onClick = toggle)
+                        .semantics { contentDescription = "Подробнее о $displayName" },
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!compact) {
+                            Icon(Icons.Default.DateRange, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(date, fontSize = 11.sp, lineHeight = 14.sp,
+                            modifier = Modifier.weight(1f), color = c.onSurfaceVariant, maxLines = 2)
+                        Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null, Modifier.size(14.dp), tint = c.primary)
+                    }
+                    Spacer(Modifier.height(3.dp))
+                    SubscriptionValuePill(remaining)
+                }
+                if (support != null) IconButton(
+                    onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()
+                ) {
+                    val host = android.net.Uri.parse(support).host?.lowercase()
+                    Icon(if (host in setOf("t.me", "telegram.me"))
+                        Icons.Default.Send else Icons.Default.SupportAgent,
+                        "Поддержка $displayName", Modifier.size(18.dp), tint = c.primary)
+                }
             }
         }
     }
