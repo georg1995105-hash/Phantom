@@ -61,10 +61,7 @@ class AQuickSubscriptionUiTest {
                     compose.onNode(hasContentDescription("Сканировать QR-код подписки"))
                         .assertDoesNotExist()
                 }
-                compose.awaitVisible(entry).performTouchInput { click() }
-                compose.awaitVisible(hasText("Добавить конфигурацию"))
-                compose.awaitVisible(hasText("Ссылка подписки"))
-                compose.awaitVisible(hasText("Ручной ввод"))
+                // MainActivity must own focus before opening the import sheet.
                 try {
                     compose.waitUntil(10_000) {
                         var focused = false
@@ -121,8 +118,14 @@ class AQuickSubscriptionUiTest {
                                 focused
                             }
                         } catch (retry: ComposeTimeoutException) {
+                            val currentWindow = ParcelFileDescriptor.AutoCloseInputStream(
+                                automation.executeShellCommand("dumpsys window displays")
+                            ).bufferedReader().useLines { lines ->
+                                lines.filter { it.contains("mCurrentFocus") || it.contains("mFocusedApp") }
+                                    .joinToString("\n")
+                            }
                             throw AssertionError("System Quickstep ANR was dismissed, but Phantom still " +
-                                "did not regain window focus:\n$window", retry)
+                                "did not regain window focus:\n$currentWindow", retry)
                         }
                     }
                 }
@@ -136,6 +139,13 @@ class AQuickSubscriptionUiTest {
                     clipboard.setPrimaryClip(clip)
                     assertEquals(link, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
                 }
+                // Seed the real clipboard while MainActivity owns the window.
+                // A Material3 ModalBottomSheet owns a separate focusable window;
+                // requiring MainActivity.hasWindowFocus() after opening it is invalid.
+                compose.awaitVisible(entry).performTouchInput { click() }
+                compose.awaitVisible(hasText("Добавить конфигурацию"))
+                compose.awaitVisible(hasText("Ссылка подписки"))
+                compose.awaitVisible(hasText("Ручной ввод"))
                 compose.awaitVisible(hasText("Из буфера обмена")).performTouchInput { click() }
                 compose.awaitVisible(hasText("Подписка добавлена"))
                 assertEquals(1, store.read().size)
