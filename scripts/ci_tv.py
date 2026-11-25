@@ -359,6 +359,8 @@ if not page_size_16k:
             break
         time.sleep(.2)
     assert is_focused("Туннелирование"), "Routing BACK lost focus"
+    key("DPAD_LEFT")
+    assert is_focused("Тема оформления"), "Left column cannot receive D-pad focus"
     remote_to("Резервная копия")
     key("DPAD_RIGHT")
     assert is_focused("Фоновая работа"), "Background tile cannot receive D-pad focus"
@@ -368,6 +370,11 @@ if not page_size_16k:
     key("DPAD_CENTER")
     key("DPAD_CENTER")
     key("BACK")
+    for _ in range(8):
+        if is_focused("Фоновая работа"):
+            break
+        time.sleep(.2)
+    assert is_focused("Фоновая работа"), "Background BACK lost focus"
     remote_to("Автоподключение")
     key("DPAD_CENTER")
     key("DPAD_CENTER")

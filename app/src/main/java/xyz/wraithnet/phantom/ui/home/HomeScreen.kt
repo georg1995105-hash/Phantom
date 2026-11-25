@@ -1623,6 +1623,8 @@ private fun PhantomSettings(
     val connectionFocus = remember { FocusRequester() }
     val dnsFocus = remember { FocusRequester() }
     val pingFocus = remember { FocusRequester() }
+    val backgroundFocus = remember { FocusRequester() }
+    var backgroundHasFocus by remember { mutableStateOf(false) }
     val backupFocus = remember { FocusRequester() }
     val aboutFocus = remember { FocusRequester() }
     var connectionHasFocus by remember { mutableStateOf(false) }
@@ -1632,7 +1634,7 @@ private fun PhantomSettings(
     var aboutHasFocus by remember { mutableStateOf(false) }
     var restoreAboutFocus by remember { mutableStateOf("") }
     BackHandler(enabled = group.isNotEmpty()) {
-        if (group == "about") restoreTvFocus = "about"
+        if (tv) restoreTvFocus = group
         group = ""
     }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -1723,7 +1725,7 @@ private fun PhantomSettings(
         val targetIndex = when (destination) {
             "network", "dns", "ping" -> 0
             "theme", "apps" -> 1
-            "backup" -> 2
+            "backup", "background" -> 2
             else -> 3
         }
         repeat(24) {
@@ -1736,6 +1738,7 @@ private fun PhantomSettings(
                     "ping" -> pingFocus.requestFocus()
                     "theme" -> themeFocus.requestFocus()
                     "apps" -> appsFocus.requestFocus()
+                    "background" -> backgroundFocus.requestFocus()
                     "backup" -> backupFocus.requestFocus()
                     "about" -> aboutFocus.requestFocus()
                 }
@@ -1751,6 +1754,7 @@ private fun PhantomSettings(
                 "ping" -> pingHasFocus
                 "theme" -> themeHasFocus
                 "apps" -> appsHasFocus
+                "background" -> backgroundHasFocus
                 "backup" -> backupHasFocus
                 "about" -> aboutHasFocus
                 else -> true
@@ -1899,6 +1903,8 @@ private fun PhantomSettings(
                         },
                         second = {
                             SettingsTile("Фоновая работа", "Экран, батарея, всегда включённый VPN", Icons.Default.BatteryStd,
+                                modifier = Modifier.focusRequester(backgroundFocus)
+                                    .onFocusChanged { backgroundHasFocus = it.hasFocus },
                                 wide = !twoColumns, expanded = group == "background") { toggle("background") }
                         })
                     if (group == "background") Panel {

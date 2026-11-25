@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,6 +20,7 @@ class SettingsDashboardUiTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
         val priorTheme = prefs.getString("theme", null)
+        val priorBoot = if (prefs.contains("connect_on_boot")) prefs.getBoolean("connect_on_boot", false) else null
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 fun back() {
@@ -68,15 +70,33 @@ class SettingsDashboardUiTest {
                 see("Журнал VPN")
                 back()
                 back()
+                val beforeBoot = prefs.getBoolean("connect_on_boot", false)
                 open("Автоподключение")
+                compose.runOnIdle { assertEquals(!beforeBoot, prefs.getBoolean("connect_on_boot", false)) }
                 open("Автоподключение")
+                compose.runOnIdle { assertEquals(beforeBoot, prefs.getBoolean("connect_on_boot", false)) }
                 compose.awaitVisible(hasContentDescription("Вкладка Главная")).performClick()
                 compose.awaitVisible(hasContentDescription("Вкладка Настройки")).performClick()
-                see("Подключение")
+                open("Быстрый доступ")
+                val instrumentation = InstrumentationRegistry.getInstrumentation()
+                fun systemTilePrompt(): Boolean = instrumentation.uiAutomation.rootInActiveWindow
+                    ?.packageName?.toString() == "com.android.systemui"
+                fun tileResult(): Boolean = compose.onAllNodes(hasText("Плитка", substring = true) or
+                    hasText("редактирование шторки", substring = true) or
+                    hasText("редактирование быстрых настроек", substring = true), useUnmergedTree = true)
+                    .fetchSemanticsNodes().isNotEmpty()
+                compose.waitUntil(15_000) { systemTilePrompt() || tileResult() }
+                if (systemTilePrompt()) {
+                    android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation
+                        .executeShellCommand("input keyevent BACK")).use { it.readBytes() }
+                    compose.waitUntil(15_000) { !systemTilePrompt() }
+                }
+                see("Быстрый доступ")
             }
         } finally {
             prefs.edit().apply {
                 if (priorTheme == null) remove("theme") else putString("theme", priorTheme)
+                if (priorBoot == null) remove("connect_on_boot") else putBoolean("connect_on_boot", priorBoot)
             }.commit()
         }
     }
