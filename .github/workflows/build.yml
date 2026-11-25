@@ -322,6 +322,14 @@ jobs:
           fi
           exit "$result"
 
+      - name: Upload theme screen proof
+        if: ${{ !cancelled() && hashFiles('theme-screens/*.png') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: android-theme-screen-proof
+          path: theme-screens/
+          retention-days: 7
+
       - name: Upload actual Android TV screenshots
         if: ${{ !cancelled() && hashFiles('tv-screens/*.png') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
