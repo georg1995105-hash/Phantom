@@ -7,6 +7,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 
 enum class PhantomThemeMode(val title: String) {
     AUTO("Авто"),
@@ -36,70 +38,70 @@ private val SystemDarkColors = darkColorScheme(
 )
 
 private val GraphiteColors = darkColorScheme(
-    primary = Color(0xFFA2B9D5),
-    onPrimary = Color(0xFF16283B),
-    primaryContainer = Color(0xFF283647),
-    onPrimaryContainer = Color(0xFFF1F5FB),
-    secondary = Color(0xFFB7BFCD),
-    onSecondary = Color(0xFF222A37),
-    background = Color(0xFF15181E),
-    onBackground = Color(0xFFF0F1F4),
-    surface = Color(0xFF242934),
-    onSurface = Color(0xFFF0F1F4),
-    surfaceVariant = Color(0xFF313947),
-    onSurfaceVariant = Color(0xFFBDC5D1),
-    outline = Color(0xFF596575),
+    primary = Color(0xFF82B7A7),
+    onPrimary = Color(0xFF172D26),
+    primaryContainer = Color(0xFF34443F),
+    onPrimaryContainer = Color(0xFFD8E5DF),
+    secondary = Color(0xFFA5AFAC),
+    onSecondary = Color(0xFF26322E),
+    background = Color(0xFF111214),
+    onBackground = Color(0xFFD8DBDD),
+    surface = Color(0xFF232528),
+    onSurface = Color(0xFFD8DBDD),
+    surfaceVariant = Color(0xFF303338),
+    onSurfaceVariant = Color(0xFFA5ABB0),
+    outline = Color(0xFF555A60),
     error = Color(0xFFFFB1B1)
 )
 
 private val NightColors = darkColorScheme(
-    primary = Color(0xFF98C7F2),
-    onPrimary = Color(0xFF102942),
-    primaryContainer = Color(0xFF173958),
-    onPrimaryContainer = Color(0xFFEDEAFF),
-    secondary = Color(0xFFABA4CD),
-    onSecondary = Color(0xFF292440),
-    background = Color(0xFF091321),
-    onBackground = Color(0xFFEDECF5),
-    surface = Color(0xFF142538),
-    onSurface = Color(0xFFEDECF5),
-    surfaceVariant = Color(0xFF223951),
-    onSurfaceVariant = Color(0xFFAFB3C9),
-    outline = Color(0xFF515672)
+    primary = Color(0xFF8BAED5),
+    onPrimary = Color(0xFF14283D),
+    primaryContainer = Color(0xFF2B405B),
+    onPrimaryContainer = Color(0xFFD5DEE9),
+    secondary = Color(0xFFA4B4C8),
+    onSecondary = Color(0xFF27374B),
+    background = Color(0xFF0D1420),
+    onBackground = Color(0xFFD5DEE9),
+    surface = Color(0xFF1C293B),
+    onSurface = Color(0xFFD5DEE9),
+    surfaceVariant = Color(0xFF2C3C51),
+    onSurfaceVariant = Color(0xFFA4B4C8),
+    outline = Color(0xFF4B6079)
 )
 
 private val ForestColors = darkColorScheme(
-    primary = Color(0xFF5EE2B3),
-    onPrimary = Color(0xFF0F3123),
-    primaryContainer = Color(0xFF264639),
-    onPrimaryContainer = Color(0xFFE0F6E9),
-    secondary = Color(0xFF9CC4AC),
+    primary = Color(0xFF80BCA6),
+    onPrimary = Color(0xFF153328),
+    primaryContainer = Color(0xFF294438),
+    onPrimaryContainer = Color(0xFFD3E0D9),
+    secondary = Color(0xFF9CB9AA),
     onSecondary = Color(0xFF193A2A),
-    background = Color(0xFF050F10),
-    onBackground = Color(0xFFE2F0E9),
-    surface = Color(0xFF101D1E),
-    onSurface = Color(0xFFE2F0E9),
-    surfaceVariant = Color(0xFF203635),
-    onSurfaceVariant = Color(0xFFABCABD),
-    outline = Color(0xFF436B5B),
+    background = Color(0xFF0B1614),
+    onBackground = Color(0xFFD3E0D9),
+    surface = Color(0xFF1A2B26),
+    onSurface = Color(0xFFD3E0D9),
+    surfaceVariant = Color(0xFF293E34),
+    onSurfaceVariant = Color(0xFFA1B6AC),
+    outline = Color(0xFF436157),
     error = Color(0xFFFFB6AD)
 )
 
-// Warm gray, rather than pure white; no glaring white subscription sheets.
+// Soft white background, silver-gray subscription surfaces.
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF486C94),
-    onPrimary = Color(0xFFF5F7FA),
-    primaryContainer = Color(0xFFDCE5ED),
-    onPrimaryContainer = Color(0xFF203649),
-    secondary = Color(0xFF647D8F),
-    onSecondary = Color(0xFFF5F7FA),
-    background = Color(0xFFE5E9EC),
-    onBackground = Color(0xFF263442),
-    surface = Color(0xFFEDF0F2),
-    onSurface = Color(0xFF263442),
-    surfaceVariant = Color(0xFFDCE3E8),
-    onSurfaceVariant = Color(0xFF596B79),
-    outline = Color(0xFFB7C4CF),
+    primary = Color(0xFF507F73),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFCEDDD7),
+    onPrimaryContainer = Color(0xFF304C43),
+    secondary = Color(0xFF657078),
+    onSecondary = Color(0xFFFFFFFF),
+    background = Color(0xFFF9FAFB),
+    onBackground = Color(0xFF343C43),
+    surface = Color(0xFFE7EAED),
+    onSurface = Color(0xFF343C43),
+    surfaceVariant = Color(0xFFD6DBE0),
+    onSurfaceVariant = Color(0xFF53616A),
+    outline = Color(0xFFA7B1BA),
     error = Color(0xFFAD4C43)
 )
 
@@ -125,6 +127,13 @@ fun themeScheme(mode: PhantomThemeMode, systemDark: Boolean): ColorScheme {
         surfaceTint = base.primary
     )
 }
+
+// Shared subscription depth: inset panel darker than card, pill lighter than panel.
+internal fun ColorScheme.subscriptionPanelColor(): Color =
+    if (surface.luminance() > .5f) surfaceVariant else lerp(surface, background, .58f)
+
+internal fun ColorScheme.subscriptionPillColor(): Color =
+    if (surface.luminance() > .5f) lerp(surfaceVariant, surface, .72f) else surfaceVariant
 
 @Composable
 fun PhantomTheme(
