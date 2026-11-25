@@ -89,19 +89,19 @@ private val ForestColors = darkColorScheme(
 
 // Soft white background, silver-gray subscription surfaces.
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF507F73),
+    primary = Color(0xFF38665B),
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFCEDDD7),
     onPrimaryContainer = Color(0xFF304C43),
     secondary = Color(0xFF657078),
     onSecondary = Color(0xFFFFFFFF),
-    background = Color(0xFFF9FAFB),
+    background = Color(0xFFFFFFFF),
     onBackground = Color(0xFF343C43),
-    surface = Color(0xFFE7EAED),
+    surface = Color(0xFFDCE0E4),
     onSurface = Color(0xFF343C43),
-    surfaceVariant = Color(0xFFD6DBE0),
-    onSurfaceVariant = Color(0xFF53616A),
-    outline = Color(0xFFA7B1BA),
+    surfaceVariant = Color(0xFFC3CBD1),
+    onSurfaceVariant = Color(0xFF3D4A52),
+    outline = Color(0xFF85929D),
     error = Color(0xFFAD4C43)
 )
 
@@ -133,7 +133,11 @@ internal fun ColorScheme.subscriptionPanelColor(): Color =
     if (surface.luminance() > .5f) surfaceVariant else lerp(surface, background, .58f)
 
 internal fun ColorScheme.subscriptionPillColor(): Color =
-    if (surface.luminance() > .5f) lerp(surfaceVariant, surface, .72f) else surfaceVariant
+    if (surface.luminance() > .5f) Color(0xFFE8ECEF) else surfaceVariant
+
+// The fixed navigation is a separate depth layer, not another subscription card.
+internal fun ColorScheme.phantomNavigationColor(): Color =
+    if (surface.luminance() > .5f) Color(0xFFD2D8DE) else lerp(surface, background, .38f)
 
 @Composable
 fun PhantomTheme(

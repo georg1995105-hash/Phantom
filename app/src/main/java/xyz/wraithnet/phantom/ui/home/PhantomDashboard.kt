@@ -51,6 +51,7 @@ import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.data.*
 import xyz.wraithnet.phantom.ui.theme.subscriptionPanelColor
 import xyz.wraithnet.phantom.ui.theme.subscriptionPillColor
+import xyz.wraithnet.phantom.ui.theme.phantomNavigationColor
 import java.util.Locale
 
 private val crown = ImageVector.Builder("Корона", 24.dp, 24.dp, 24f, 24f).apply {
@@ -79,8 +80,9 @@ internal enum class Destination(val title: String, val icon: ImageVector) {
 @Composable
 internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
     val c = MaterialTheme.colorScheme
-    NavigationBar(modifier = Modifier.clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-        containerColor = c.surface, tonalElevation = 0.dp) {
+    Column(Modifier.fillMaxWidth().background(c.background)) {
+    HorizontalDivider(color = c.outline.copy(alpha = .45f))
+    NavigationBar(containerColor = c.phantomNavigationColor(), tonalElevation = 0.dp) {
         Destination.entries.filter { it != Destination.SERVERS }.forEach { page ->
             NavigationBarItem(modifier = Modifier.tvFocusRing().semantics { contentDescription = "Вкладка ${page.title}" }, selected = current == page, onClick = { select(page) },
                 icon = { Icon(page.icon, null) }, label = { Text(page.title, fontSize = 11.sp, maxLines = 1) },
@@ -88,6 +90,7 @@ internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
                     selectedTextColor = c.primary, indicatorColor = c.primaryContainer,
                     unselectedIconColor = c.onSurfaceVariant, unselectedTextColor = c.onSurfaceVariant))
         }
+    }
     }
 }
 
@@ -660,7 +663,7 @@ private fun SubscriptionValuePill(value: String) {
         color = c.subscriptionPillColor(),
         border = BorderStroke(1.dp, c.outline.copy(alpha = .48f)),
     ) {
-        Text(value, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        Text(value, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
             color = c.onSurface, fontSize = 12.sp, lineHeight = 15.sp,
             fontWeight = FontWeight.Medium, maxLines = 2)
     }
@@ -673,7 +676,7 @@ private fun SubscriptionMetadataPanel(
 ) {
     val c = MaterialTheme.colorScheme
     val date = when {
-        expiry == null || expiry == 0L -> "Срок действия"
+        expiry == null || expiry == 0L -> "Срок"
         else -> "До " + dateLabel(expiry)
     }
     val remaining = when {
@@ -688,7 +691,8 @@ private fun SubscriptionMetadataPanel(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Retain both provider actions on narrow phones; decorative icons yield first.
         val compact = maxWidth < 310.dp
-            Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 2.dp),
+            Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 5.dp)
+                .heightIn(min = 48.dp).height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
                 if (account != null) IconButton(
@@ -697,22 +701,23 @@ private fun SubscriptionMetadataPanel(
                     Icon(Icons.Default.Info, "Кабинет $displayName",
                         Modifier.size(18.dp), tint = c.primary)
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!compact) {
                             Icon(Icons.Default.Storage, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
                             Spacer(Modifier.width(4.dp))
                         }
-                        Text(trafficTitle, fontSize = 11.sp, color = c.onSurfaceVariant)
+                        Text(trafficTitle, fontSize = 11.sp, lineHeight = 14.sp, color = c.onSurfaceVariant)
                     }
+                    Spacer(Modifier.height(3.dp))
                     SubscriptionValuePill(traffic)
                 }
                 Box(Modifier.width(1.dp).height(32.dp).background(c.outline.copy(alpha = .55f)))
                 Column(
-                    Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
+                    Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp).tvFocusRing()
                         .clickable(onClick = toggle)
                         .semantics { contentDescription = "Подробнее о $displayName" },
-                    verticalArrangement = Arrangement.Center,
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!compact) {

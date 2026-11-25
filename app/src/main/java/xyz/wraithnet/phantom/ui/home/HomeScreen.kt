@@ -47,6 +47,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -876,6 +878,7 @@ fun HomeScreen(
         }
     }
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         modifier = if (tv) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier,
         topBar = {
             if (!tv && tab != Destination.HOME && tab != Destination.SERVERS)
@@ -903,8 +906,10 @@ fun HomeScreen(
     ) { inner ->
         val colors = MaterialTheme.colorScheme
         Row(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
-            .background(Brush.linearGradient(listOf(colors.background,
-                colors.surface, colors.background)))) {
+            .background(if (colors.background.luminance() > .5f)
+                Brush.linearGradient(listOf(colors.background, colors.background))
+            else Brush.linearGradient(listOf(colors.background,
+                lerp(colors.background, colors.surface, .30f), colors.background)))) {
             if (tv) TvSideNavigation(tab) { tab = it }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (tv && tab != Destination.HOME) PageTitle(

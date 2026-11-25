@@ -20,6 +20,22 @@ class ThemePaletteTest {
         }
     }
 
+    @Test fun lightHierarchyIsDistinctAndMetadataLabelsAreReadable() {
+        val c = themeScheme(PhantomThemeMode.LIGHT, false)
+        assertEquals(androidx.compose.ui.graphics.Color.White, c.background)
+        assertTrue(c.background.luminance() - c.surface.luminance() >= .18f)
+        assertTrue(c.surface.luminance() - c.subscriptionPanelColor().luminance() >= .10f)
+        for (mode in PhantomThemeMode.entries) {
+            for (dark in listOf(false, true)) {
+                val s = themeScheme(mode, dark)
+                val a = s.onSurfaceVariant.luminance()
+                val b = s.subscriptionPanelColor().luminance()
+                assertTrue("$mode metadata label contrast", (maxOf(a, b) + .05f) / (minOf(a, b) + .05f) >= 4.5f)
+                assertNotEquals(s.surface, s.phantomNavigationColor())
+            }
+        }
+    }
+
     @Test fun autoUsesSystemAppearance() {
         assertEquals(themeScheme(PhantomThemeMode.LIGHT, false).background,
             themeScheme(PhantomThemeMode.AUTO, false).background)
