@@ -121,7 +121,12 @@ class MainActivity : ComponentActivity() {
                 if (Build.VERSION.SDK_INT >= 29) {
                     // Blend the Android navigation area into the theme, without hiding Back/Home.
                     window.isNavigationBarContrastEnforced = false
+                    window.isStatusBarContrastEnforced = false
                 }
+                // Android 15 enforces transparent status bars; request the same
+                // on older Android so the Compose inset remains visible.
+                @Suppress("DEPRECATION")
+                window.statusBarColor = android.graphics.Color.TRANSPARENT
                 @Suppress("DEPRECATION")
                 window.navigationBarColor = palette.phantomSystemNavigationColor().toArgb()
                 WindowInsetsControllerCompat(window, window.decorView).apply {

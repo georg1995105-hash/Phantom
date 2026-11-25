@@ -50,6 +50,18 @@ class ThemePaletteTest {
         }
     }
 
+    @Test fun statusBarIconsContrastWithPageTop() {
+        for (mode in PhantomThemeMode.entries) {
+            for (dark in listOf(false, true)) {
+                val top = themeScheme(mode, dark).phantomPageTop().luminance()
+                val darkIcons = mode == PhantomThemeMode.LIGHT ||
+                    (mode == PhantomThemeMode.AUTO && !dark)
+                val ratio = if (darkIcons) (top + .05f) / .05f else 1.05f / (top + .05f)
+                assertTrue("$mode dark=$dark status icons contrast", ratio >= 4.5f)
+            }
+        }
+    }
+
     @Test fun autoUsesSystemAppearance() {
         assertEquals(themeScheme(PhantomThemeMode.LIGHT, false).background,
             themeScheme(PhantomThemeMode.AUTO, false).background)
