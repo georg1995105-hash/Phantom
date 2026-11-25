@@ -746,8 +746,8 @@ fun HomeScreen(
             if (availableUpdate != null && !showOtaSheet) otaMinimized = true
         }
     }
-    LaunchedEffect(refreshVersion) {
-        if (otaDownloadJob?.isActive != true) {
+    LaunchedEffect(refreshVersion, otaDownload) {
+        if (!otaDownload && otaDownloadJob?.isActive != true) {
             try {
                 if (PhantomUpdates.resumePendingInstall(appContext)) otaError = null
             } catch (cancel: CancellationException) { throw cancel }
