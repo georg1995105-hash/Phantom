@@ -20,6 +20,28 @@ class PhantomUpdatesVersionTest {
         assertFalse(PhantomUpdates.retryDeltaAfter(IllegalArgumentException("invalid digest")))
     }
 
+    @Test fun committedSessionWithoutConfirmationIsNotReportedSuccessful() {
+        // A process restart loses the transient Intent; user can still recover
+        // by abandoning an inactive orphan and restaging the VERIFIED APK.
+        assertTrue(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = false,
+            appInForeground = true, promptAllowed = true))
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = true, installerActive = false,
+            appInForeground = true, promptAllowed = true))
+        // Never race Android while an existing install is making progress.
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = true,
+            appInForeground = true, promptAllowed = true))
+        // A background/automatic update may not silently prompt or restage.
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = false,
+            appInForeground = false, promptAllowed = true))
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = false,
+            appInForeground = true, promptAllowed = false))
+    }
+
     @Test fun cachedApkIsQualifiedByExactVersionAndFullDigest() {
         val release = PhantomRelease("0.3.37", "", "a".repeat(64), 2000L, "")
         assertEquals("phantom-0.3.37-" + "a".repeat(64) + ".apk", PhantomUpdates.cacheName(release))
