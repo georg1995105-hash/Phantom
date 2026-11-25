@@ -29,6 +29,10 @@ import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import xyz.wraithnet.phantom.ui.theme.themeScheme
 import xyz.wraithnet.phantom.ui.theme.subscriptionPanelColor
 import xyz.wraithnet.phantom.ui.theme.subscriptionPillColor
+import xyz.wraithnet.phantom.ui.theme.phantomPageBrush
+import xyz.wraithnet.phantom.ui.theme.powerCenter
+import xyz.wraithnet.phantom.ui.theme.powerMiddle
+import xyz.wraithnet.phantom.ui.theme.powerInteriorBrush
 
 /** Separate theme gallery with previews showing the real theme palette. */
 @Composable
@@ -75,7 +79,7 @@ fun ThemeGalleryScreen(
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.GRAPHITE, selected, systemDark, onChoose,
-                    "Глубокий графит и приглушённый зелёный акцент")
+                    "Глубокий графит и серебристые акценты")
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.NIGHT, selected, systemDark, onChoose,
@@ -144,17 +148,17 @@ private fun ThemeOptionCard(
         Row(
             Modifier.fillMaxWidth().height(90.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(colors.background).padding(10.dp),
+                .background(colors.phantomPageBrush()).padding(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 Modifier.size(58.dp).clip(CircleShape)
-                    .background(colors.primaryContainer)
-                    .border(2.dp, colors.primary.copy(alpha=.6f), CircleShape),
+                    .background(powerInteriorBrush(colors.powerCenter(true), colors.powerMiddle(true), colors.background))
+                    .border(2.dp, colors.primary, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(Icons.Default.PowerSettingsNew, null, Modifier.size(29.dp),
-                    tint = colors.primary)
+                    tint = colors.onSurface)
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {

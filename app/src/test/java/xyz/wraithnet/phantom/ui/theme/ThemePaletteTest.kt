@@ -31,8 +31,22 @@ class ThemePaletteTest {
                 val a = s.onSurfaceVariant.luminance()
                 val b = s.subscriptionPanelColor().luminance()
                 assertTrue("$mode metadata label contrast", (maxOf(a, b) + .05f) / (minOf(a, b) + .05f) >= 4.5f)
-                assertNotEquals(s.surface, s.phantomNavigationColor())
+                assertNotEquals(s.background, s.phantomNavigationColor())
+                assertEquals(s.background, s.phantomSystemNavigationColor())
             }
+        }
+    }
+
+    @Test fun approvedThemeDepthAndPowerStates() {
+        for (mode in PhantomThemeMode.entries) {
+            val s = themeScheme(mode, true)
+            assertTrue(s.phantomPageTop().luminance() >= s.background.luminance())
+            assertNotEquals(s.powerCenter(false), s.powerCenter(true))
+            assertEquals(s.surface, s.powerCenter(false))
+            val fg = s.onSurface.luminance()
+            val fill = s.powerCenter(true).luminance()
+            assertTrue("$mode active power text contrast",
+                (maxOf(fg, fill) + .05f) / (minOf(fg, fill) + .05f) >= 4.5f)
         }
     }
 

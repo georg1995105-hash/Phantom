@@ -102,6 +102,7 @@ import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
+import xyz.wraithnet.phantom.ui.theme.phantomPageBrush
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -906,10 +907,7 @@ fun HomeScreen(
     ) { inner ->
         val colors = MaterialTheme.colorScheme
         Row(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
-            .background(if (colors.background.luminance() > .5f)
-                Brush.linearGradient(listOf(colors.background, colors.background))
-            else Brush.linearGradient(listOf(colors.background,
-                lerp(colors.background, colors.surface, .30f), colors.background)))) {
+            .background(colors.phantomPageBrush())) {
             if (tv) TvSideNavigation(tab) { tab = it }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (tv && tab != Destination.HOME) PageTitle(

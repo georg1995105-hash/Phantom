@@ -1,5 +1,9 @@
 package xyz.wraithnet.phantom.ui.home
 
+import androidx.compose.animation.animateColorAsState
+import xyz.wraithnet.phantom.ui.theme.powerCenter
+import xyz.wraithnet.phantom.ui.theme.powerMiddle
+import xyz.wraithnet.phantom.ui.theme.powerInteriorBrush
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -144,8 +148,11 @@ internal fun WideHomeDashboard(
                     val active = status == "connected" || status == "degraded"
                     val verified = status == "connected"
                     val connecting = status == "starting"
+                    val center by animateColorAsState(scheme.powerCenter(verified), label = "wide power center")
+                    val middle by animateColorAsState(scheme.powerMiddle(verified), label = "wide power middle")
+                    val edge by animateColorAsState(scheme.background, label = "wide power edge")
                     val ring = when {
-                        verified -> scheme.primary.copy(alpha = .72f)
+                        verified -> scheme.primary
                         active -> scheme.tertiary.copy(alpha = .72f)
                         else -> scheme.outline.copy(alpha = .72f)
                     }
@@ -155,8 +162,7 @@ internal fun WideHomeDashboard(
                             .onFocusChanged { powerFocused = it.isFocused }
                             .tvFocusRing(CircleShape)
                             .clip(CircleShape)
-                            .background(if (active) scheme.primaryContainer.copy(alpha = .48f)
-                                else scheme.surfaceVariant.copy(alpha = .58f))
+                            .background(powerInteriorBrush(center, middle, edge))
                             // Never drop D-pad focus during the VPN handshake.
                             // An inactive click while starting is harmless; removing
                             // focusability moves OK onto an unrelated TV control.
@@ -186,7 +192,7 @@ internal fun WideHomeDashboard(
                                 } else {
                                     Icon(Icons.Default.PowerSettingsNew, null,
                                         modifier = Modifier.size(28.dp),
-                                        tint = if (active) scheme.primary else scheme.onSurface)
+                                        tint = if (verified) scheme.onSurface else scheme.onSurfaceVariant)
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(when (status) {
@@ -201,7 +207,7 @@ internal fun WideHomeDashboard(
                                 if (active) Text(
                                     String.format(java.util.Locale.ROOT, "%02d:%02d:%02d",
                                         seconds / 3600, seconds / 60 % 60, seconds % 60),
-                                    fontSize = 11.sp, color = scheme.onSurfaceVariant,
+                                    fontSize = 11.sp, color = scheme.onSurface,
                                     maxLines = 1)
                             }
                         }

@@ -28,6 +28,7 @@ import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.ui.home.*
 import xyz.wraithnet.phantom.ui.theme.PhantomTheme
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
+import xyz.wraithnet.phantom.ui.theme.phantomPageBrush
 
 @RunWith(AndroidJUnit4::class)
 class ThemeScreenProofUiTest {
@@ -52,6 +53,8 @@ class ThemeScreenProofUiTest {
         val latency = servers.associate { "${first.id}:${it.id}" to 60L }
         var theme by mutableStateOf(PhantomThemeMode.LIGHT)
         var wide by mutableStateOf(false)
+        var tab by mutableStateOf(Destination.HOME)
+        var connected by mutableStateOf(true)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -64,10 +67,10 @@ class ThemeScreenProofUiTest {
                         PhantomTheme(theme) {
                             val colors = MaterialTheme.colorScheme
                             Scaffold(containerColor = colors.background,
-                                bottomBar = { TabBar(Destination.HOME) {} }) { padding ->
-                                Box(Modifier.fillMaxSize().padding(padding).background(colors.background)) {
+                                bottomBar = { TabBar(tab) { tab = it } }) { padding ->
+                                Box(Modifier.fillMaxSize().padding(padding).background(colors.phantomPageBrush())) {
                                     if (wide) {
-                                        WideHomeDashboard(status = "connected", selected = selected,
+                                        WideHomeDashboard(status = if (connected) "connected" else "disconnected", selected = selected,
                                             download = 0L, upload = 0L, seconds = 175L,
                                             subscriptions = owners, pinnedId = null,
                                             favorites = emptySet(), latency = latency, measuring = emptyMap(),
@@ -85,7 +88,7 @@ class ThemeScreenProofUiTest {
                                             favorite = {}, choose = { _, _ -> }, openUrl = {},
                                             header = {
                                                 PageTitle(Destination.HOME)
-                                                ConnectionPage(status = "connected", seconds = 175L,
+                                                ConnectionPage(status = if (connected) "connected" else "disconnected", seconds = 175L,
                                                     toggle = {}, error = null, hasSubscriptions = true, embedded = true)
                                             })
                                     }
@@ -98,10 +101,15 @@ class ThemeScreenProofUiTest {
             for (isWide in listOf(false, true)) {
                 for (mode in listOf(PhantomThemeMode.LIGHT, PhantomThemeMode.GRAPHITE,
                         PhantomThemeMode.NIGHT, PhantomThemeMode.FOREST)) {
-                    compose.runOnIdle { theme = mode; wide = isWide }
-                    compose.onNodeWithContentDescription("Вкладка Главная").assertIsDisplayed()
+                    compose.runOnIdle { theme = mode; wide = isWide; connected = true; tab = Destination.HOME }
+                    compose.onNodeWithContentDescription("Вкладка Главная").assertIsDisplayed().assertIsSelected()
+                    for (name in listOf("Подписка", "Настройки", "Главная")) {
+                        compose.onNodeWithContentDescription("Вкладка $name").performClick().assertIsSelected()
+                    }
                     compose.onNodeWithText("Тестовая подписка").assertExists()
-                    capture("${if (isWide) "wide-layout" else "phone"}-${mode.name.lowercase()}.png")
+                    capture("${if (isWide) "wide-layout" else "phone"}-${mode.name.lowercase()}-on.png")
+                    compose.runOnIdle { connected = false }
+                    capture("${if (isWide) "wide-layout" else "phone"}-${mode.name.lowercase()}-off.png")
                 }
             }
         }
