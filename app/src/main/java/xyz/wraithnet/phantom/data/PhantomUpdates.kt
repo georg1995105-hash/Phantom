@@ -321,7 +321,13 @@ object PhantomUpdates {
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (network: DeltaNetworkFailure) {
-                    throw network
+                    // Retry budget exhausted: never trap the user in a broken delta
+                    // download when the official full APK is still available.
+                    // The partial delta remains on disk for the next update.
+                    VpnEventLog.record(context, "update",
+                        "Delta недоступна: сеть; полный APK")
+                    onStatus?.invoke("Delta недоступна — загружаем полный APK")
+                    onProgress(0)
                 } catch (error: Exception) {
                     // Never install an unverified patch or require the user to
                     // manually recover; download the signed full APK instead.
@@ -688,6 +694,14 @@ object PhantomUpdates {
         openInstaller(context, file, release)
     }
 
+    /** Never treat an orphaned committed Android session as an installation success. */
+    internal fun shouldRestageOrphanedInstallSession(
+        recoveredConfirmation: Boolean,
+        installerActive: Boolean,
+        appInForeground: Boolean,
+        promptAllowed: Boolean,
+    ): Boolean = !recoveredConfirmation && !installerActive && appInForeground && promptAllowed
+
     /** Use the platform self-update API, falling back to its normal installer.
      * The OS decides whether confirmation is required; never bypass it.
      */
@@ -719,20 +733,46 @@ object PhantomUpdates {
                         it.appPackageName == context.packageName && it.isCommitted
                     }
                     if (existing != null) {
-                        clearPendingInstall(context)
-                        if (allowPermissionPrompt) withContext(Dispatchers.Main) {
-                            val opened = PhantomUpdateInstallReceiver.openPendingConfirmation(context, force = true)
-                            if (!opened && PhantomUpdateInstallReceiver.isForeground) {
-                                val detailsOpened = runCatching {
-                                    val intent = existing.createDetailsIntent() ?: return@runCatching false
-                                    context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                    true
-                                }.getOrDefault(false)
-                                if (!detailsOpened) PhantomUpdateInstallReceiver.installError.value =
-                                    "Android уже обрабатывает обновление. Проверьте системное уведомление."
+                        val foreground = PhantomUpdateInstallReceiver.isForeground
+                        val recovered = if (allowPermissionPrompt && foreground) {
+                            withContext(Dispatchers.Main) {
+                                PhantomUpdateInstallReceiver.openPendingConfirmation(context, force = true) ||
+                                    runCatching {
+                                        val intent = existing.createDetailsIntent()
+                                            ?: return@runCatching false
+                                        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        true
+                                    }.getOrDefault(false)
                             }
+                        } else false
+                        if (recovered) {
+                            clearPendingInstall(context)
+                            return@withContext true
                         }
-                        return@withContext true
+                        if (!shouldRestageOrphanedInstallSession(
+                                recovered, existing.isActive, foreground, allowPermissionPrompt)) {
+                            // Android may still be processing a committed session.
+                            // Do not launch a competing installer or claim success.
+                            if (allowPermissionPrompt && !foreground) savePendingInstall(context, release)
+                            PhantomUpdateInstallReceiver.installError.value =
+                                "Ожидается завершение установки Android. Откройте Phantom и повторите установку."
+                            return@withContext false
+                        }
+                        // A committed but inactive session with no recoverable
+                        // confirmation (e.g. after process death) blocks all retries.
+                        // Abandon it before staging a fresh session from the already
+                        // verified APK. Never bypass the Android confirmation.
+                        val abandoned = runCatching {
+                            installer.abandonSession(existing.sessionId)
+                            true
+                        }.getOrDefault(false)
+                        if (!abandoned) {
+                            PhantomUpdateInstallReceiver.installError.value =
+                                "Не удалось восстановить системную установку. Повторите попытку."
+                            return@withContext false
+                        }
+                        VpnEventLog.record(context, "update",
+                            "Потерянное подтверждение Android: установка будет создана заново")
                     }
                     val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
                         setAppPackageName(context.packageName)
