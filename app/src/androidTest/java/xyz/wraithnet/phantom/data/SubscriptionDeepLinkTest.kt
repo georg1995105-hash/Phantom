@@ -3,7 +3,6 @@ package xyz.wraithnet.phantom.data
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.SystemClock
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
@@ -62,9 +61,9 @@ class SubscriptionDeepLinkTest {
             assertEquals(MainActivity::class.java.name,
                 intent.resolveActivity(context.packageManager)?.className)
             ActivityScenario.launch<MainActivity>(intent).use { scenario ->
-                val deadline = SystemClock.elapsedRealtime() + 20000
-                while (store.read().none { it.source == source } &&
-                    SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+                // Startup subscriptions load asynchronously; allow Compose to
+                // deliver the external intent before checking the saved result.
+                compose.waitUntil(20_000) { store.read().any { it.source == source } }
                 val added = store.read().filter { it.source == source }
                 assertEquals(1, added.size)
                 assertEquals(body, added.single().servers.single().raw)

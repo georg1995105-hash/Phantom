@@ -60,12 +60,17 @@ class SubscriptionUserAgentTest {
                 val intent = Intent(context, MainActivity::class.java).setAction(Intent.ACTION_SEND)
                     .setType("text/plain").putExtra(Intent.EXTRA_TEXT, url)
                 ActivityScenario.launch<MainActivity>(intent).use {
+                    // Startup now restores subscriptions on IO before composing
+                    // the import effect. Pump Compose rather than blocking the
+                    // instrumentation thread waiting for an HTTP request.
+                    compose.waitUntil(20_000) { server.requestCount >= 1 }
                     received("import")
                     val refresh = compose.awaitVisible(
                         hasContentDescription("Обновить подписку", substring = true) and isEnabled()
                     )
                     val importedAt = store.read().single().updatedAt
                     refresh.performTouchInput { click() }
+                    compose.waitUntil(20_000) { server.requestCount >= 2 }
                     received("manual refresh")
                     compose.awaitVisible(hasText("Подписка обновлена"))
                     assertTrue(store.read().single().updatedAt > importedAt)
