@@ -749,26 +749,44 @@ object PhantomUpdates {
                             clearPendingInstall(context)
                             return@withContext true
                         }
-                        if (!shouldRestageOrphanedInstallSession(
-                                recovered, existing.isActive, foreground, allowPermissionPrompt)) {
-                            // Android may still be processing a committed session.
-                            // Do not launch a competing installer or claim success.
-                            if (allowPermissionPrompt && !foreground) savePendingInstall(context, release)
-                            PhantomUpdateInstallReceiver.installError.value =
-                                "Ожидается завершение установки Android. Откройте Phantom и повторите установку."
+                        if (!allowPermissionPrompt || !foreground) {
+                            // No Activity is available in the background. Do not
+                            // claim installation has succeeded or stage a rival APK.
+                            if (allowPermissionPrompt) savePendingInstall(context, release)
                             return@withContext false
                         }
                         // A committed but inactive session with no recoverable
                         // confirmation (e.g. after process death) blocks all retries.
                         // Abandon it before staging a fresh session from the already
                         // verified APK. Never bypass the Android confirmation.
-                        val abandoned = runCatching {
+                        val canRestage = shouldRestageOrphanedInstallSession(
+                            recovered, existing.isActive, foreground, allowPermissionPrompt)
+                        val abandoned = canRestage && runCatching {
                             installer.abandonSession(existing.sessionId)
                             true
                         }.getOrDefault(false)
                         if (!abandoned) {
+                            // If Android still owns the committed session (or rejects
+                            // abandon), use the normal Android installer for the
+                            // already verified APK. Never return success without UI.
+                            if (requireIdleVpn) return@withContext false
+                            val opened = withContext(Dispatchers.Main) {
+                                runCatching {
+                                    val uri = FileProvider.getUriForFile(context,
+                                        context.packageName + ".updates", apk)
+                                    context.startActivity(Intent(Intent.ACTION_VIEW)
+                                        .setDataAndType(uri, "application/vnd.android.package-archive")
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or
+                                            Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                                    true
+                                }.getOrDefault(false)
+                            }
+                            if (opened) {
+                                clearPendingInstall(context)
+                                return@withContext true
+                            }
                             PhantomUpdateInstallReceiver.installError.value =
-                                "Не удалось восстановить системную установку. Повторите попытку."
+                                "Android не открыл установку. Повторите попытку."
                             return@withContext false
                         }
                         VpnEventLog.record(context, "update",
