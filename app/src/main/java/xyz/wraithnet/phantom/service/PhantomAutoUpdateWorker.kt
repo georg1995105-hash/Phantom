@@ -48,8 +48,8 @@ class PhantomAutoUpdateWorker(context: Context, params: WorkerParameters) :
             if (prefs.getBoolean("vpn_running", false) ||
                 !prefs.getBoolean("auto_apk_updates", true) ||
                 PhantomUpdates.selectedChannel(ctx) != channel) return Result.success()
-            PhantomUpdates.openInstaller(ctx, apk)
-            Result.success()
+            if (PhantomUpdates.openInstaller(ctx, apk, next, allowPermissionPrompt = false))
+                Result.success() else Result.retry()
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {

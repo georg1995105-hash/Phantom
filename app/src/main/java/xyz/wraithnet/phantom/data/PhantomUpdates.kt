@@ -24,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.sync.Mutex
+import org.json.JSONObject
 
 data class PhantomRelease(
     val version: String,
@@ -143,6 +144,44 @@ object PhantomUpdates {
     }
 
     private val downloadMutex = Mutex()
+    private val installMutex = Mutex()
+
+    internal fun retryDeltaAfter(error: Exception): Boolean = when (error) {
+        is PhantomHttp.HttpStatusException -> error.status == 408 || error.status == 429 || error.status in 500..599
+        is IOException -> true
+        else -> false
+    }
+
+    internal fun cacheName(release: PhantomRelease): String {
+        require(parts(release.version) != null && release.version.matches(Regex("[0-9.]+(?:-beta\\.[0-9]+)?")))
+        require(release.sha256.matches(Regex("[a-f0-9]{64}")))
+        return "phantom-${release.version}-${release.sha256}.apk"
+    }
+
+    private fun cachedApk(context: Context, release: PhantomRelease): File =
+        File(File(context.cacheDir, "updates").apply { mkdirs() }, cacheName(release))
+
+    private suspend fun verifyReleaseFile(context: Context, file: File, release: PhantomRelease) {
+        require(file.isFile && file.length() == release.sizeBytes) { "APK отсутствует или неполный" }
+        val digest = MessageDigest.getInstance("SHA-256")
+        val job = currentCoroutineContext()
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                job.ensureActive()
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        require(digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) } == release.sha256) {
+            "Контрольная сумма APK не совпадает"
+        }
+        require(hasOfficialSigningCertificate(context) == true) { "Подпись обновления не совпадает с установленным приложением" }
+        verifyApk(context, file, release.version)
+    }
+
+    private class DeltaNetworkFailure(cause: Exception) : IOException("Загрузка изменений прервана. Нажмите «Обновить», чтобы продолжить.", cause)
 
     /** SemVer ordering: 0.3.25-beta.2 > beta.1, but 0.3.25 > any 0.3.25-beta.N.
      * Older stable releases never become downgrade suggestions after a beta install.
@@ -240,9 +279,25 @@ object PhantomUpdates {
         onProgress: (Int) -> Unit,
         onSpeed: ((Long) -> Unit)? = null,
         onStatus: ((String) -> Unit)? = null,
+    ): File = withContext(Dispatchers.IO) {
+        downloadVerified(context, release, onProgress, onSpeed, onStatus)
+    }
+
+    private suspend fun downloadVerified(
+        context: Context, release: PhantomRelease, onProgress: (Int) -> Unit,
+        onSpeed: ((Long) -> Unit)?, onStatus: ((String) -> Unit)?
     ): File {
         downloadMutex.lock()
         try {
+            val cached = cachedApk(context, release)
+            if (cached.isFile) {
+                try {
+                    verifyReleaseFile(context, cached, release)
+                    onProgress(100)
+                    return cached
+                } catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) { cached.delete() }
+            }
             val patch = release.delta
             if (patch != null && hasOfficialSigningCertificate(context) == true) {
                 try {
@@ -251,6 +306,8 @@ object PhantomUpdates {
                         onProgress, onSpeed)
                 } catch (cancel: CancellationException) {
                     throw cancel
+                } catch (network: DeltaNetworkFailure) {
+                    throw network
                 } catch (error: Exception) {
                     // Never install an unverified patch or require the user to
                     // manually recover; download the signed full APK instead.
@@ -269,7 +326,7 @@ object PhantomUpdates {
                 "Размер APK в данных релиза недостоверен"
             }
             val directory = File(context.cacheDir, "updates").apply { mkdirs() }
-            val target = File(directory, "phantom-" + release.version + ".apk")
+            val target = cached
             // Hash-qualified cache avoids mixing different version or asset content.
             val temp = File(directory, "phantom-" + release.version + "-" +
                 release.sha256.take(12) + ".part")
@@ -352,9 +409,8 @@ object PhantomUpdates {
                     }
                     if (attempt < 3) delay(600L * (attempt + 1))
                 }
-                require(temp.length() == size) {
-                    "Загрузка прервана: сохранено " + temp.length() + " из " + size + " байт"
-                }
+                if (temp.length() != size) throw IOException(
+                    "Загрузка прервана: сохранено " + temp.length() + " из " + size + " байт")
                 // Hash the complete file, including the recovered prefix;
                 // a partial/CDN corruption can never reach PackageInstaller.
                 val actual = MessageDigest.getInstance("SHA-256")
@@ -500,11 +556,14 @@ object PhantomUpdates {
                     if (attempt < 2) delay((attempt + 1) * 650L)
                 }
             }
-            if (lastError != null) throw lastError
+            if (lastError != null) {
+                if (retryDeltaAfter(lastError)) throw DeltaNetworkFailure(lastError)
+                throw lastError
+            }
         }
 
         val reconstructed = File(directory, "delta-rebuilt-${release.version}.apk")
-        val target = File(directory, "phantom-${release.version}.apk")
+        val target = cachedApk(context, release)
         try {
             withContext(Dispatchers.IO) {
                 PhantomDelta.reconstruct(
@@ -564,67 +623,143 @@ object PhantomUpdates {
         val nextKeys = if (Build.VERSION.SDK_INT >= 28)
             archive.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
             else archive.signatures?.map { it.toCharsString() }?.toSet()
-        require(!currentKeys.isNullOrEmpty() && currentKeys == nextKeys) {
+        require(!currentKeys.isNullOrEmpty() && currentKeys == nextKeys &&
+            hasOfficialSigningCertificate(context) == true) {
             "Подпись обновления не совпадает с установленным приложением. " +
                 "Сначала сохраните подписки и настройки: Настройки → Резервная копия. " +
                 "Android не позволяет обновить приложение с другим ключом подписи."
         }
     }
 
-    /**
-     * Attempt self-update through PackageInstaller (Android 12+).
-     * The platform may still require confirmation, handled by a receiver notification.
-     * Slow APK I/O must never run on the main thread.
-     */
-    suspend fun openInstaller(context: Context, apk: File): Boolean = withContext(Dispatchers.IO) {
-        require(apk.isFile && apk.length() > 1024L) { "APK не найден" }
-        if (Build.VERSION.SDK_INT >= 26 && !context.packageManager.canRequestPackageInstalls()) {
-            withContext(Dispatchers.Main) {
-                context.startActivity(
-                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:" + context.packageName))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
+    private fun installPrefs(context: Context) =
+        context.getSharedPreferences("phantom_ota_install", Context.MODE_PRIVATE)
+
+    fun clearPendingInstall(context: Context) {
+        installPrefs(context).edit().remove("permission_request").apply()
+    }
+
+    private fun savePendingInstall(context: Context, release: PhantomRelease) {
+        val record = JSONObject().put("version", release.version)
+            .put("sha256", release.sha256).put("size", release.sizeBytes)
+            .put("beta", release.isBeta).toString()
+        check(installPrefs(context).edit().putString("permission_request", record).commit()) {
+            "Не удалось сохранить состояние установки"
+        }
+    }
+
+    /** Resume only a previously verified, explicitly requested update. */
+    suspend fun resumePendingInstall(context: Context): Boolean = withContext(Dispatchers.IO) {
+        val raw = installPrefs(context).getString("permission_request", null) ?: return@withContext false
+        if (!context.packageManager.canRequestPackageInstalls()) return@withContext false
+        val release = try {
+            val record = JSONObject(raw)
+            val version = record.getString("version")
+            PhantomRelease(version, "$PREFIX" + "v$version/$UNIVERSAL_APK",
+                record.getString("sha256"), record.getLong("size"), "", record.getBoolean("beta"))
+                .also { cacheName(it) }
+        } catch (_: Exception) {
+            clearPendingInstall(context)
             return@withContext false
         }
-        if (Build.VERSION.SDK_INT >= 31) {
-            val installer = context.packageManager.packageInstaller
-            var sessionId = -1
-            try {
-                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-                    setAppPackageName(context.packageName)
-                    setSize(apk.length())
-                    setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-                }
-                sessionId = installer.createSession(params)
-                installer.openSession(sessionId).use { session ->
-                    session.openWrite("base.apk", 0, apk.length()).use { output ->
-                        apk.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
-                        session.fsync(output)
+        val installed = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
+        if (!isNewer(release.version, installed) || !channelAllows(release, selectedChannel(context))) {
+            clearPendingInstall(context)
+            return@withContext false
+        }
+        val file = cachedApk(context, release)
+        if (!file.isFile) {
+            clearPendingInstall(context)
+            return@withContext false
+        }
+        openInstaller(context, file, release)
+    }
+
+    /** Use the platform self-update API, falling back to its normal installer.
+     * The OS decides whether confirmation is required; never bypass it.
+     */
+    suspend fun openInstaller(context: Context, apk: File, release: PhantomRelease,
+        allowPermissionPrompt: Boolean = true): Boolean = withContext(Dispatchers.IO) {
+        installMutex.lock()
+        try {
+            require(channelAllows(release, selectedChannel(context))) { "Канал обновлений изменён" }
+            verifyReleaseFile(context, apk, release)
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                if (allowPermissionPrompt) {
+                    savePendingInstall(context, release)
+                    withContext(Dispatchers.Main) {
+                        if (PhantomUpdateInstallReceiver.isForeground) context.startActivity(
+                            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + context.packageName))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     }
-                    val callback = Intent(context, PhantomUpdateInstallReceiver::class.java)
-                        .setAction(PhantomUpdateInstallReceiver.ACTION_RESULT)
-                    val pending = PendingIntent.getBroadcast(
-                        context, sessionId, callback,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-                    )
-                    session.commit(pending.intentSender)
                 }
-                return@withContext true
-            } catch (_: Exception) {
-                if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
-                // OEMs may reject no-action sessions; use the normal system UI instead.
+                return@withContext false
             }
-        }
-        val uri = FileProvider.getUriForFile(context, context.packageName + ".updates", apk)
-        withContext(Dispatchers.Main) {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW)
+            if (Build.VERSION.SDK_INT >= 31) {
+                val installer = context.packageManager.packageInstaller
+                var sessionId = -1
+                try {
+                    // Do not stage a second copy while Android is processing one.
+                    if (installer.mySessions.any { it.appPackageName == context.packageName && it.isCommitted }) {
+                        clearPendingInstall(context)
+                        withContext(Dispatchers.Main) {
+                            PhantomUpdateInstallReceiver.openPendingConfirmation(context)
+                        }
+                        return@withContext true
+                    }
+                    val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
+                        setAppPackageName(context.packageName)
+                        setSize(apk.length())
+                        setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+                    }
+                    sessionId = installer.createSession(params)
+                    val job = currentCoroutineContext()
+                    installer.openSession(sessionId).use { session ->
+                        session.openWrite("base.apk", 0, apk.length()).use { output ->
+                            apk.inputStream().use { input ->
+                                val buffer = ByteArray(64 * 1024)
+                                while (true) {
+                                    job.ensureActive()
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    output.write(buffer, 0, count)
+                                }
+                            }
+                            session.fsync(output)
+                        }
+                        job.ensureActive()
+                        require(channelAllows(release, selectedChannel(context))) { "Канал обновлений изменён" }
+                        val callback = Intent(context, PhantomUpdateInstallReceiver::class.java)
+                            .setAction(PhantomUpdateInstallReceiver.ACTION_RESULT)
+                        val pending = PendingIntent.getBroadcast(context, sessionId, callback,
+                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+                        session.commit(pending.intentSender)
+                    }
+                    clearPendingInstall(context)
+                    return@withContext true
+                } catch (cancel: CancellationException) {
+                    if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
+                    throw cancel
+                } catch (_: Exception) {
+                    if (sessionId >= 0) runCatching { installer.abandonSession(sessionId) }
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            require(channelAllows(release, selectedChannel(context))) { "Канал обновлений изменён" }
+            if (!PhantomUpdateInstallReceiver.isForeground) {
+                if (allowPermissionPrompt) savePendingInstall(context, release)
+                return@withContext false
+            }
+            val uri = FileProvider.getUriForFile(context, context.packageName + ".updates", apk)
+            withContext(Dispatchers.Main) {
+                context.startActivity(Intent(Intent.ACTION_VIEW)
                     .setDataAndType(uri, "application/vnd.android.package-archive")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            )
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION))
+            }
+            clearPendingInstall(context)
+            true
+        } finally {
+            installMutex.unlock()
         }
-        true
     }
 }

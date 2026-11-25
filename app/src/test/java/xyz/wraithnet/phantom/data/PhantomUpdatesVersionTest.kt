@@ -4,6 +4,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhantomUpdatesVersionTest {
+    @Test fun deltaNetworkFailureIsDistinctFromInvalidPatch() {
+        assertTrue(PhantomUpdates.retryDeltaAfter(java.io.IOException("connection lost")))
+        assertTrue(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(503)))
+        assertTrue(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(429)))
+        assertFalse(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(404)))
+        assertFalse(PhantomUpdates.retryDeltaAfter(IllegalArgumentException("invalid digest")))
+    }
+
+    @Test fun cachedApkIsQualifiedByExactVersionAndFullDigest() {
+        val release = PhantomRelease("0.3.37", "", "a".repeat(64), 2000L, "")
+        assertEquals("phantom-0.3.37-" + "a".repeat(64) + ".apk", PhantomUpdates.cacheName(release))
+        assertNotEquals(PhantomUpdates.cacheName(release), PhantomUpdates.cacheName(release.copy(sha256 = "b".repeat(64))))
+        assertThrows(IllegalArgumentException::class.java) { PhantomUpdates.cacheName(release.copy(version = "../evil")) }
+        assertThrows(IllegalArgumentException::class.java) { PhantomUpdates.cacheName(release.copy(sha256 = "invalid")) }
+    }
+
     @Test fun allSupportedArchitecturesSelectExactlyOneUniversalOfficialApk() {
         val universal = "phantom-universal-release.apk"
         for (abis in listOf(listOf("arm64-v8a"), listOf("armeabi-v7a"),

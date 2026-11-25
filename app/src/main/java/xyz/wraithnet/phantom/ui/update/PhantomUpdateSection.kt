@@ -50,7 +50,8 @@ fun PhantomUpdateSection() {
 
     suspend fun install(file: File) {
         try {
-            val launched = PhantomUpdates.openInstaller(context, file)
+            val selected = release ?: return
+            val launched = PhantomUpdates.openInstaller(context, file, selected)
             status = if (launched) "Android устанавливает обновление или запросит подтверждение"
                 else "Разрешите установку приложений и нажмите «Установить» снова"
         } catch (e: Exception) {
