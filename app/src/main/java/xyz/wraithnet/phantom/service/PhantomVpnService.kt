@@ -331,6 +331,10 @@ class PhantomVpnService : VpnService() {
             }
             runCatching { blockingInterface?.close() }
             blockingInterface = blocker
+            // Publish the protected state BEFORE retiring the old core. A
+            // concurrent OTA worker must never observe an idle gap here.
+            VpnRuntimeBridge.publish(STATUS_DEGRADED, 0L,
+                "Переключение VPN: трафик заблокирован", blocking = true)
         }
         val previousClosed = stopLocked(false, preserveBlocking = true)
         if (blockingInterface != null)
