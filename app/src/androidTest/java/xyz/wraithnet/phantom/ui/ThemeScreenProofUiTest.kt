@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -19,6 +20,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -107,21 +109,36 @@ class ThemeScreenProofUiTest {
                         compose.onNodeWithContentDescription("Вкладка $name").performClick().assertIsSelected()
                     }
                     compose.onNodeWithText("Тестовая подписка").assertExists()
-                    capture("${if (isWide) "wide-layout" else "phone"}-${mode.name.lowercase()}-on.png")
-                    compose.runOnIdle { connected = false }
-                    capture("${if (isWide) "wide-layout" else "phone"}-${mode.name.lowercase()}-off.png")
+                    val prefix = "${if (isWide) "wide-layout" else "phone"}-${mode.name.lowercase()}"
+                    compose.onNodeWithText("Подключено", useUnmergedTree = true).assertIsDisplayed()
+                    val on = capture("$prefix-on.png")
+                    try {
+                        compose.runOnIdle { connected = false }
+                        compose.onNodeWithText("Отключено", useUnmergedTree = true).assertIsDisplayed()
+                        compose.onNodeWithText("00:02:55", useUnmergedTree = true).assertDoesNotExist()
+                        val off = capture("$prefix-off.png")
+                        try {
+                            assertFalse("Connected and disconnected renders must differ: $prefix", on.sameAs(off))
+                        } finally {
+                            off.recycle()
+                        }
+                    } finally {
+                        on.recycle()
+                    }
                 }
             }
         }
     }
 
-    private fun capture(name: String) {
+    @OptIn(ExperimentalTestApi::class)
+    private fun capture(name: String): Bitmap {
         // CI uses API 35. MediaStore keeps these synthetic screenshots after the
         // test APK is uninstalled; the emulator runner pulls them before exit.
-        if (Build.VERSION.SDK_INT < 29) return
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+        // Capture the synchronized Compose root, not a possibly stale compositor buffer.
+        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        if (Build.VERSION.SDK_INT < 29) return bitmap
         val resolver = instrumentation.targetContext.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
@@ -133,8 +150,10 @@ class ThemeScreenProofUiTest {
             requireNotNull(resolver.openOutputStream(uri)).use {
                 assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
             }
-        } finally {
+        } catch (failure: Throwable) {
             bitmap.recycle()
+            throw failure
         }
+        return bitmap
     }
 }
