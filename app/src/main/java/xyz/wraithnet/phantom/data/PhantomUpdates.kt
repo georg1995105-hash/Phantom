@@ -434,42 +434,56 @@ object PhantomUpdates {
             var lastError: Exception? = null
             for (attempt in 0 until 3) {
                 job.ensureActive()
-                patchPart.delete()
+                if (patchPart.length() >= delta.sizeBytes) patchPart.delete()
+                val offset = patchPart.length()
                 try {
                     val started = SystemClock.elapsedRealtime()
                     PhantomHttp.get(context, delta.downloadUrl,
-                        headers = mapOf(
-                            "User-Agent" to "PhantomVPN-Android",
-                            "Accept-Encoding" to "identity"
-                        ), callTimeoutMs = 0L) { response ->
-                        require(response.code == 200) {
-                            "Сервер не вернул полный пакет изменений"
+                        headers = buildMap {
+                            put("User-Agent", "PhantomVPN-Android")
+                            put("Accept-Encoding", "identity")
+                            if (offset > 0L) put("Range", "bytes=$offset-")
+                        }, callTimeoutMs = 0L) { response ->
+                        val append = response.code == 206 && offset > 0L
+                        require(response.code == 200 || (append &&
+                            validContentRange(response.header("Content-Range"), offset, delta.sizeBytes))) {
+                            "CDN вернул неверный диапазон патча"
                         }
                         val input = response.body?.byteStream()
                             ?: error("Сервер вернул пустой пакет изменений")
-                        FileOutputStream(patchPart).use { output ->
+                        FileOutputStream(patchPart, append).use { output ->
                             input.use { stream ->
                                 val buffer = ByteArray(64 * 1024)
-                                var received = 0L
+                                var received = if (append) offset else 0L
+                                var transferred = 0L
+                                var lastProgress = -1
+                                var lastSpeedUpdate = 0L
                                 while (true) {
                                     job.ensureActive()
                                     val read = stream.read(buffer)
                                     if (read < 0) break
                                     if (read == 0) continue
                                     received += read
+                                    transferred += read
                                     require(received <= delta.sizeBytes) {
                                         "Размер патча превышает ожидаемый"
                                     }
                                     output.write(buffer, 0, read)
-                                    onProgress((received * 65 / delta.sizeBytes)
-                                        .toInt().coerceIn(0, 65))
+                                    val progress = (received * 65 / delta.sizeBytes).toInt().coerceIn(0, 65)
+                                    if (progress != lastProgress) {
+                                        onProgress(progress)
+                                        lastProgress = progress
+                                    }
                                     val elapsed = SystemClock.elapsedRealtime() - started
-                                    if (elapsed > 1000) onSpeed?.invoke(
-                                        received * 1000L / elapsed)
+                                    if (elapsed > 1000 && elapsed - lastSpeedUpdate >= 1000) {
+                                        onSpeed?.invoke(transferred * 1000L / elapsed)
+                                        lastSpeedUpdate = elapsed
+                                    }
                                 }
                             }
                         }
                     }
+                    if (patchPart.length() != delta.sizeBytes) throw IOException("Пакет изменений скачан не полностью")
                     require(verifiedPatch(patchPart)) {
                         "SHA-256 пакета изменений не совпадает"
                     }
@@ -479,11 +493,10 @@ object PhantomUpdates {
                     lastError = null
                     break
                 } catch (cancel: CancellationException) {
-                    patchPart.delete()
                     throw cancel
                 } catch (error: Exception) {
                     lastError = error
-                    patchPart.delete()
+                    if (error !is IOException || patchPart.length() >= delta.sizeBytes) patchPart.delete()
                     if (attempt < 2) delay((attempt + 1) * 650L)
                 }
             }
