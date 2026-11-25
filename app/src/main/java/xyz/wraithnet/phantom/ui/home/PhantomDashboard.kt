@@ -1,6 +1,11 @@
 package xyz.wraithnet.phantom.ui.home
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +32,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
@@ -51,6 +61,10 @@ import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.data.*
 import xyz.wraithnet.phantom.ui.theme.subscriptionPanelColor
 import xyz.wraithnet.phantom.ui.theme.subscriptionPillColor
+import xyz.wraithnet.phantom.ui.theme.phantomNavigationColor
+import xyz.wraithnet.phantom.ui.theme.powerCenter
+import xyz.wraithnet.phantom.ui.theme.powerMiddle
+import xyz.wraithnet.phantom.ui.theme.powerInteriorBrush
 import java.util.Locale
 
 private val crown = ImageVector.Builder("Корона", 24.dp, 24.dp, 24f, 24f).apply {
@@ -79,14 +93,51 @@ internal enum class Destination(val title: String, val icon: ImageVector) {
 @Composable
 internal fun TabBar(current: Destination, select: (Destination) -> Unit) {
     val c = MaterialTheme.colorScheme
-    NavigationBar(modifier = Modifier.clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-        containerColor = c.surface, tonalElevation = 0.dp) {
-        Destination.entries.filter { it != Destination.SERVERS }.forEach { page ->
-            NavigationBarItem(modifier = Modifier.tvFocusRing().semantics { contentDescription = "Вкладка ${page.title}" }, selected = current == page, onClick = { select(page) },
-                icon = { Icon(page.icon, null) }, label = { Text(page.title, fontSize = 11.sp, maxLines = 1) },
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = c.primary,
-                    selectedTextColor = c.primary, indicatorColor = c.primaryContainer,
-                    unselectedIconColor = c.onSurfaceVariant, unselectedTextColor = c.onSurfaceVariant))
+    val pages = listOf(Destination.HOME, Destination.SUBSCRIPTIONS, Destination.SETTINGS)
+    val selectedIndex = pages.indexOf(current).coerceAtLeast(0)
+    Column(Modifier.fillMaxWidth().background(c.background).navigationBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                .widthIn(max = 560.dp).fillMaxWidth(),
+            shape = CircleShape, color = c.phantomNavigationColor(),
+            border = BorderStroke(1.dp, c.outline.copy(alpha = .70f)),
+            tonalElevation = 0.dp,
+        ) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(4.dp)) {
+                val tabWidth = maxWidth / pages.size
+                val indicatorOffset by animateDpAsState(tabWidth * selectedIndex,
+                    animationSpec = tween(220), label = "navigation capsule")
+                Box(Modifier.matchParentSize()) {
+                    Box(Modifier.offset(x = indicatorOffset).width(tabWidth).fillMaxHeight()
+                        .clip(CircleShape).background(c.primaryContainer))
+                }
+                Row(Modifier.fillMaxWidth().selectableGroup()) {
+                    pages.forEachIndexed { index, page ->
+                        val selected = selectedIndex == index
+                        val iconColor by animateColorAsState(
+                            if (selected) c.primary else c.onSurfaceVariant,
+                            animationSpec = tween(180), label = "tab icon")
+                        val labelColor by animateColorAsState(
+                            if (selected) c.onPrimaryContainer else c.onSurfaceVariant,
+                            animationSpec = tween(180), label = "tab label")
+                        Column(Modifier.weight(1f).heightIn(min = 60.dp).clip(CircleShape)
+                            .selectable(selected = selected, role = Role.Tab,
+                                onClick = { select(page) })
+                            .semantics { contentDescription = "Вкладка ${page.title}" }
+                            .padding(horizontal = 2.dp, vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center) {
+                            Icon(page.icon, null, Modifier.size(23.dp), tint = iconColor)
+                            Spacer(Modifier.height(3.dp))
+                            Text(page.title, fontSize = 11.sp, lineHeight = 13.sp,
+                                maxLines = 2, textAlign = TextAlign.Center,
+                                color = labelColor,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -160,6 +211,9 @@ internal fun ConnectionPage(status: String,
     val active = connected || degraded
     val starting = status == "starting"
     val ring by animateColorAsState(if (connected || starting) c.primary else if (degraded) c.tertiary else c.outline, label = "connection")
+    val center by animateColorAsState(c.powerCenter(connected), tween(280), label = "power center")
+    val middle by animateColorAsState(c.powerMiddle(connected), tween(280), label = "power middle")
+    val edge by animateColorAsState(c.background, tween(280), label = "power edge")
     BoxWithConstraints(if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
         val gap = if (embedded) 5.dp else if (!hasSubscriptions) 12.dp
             else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
@@ -168,12 +222,9 @@ internal fun ConnectionPage(status: String,
                 .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(gap))
-            val rim = Brush.sweepGradient(listOf(ring.copy(alpha = .35f), c.outline.copy(alpha = .18f),
-                c.outline.copy(alpha = .2f), if (connected) c.primary else ring.copy(alpha = .42f),
-                ring.copy(alpha = .35f)))
+            val rim = if (connected || starting) ring else ring.copy(alpha = .75f)
             Box(Modifier.size(if (tv) 104.dp else if (embedded) 122.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
-                .padding(6.dp).clip(CircleShape).background(Brush.linearGradient(listOf(
-                    if (connected) c.primaryContainer else c.surfaceVariant, c.background, c.surface)))
+                .padding(6.dp).clip(CircleShape).background(powerInteriorBrush(center, middle, edge))
                 .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus)
                 .onFocusChanged { powerFocused = it.isFocused }.tvFocusRing(CircleShape)
                 // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
@@ -188,14 +239,14 @@ internal fun ConnectionPage(status: String,
                             active -> "Отключить VPN"
                             else -> "Подключить VPN"
                         }, Modifier.size(if (embedded) 44.dp else 52.dp),
-                            tint = c.onSurface)
+                            tint = if (connected) c.onSurface else c.onSurfaceVariant)
                     }
                     // Only the power control shows the connection timer.
                     if (active) {
                         Spacer(Modifier.height(3.dp))
                         Text(String.format(Locale.ROOT, "%02d:%02d:%02d",
                             seconds / 3600, seconds / 60 % 60, seconds % 60),
-                            fontSize = if (tv) 11.sp else 13.sp, color = c.onSurfaceVariant, maxLines = 1)
+                            fontSize = if (tv) 11.sp else 13.sp, color = c.onSurface, maxLines = 1)
                     }
                 }
             }
@@ -653,16 +704,18 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
 
 
 @Composable
-private fun SubscriptionValuePill(value: String) {
+private fun SubscriptionValuePill(value: String, lines: Int) {
     val c = MaterialTheme.colorScheme
     Surface(
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(50),
         color = c.subscriptionPillColor(),
         border = BorderStroke(1.dp, c.outline.copy(alpha = .48f)),
     ) {
-        Text(value, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        Text(value, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
             color = c.onSurface, fontSize = 12.sp, lineHeight = 15.sp,
-            fontWeight = FontWeight.Medium, maxLines = 2)
+            fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+            minLines = lines, maxLines = 2)
     }
 }
 
@@ -673,7 +726,7 @@ private fun SubscriptionMetadataPanel(
 ) {
     val c = MaterialTheme.colorScheme
     val date = when {
-        expiry == null || expiry == 0L -> "Срок действия"
+        expiry == null || expiry == 0L -> "Срок"
         else -> "До " + dateLabel(expiry)
     }
     val remaining = when {
@@ -688,7 +741,20 @@ private fun SubscriptionMetadataPanel(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Retain both provider actions on narrow phones; decorative icons yield first.
         val compact = maxWidth < 310.dp
-            Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 2.dp),
+        val padding = if (compact) 6.dp else 8.dp
+        val spacing = if (compact) 4.dp else 6.dp
+        val actionCount = (if (account != null) 1 else 0) + (if (support != null) 1 else 0)
+        val cellWidth = (maxWidth - padding * 2 - 1.dp - 38.dp * actionCount - spacing * (2 + actionCount)) / 2
+        val textWidth = with(LocalDensity.current) { (cellWidth - 12.dp).roundToPx().coerceAtLeast(1) }
+        val measurer = rememberTextMeasurer()
+        val valueStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 12.sp, lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium))
+        val lines = listOf(traffic, remaining).maxOf { value ->
+            measurer.measure(AnnotatedString(value), style = valueStyle, maxLines = 2,
+                constraints = Constraints(maxWidth = textWidth)).lineCount
+        }.coerceIn(1, 2)
+            Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 5.dp)
+                .heightIn(min = 48.dp).height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
                 if (account != null) IconButton(
@@ -697,22 +763,23 @@ private fun SubscriptionMetadataPanel(
                     Icon(Icons.Default.Info, "Кабинет $displayName",
                         Modifier.size(18.dp), tint = c.primary)
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!compact) {
                             Icon(Icons.Default.Storage, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
                             Spacer(Modifier.width(4.dp))
                         }
-                        Text(trafficTitle, fontSize = 11.sp, color = c.onSurfaceVariant)
+                        Text(trafficTitle, fontSize = 11.sp, lineHeight = 14.sp, color = c.onSurfaceVariant)
                     }
-                    SubscriptionValuePill(traffic)
+                    Spacer(Modifier.height(3.dp))
+                    SubscriptionValuePill(traffic, lines)
                 }
                 Box(Modifier.width(1.dp).height(32.dp).background(c.outline.copy(alpha = .55f)))
                 Column(
-                    Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
+                    Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp).tvFocusRing()
                         .clickable(onClick = toggle)
                         .semantics { contentDescription = "Подробнее о $displayName" },
-                    verticalArrangement = Arrangement.Center,
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (!compact) {
@@ -725,7 +792,7 @@ private fun SubscriptionMetadataPanel(
                             null, Modifier.size(14.dp), tint = c.primary)
                     }
                     Spacer(Modifier.height(3.dp))
-                    SubscriptionValuePill(remaining)
+                    SubscriptionValuePill(remaining, lines)
                 }
                 if (support != null) IconButton(
                     onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()

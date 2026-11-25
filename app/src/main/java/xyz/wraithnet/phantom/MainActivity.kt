@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import androidx.compose.ui.graphics.toArgb
 import xyz.wraithnet.phantom.ui.theme.themeScheme
+import xyz.wraithnet.phantom.ui.theme.phantomSystemNavigationColor
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -122,7 +123,7 @@ class MainActivity : ComponentActivity() {
                     window.isNavigationBarContrastEnforced = false
                 }
                 @Suppress("DEPRECATION")
-                window.navigationBarColor = palette.background.toArgb()
+                window.navigationBarColor = palette.phantomSystemNavigationColor().toArgb()
                 WindowInsetsControllerCompat(window, window.decorView).apply {
                     isAppearanceLightStatusBars = lightBars
                     isAppearanceLightNavigationBars = lightBars

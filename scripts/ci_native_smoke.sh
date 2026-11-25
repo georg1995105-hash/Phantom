@@ -33,6 +33,9 @@ else
     rc=$preflight_rc
 fi
 echo "Android isolated UI preflight: $preflight_rc; all remaining instrumentation: $rc"
+# Preserve only synthetic visual test evidence from this disposable emulator.
+mkdir -p theme-screens
+adb pull /sdcard/Pictures/PhantomThemeProof/. theme-screens/ || true
 adb logcat -d -s PhantomUserAgent:I PhantomLatencyTest:I PhantomLatency:D
 if [ "$rc" -ne 0 ]; then
     echo "Android smoke test failed (exit=$rc; preflight deadline 240s, remaining tests 480s)"

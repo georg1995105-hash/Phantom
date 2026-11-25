@@ -338,7 +338,48 @@ if not page_size_16k:
     tap("Вкладка Настройки")
     wait_label("Подключение")
     screenshot("01-settings")
-    tap("Подключение")
+    # Exercise both columns with physical D-pad keys and return focus.
+    remote_to("Тема оформления")
+    key("DPAD_CENTER")
+    wait_label("Выберите внешний вид Phantom")
+    key("BACK")
+    wait_label("Тема оформления")
+    for _ in range(8):
+        if is_focused("Тема оформления"):
+            break
+        time.sleep(.2)
+    assert is_focused("Тема оформления"), "Theme BACK lost focus"
+    key("DPAD_RIGHT")
+    assert is_focused("Туннелирование"), "Right column cannot receive D-pad focus"
+    key("DPAD_CENTER")
+    wait_label("Приложения и VPN")
+    key("BACK")
+    for _ in range(8):
+        if is_focused("Туннелирование"):
+            break
+        time.sleep(.2)
+    assert is_focused("Туннелирование"), "Routing BACK lost focus"
+    key("DPAD_LEFT")
+    assert is_focused("Тема оформления"), "Left column cannot receive D-pad focus"
+    remote_to("Резервная копия")
+    key("DPAD_RIGHT")
+    assert is_focused("Фоновая работа"), "Background tile cannot receive D-pad focus"
+    key("DPAD_CENTER")
+    wait_label("Работа при выключенном экране")
+    remote_to("Работа при выключенном экране")
+    key("DPAD_CENTER")
+    key("DPAD_CENTER")
+    key("BACK")
+    for _ in range(8):
+        if is_focused("Фоновая работа"):
+            break
+        time.sleep(.2)
+    assert is_focused("Фоновая работа"), "Background BACK lost focus"
+    remote_to("Автоподключение")
+    key("DPAD_CENTER")
+    key("DPAD_CENTER")
+    remote_to("Подключение")
+    key("DPAD_CENTER")
     wait_label("DNS")
     wait_label("Фрагментация TLS")
     screenshot("02-connection")
