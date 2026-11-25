@@ -32,6 +32,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.Modifier
@@ -699,16 +704,18 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
 
 
 @Composable
-private fun SubscriptionValuePill(value: String) {
+private fun SubscriptionValuePill(value: String, lines: Int) {
     val c = MaterialTheme.colorScheme
     Surface(
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(50),
         color = c.subscriptionPillColor(),
         border = BorderStroke(1.dp, c.outline.copy(alpha = .48f)),
     ) {
         Text(value, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
             color = c.onSurface, fontSize = 12.sp, lineHeight = 15.sp,
-            fontWeight = FontWeight.Medium, maxLines = 2)
+            fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+            minLines = lines, maxLines = 2)
     }
 }
 
@@ -734,6 +741,18 @@ private fun SubscriptionMetadataPanel(
         BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Retain both provider actions on narrow phones; decorative icons yield first.
         val compact = maxWidth < 310.dp
+        val padding = if (compact) 6.dp else 8.dp
+        val spacing = if (compact) 4.dp else 6.dp
+        val actionCount = (if (account != null) 1 else 0) + (if (support != null) 1 else 0)
+        val cellWidth = (maxWidth - padding * 2 - 1.dp - 38.dp * actionCount - spacing * (2 + actionCount)) / 2
+        val textWidth = with(LocalDensity.current) { (cellWidth - 12.dp).roundToPx().coerceAtLeast(1) }
+        val measurer = rememberTextMeasurer()
+        val valueStyle = LocalTextStyle.current.merge(TextStyle(fontSize = 12.sp, lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium))
+        val lines = listOf(traffic, remaining).maxOf { value ->
+            measurer.measure(AnnotatedString(value), style = valueStyle, maxLines = 2,
+                constraints = Constraints(maxWidth = textWidth)).lineCount
+        }.coerceIn(1, 2)
             Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 5.dp)
                 .heightIn(min = 48.dp).height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically,
@@ -753,7 +772,7 @@ private fun SubscriptionMetadataPanel(
                         Text(trafficTitle, fontSize = 11.sp, lineHeight = 14.sp, color = c.onSurfaceVariant)
                     }
                     Spacer(Modifier.height(3.dp))
-                    SubscriptionValuePill(traffic)
+                    SubscriptionValuePill(traffic, lines)
                 }
                 Box(Modifier.width(1.dp).height(32.dp).background(c.outline.copy(alpha = .55f)))
                 Column(
@@ -773,7 +792,7 @@ private fun SubscriptionMetadataPanel(
                             null, Modifier.size(14.dp), tint = c.primary)
                     }
                     Spacer(Modifier.height(3.dp))
-                    SubscriptionValuePill(remaining)
+                    SubscriptionValuePill(remaining, lines)
                 }
                 if (support != null) IconButton(
                     onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()

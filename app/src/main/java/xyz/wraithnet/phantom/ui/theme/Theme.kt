@@ -125,7 +125,16 @@ fun themeScheme(mode: PhantomThemeMode, systemDark: Boolean): ColorScheme {
         surfaceContainer = base.surface,
         surfaceContainerHigh = base.surface,
         surfaceContainerHighest = base.surfaceVariant,
-        surfaceTint = base.primary
+        surfaceTint = base.primary,
+        outlineVariant = base.outline,
+        secondaryContainer = base.surfaceVariant,
+        onSecondaryContainer = base.onSurface,
+        tertiary = if (base.background.luminance() > .5f) Color(0xFF785920) else Color(0xFFE0C28A),
+        onTertiary = if (base.background.luminance() > .5f) Color.White else Color(0xFF302719),
+        tertiaryContainer = base.surfaceVariant,
+        onTertiaryContainer = base.onSurface,
+        inverseSurface = base.onSurface,
+        inverseOnSurface = base.surface
     )
 }
 
@@ -136,7 +145,7 @@ internal fun ColorScheme.subscriptionPanelColor(): Color =
 internal fun ColorScheme.subscriptionPillColor(): Color =
     if (surface.luminance() > .5f) Color(0xFFE8ECEF) else surfaceVariant
 
-// The fixed navigation is a separate depth layer, not another subscription card.
+// The floating capsule uses the approved card palette, separated by page margins.
 internal fun ColorScheme.phantomNavigationColor(): Color =
     surface
 

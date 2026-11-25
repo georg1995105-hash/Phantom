@@ -65,6 +65,9 @@ class SubscriptionMetadataPanelUiTest {
                     .fetchSemanticsNode().boundsInRoot
                 org.junit.Assert.assertTrue("Metadata values must align in $mode",
                     kotlin.math.abs(trafficBounds.bottom - expiryBounds.bottom) <= 2f)
+                org.junit.Assert.assertTrue("Metadata capsules must have equal width and height in $mode",
+                    kotlin.math.abs(trafficBounds.width - expiryBounds.width) <= 2f &&
+                    kotlin.math.abs(trafficBounds.height - expiryBounds.height) <= 2f)
                 compose.onNodeWithContentDescription("Кабинет Phantom VPN").performClick()
                 compose.runOnIdle { assertEquals("https://example.com/account", opened) }
                 compose.onNodeWithContentDescription("Поддержка Phantom VPN").performClick()
