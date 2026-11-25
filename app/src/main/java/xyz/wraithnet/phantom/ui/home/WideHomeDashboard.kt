@@ -3,6 +3,7 @@ package xyz.wraithnet.phantom.ui.home
 import androidx.compose.animation.animateColorAsState
 import xyz.wraithnet.phantom.ui.theme.powerCenter
 import xyz.wraithnet.phantom.ui.theme.powerMiddle
+import xyz.wraithnet.phantom.ui.theme.powerEdge
 import xyz.wraithnet.phantom.ui.theme.powerInteriorBrush
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -150,7 +151,7 @@ internal fun WideHomeDashboard(
                     val connecting = status == "starting"
                     val center by animateColorAsState(scheme.powerCenter(verified), label = "wide power center")
                     val middle by animateColorAsState(scheme.powerMiddle(verified), label = "wide power middle")
-                    val edge by animateColorAsState(scheme.background, label = "wide power edge")
+                    val edge by animateColorAsState(scheme.powerEdge(verified), label = "wide power edge")
                     val ring = when {
                         verified -> scheme.primary
                         active -> scheme.tertiary.copy(alpha = .72f)

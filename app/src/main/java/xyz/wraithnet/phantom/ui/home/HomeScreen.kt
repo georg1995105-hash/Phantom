@@ -103,6 +103,7 @@ import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import xyz.wraithnet.phantom.ui.theme.phantomPageBrush
+import xyz.wraithnet.phantom.ui.theme.phantomPageTop
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -879,7 +880,10 @@ fun HomeScreen(
         }
     }
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        // The status inset is outside the content gradient. Paint it with the
+        // gradient's first stop, preserving the existing safe-area geometry.
+        containerColor = if (tv) MaterialTheme.colorScheme.background
+            else MaterialTheme.colorScheme.phantomPageTop(),
         modifier = if (tv) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier,
         topBar = {
             if (!tv && tab != Destination.HOME && tab != Destination.SERVERS)
