@@ -64,6 +64,7 @@ import xyz.wraithnet.phantom.ui.theme.subscriptionPillColor
 import xyz.wraithnet.phantom.ui.theme.phantomNavigationColor
 import xyz.wraithnet.phantom.ui.theme.powerCenter
 import xyz.wraithnet.phantom.ui.theme.powerMiddle
+import xyz.wraithnet.phantom.ui.theme.powerEdge
 import xyz.wraithnet.phantom.ui.theme.powerInteriorBrush
 import java.util.Locale
 
@@ -213,7 +214,7 @@ internal fun ConnectionPage(status: String,
     val ring by animateColorAsState(if (connected || starting) c.primary else if (degraded) c.tertiary else c.outline, label = "connection")
     val center by animateColorAsState(c.powerCenter(connected), tween(280), label = "power center")
     val middle by animateColorAsState(c.powerMiddle(connected), tween(280), label = "power middle")
-    val edge by animateColorAsState(c.background, tween(280), label = "power edge")
+    val edge by animateColorAsState(c.powerEdge(connected), tween(280), label = "power edge")
     BoxWithConstraints(if (embedded) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) {
         val gap = if (embedded) 5.dp else if (!hasSubscriptions) 12.dp
             else (maxHeight * .10f).coerceIn(12.dp, 72.dp)
@@ -223,9 +224,9 @@ internal fun ConnectionPage(status: String,
             horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(gap))
             val rim = if (connected || starting) ring else ring.copy(alpha = .75f)
-            Box(Modifier.size(if (tv) 104.dp else if (embedded) 122.dp else if (!hasSubscriptions) 112.dp else 150.dp).border(if (connected) 2.dp else 1.dp, rim, CircleShape)
-                .padding(6.dp).clip(CircleShape).background(powerInteriorBrush(center, middle, edge))
-                .border(1.dp, ring.copy(alpha = .7f), CircleShape).focusRequester(initialFocus)
+            Box(Modifier.size(if (tv) 104.dp else if (embedded) 122.dp else if (!hasSubscriptions) 112.dp else 150.dp)
+                .clip(CircleShape).background(powerInteriorBrush(center, middle, edge))
+                .border(if (connected) 2.dp else 1.dp, rim, CircleShape).focusRequester(initialFocus)
                 .onFocusChanged { powerFocused = it.isFocused }.tvFocusRing(CircleShape)
                 // Disabling the focused TV control during the handshake moves D-pad focus elsewhere.
                 .clickable(enabled = tv || !starting) { if (!starting) toggle() },

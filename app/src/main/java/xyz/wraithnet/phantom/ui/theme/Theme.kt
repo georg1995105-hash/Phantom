@@ -161,21 +161,20 @@ internal fun ColorScheme.phantomPageTop(): Color = when (background) {
 internal fun ColorScheme.phantomPageBrush(): Brush =
     Brush.verticalGradient(0f to phantomPageTop(), .65f to background, 1f to background)
 
-// The illumination is inside the clipped power circle only.
+// One softly tinted, matte button. No black vignette or glass-like highlight.
+// Inactive is a solid surface; confirmed connection alone lights the interior.
 internal fun ColorScheme.powerCenter(connected: Boolean): Color =
-    if (!connected) surface else when (background) {
-        LightColors.background -> Color(0xFFAFD8C7)
-        GraphiteColors.background -> Color(0xFF58636F)
-        NightColors.background -> Color(0xFF426D99)
-        ForestColors.background -> Color(0xFF3C6A54)
-        else -> lerp(primaryContainer, primary, .22f)
-    }
+    if (!connected) surface else lerp(primaryContainer, primary,
+        if (background.luminance() > .5f) .04f else .08f)
+
+internal fun ColorScheme.powerEdge(connected: Boolean): Color =
+    if (!connected) surface else lerp(surface, primaryContainer, .40f)
 
 internal fun ColorScheme.powerMiddle(connected: Boolean): Color =
-    if (connected) primaryContainer else surface
+    if (!connected) surface else lerp(powerCenter(true), powerEdge(true), .50f)
 
 internal fun powerInteriorBrush(center: Color, middle: Color, edge: Color): Brush =
-    Brush.radialGradient(0f to center, .48f to middle, 1f to edge)
+    Brush.radialGradient(0f to center, .58f to middle, 1f to edge)
 
 internal fun ColorScheme.phantomSystemNavigationColor(): Color = background
 

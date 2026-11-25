@@ -50,6 +50,27 @@ class ThemePaletteTest {
         }
     }
 
+    @Test fun powerButtonHasMatteSurfaceAndSubtleConnectedTint() {
+        for (mode in PhantomThemeMode.entries) {
+            for (dark in listOf(false, true)) {
+                val c = themeScheme(mode, dark)
+                assertEquals(c.surface, c.powerCenter(false))
+                assertEquals(c.surface, c.powerMiddle(false))
+                assertEquals(c.surface, c.powerEdge(false))
+                val stops = listOf(c.powerCenter(true), c.powerMiddle(true), c.powerEdge(true))
+                assertNotEquals(c.surface, stops.first())
+                assertTrue("$mode gradient must be subtle",
+                    stops.maxOf { it.luminance() } - stops.minOf { it.luminance() } <= .15f)
+                val fg = c.onSurface.luminance()
+                for (stop in stops) {
+                    val bg = stop.luminance()
+                    assertTrue("$mode connected power contrast",
+                        (maxOf(fg, bg) + .05f) / (minOf(fg, bg) + .05f) >= 4.5f)
+                }
+            }
+        }
+    }
+
     @Test fun statusBarIconsContrastWithPageTop() {
         for (mode in PhantomThemeMode.entries) {
             for (dark in listOf(false, true)) {
