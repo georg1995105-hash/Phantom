@@ -958,6 +958,9 @@ fun HomeScreen(
                             onShowError = if (vpnStatus in setOf("error", "degraded") && vpnError.isNotBlank())
                                 ({ showErrorDetails = true }) else null,
                             onOpenUrl = ::openUrl,
+                            exit = if (vpnStatus == "connected") exitNetwork else null,
+                            checkingExit = vpnStatus == "connected" && exitLoading,
+                            openExit = { exitDetails = true },
                         )
                     } else {
                         serverPageState.SaveableStateProvider("servers") {

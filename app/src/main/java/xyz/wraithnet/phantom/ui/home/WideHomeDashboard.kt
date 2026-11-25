@@ -31,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import xyz.wraithnet.phantom.data.ExitNetworkLookup
 import xyz.wraithnet.phantom.data.CountryFlags
 import xyz.wraithnet.phantom.data.ProfileSelection
 import xyz.wraithnet.phantom.data.ServerProfile
@@ -72,6 +73,9 @@ internal fun WideHomeDashboard(
     onScanQr: (() -> Unit)?,
     onShowError: (() -> Unit)?,
     onOpenUrl: (String) -> Unit,
+    exit: ExitNetworkLookup.Info? = null,
+    checkingExit: Boolean = false,
+    openExit: () -> Unit = {},
 ) {
     val tv = isTelevision()
     val scheme = MaterialTheme.colorScheme
@@ -228,6 +232,23 @@ internal fun WideHomeDashboard(
                                 Text("Причина ошибки")
                             }
                     }
+                    if (!tv && (exit != null || checkingExit)) {
+                        Column(Modifier.widthIn(max = 180.dp)
+                            .clickable(enabled = exit != null, onClick = openExit),
+                            horizontalAlignment = Alignment.End) {
+                            if (exit != null) {
+                                Text(exit.flag() + " " + exit.countryName(),
+                                    fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    color = scheme.onSurfaceVariant)
+                                Text(exit.network.split(" trading as ", ignoreCase = true).first(),
+                                    fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    color = scheme.onSurfaceVariant)
+                                Text(listOf(exit.ip, exit.asn).filter { it.isNotBlank() }.joinToString(" · "),
+                                    fontSize = 10.sp, maxLines = 2, color = scheme.onSurfaceVariant)
+                            } else Text("Определение сети…", fontSize = 10.sp,
+                                color = scheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         }
@@ -336,7 +357,13 @@ internal fun WideHomeDashboard(
                         val expires = owner.expiresAt?.let {
                             if (it == 0L) "Бессрочно" else dateLabel(it)
                         } ?: "—"
-                        if (remote) Row(
+                        if (remote && !tv) {
+                            ProviderInfo(owner, title, owner.id in showDetails, {
+                                showDetails = ArrayList(if (owner.id in showDetails) showDetails - owner.id
+                                    else showDetails + owner.id)
+                            }, onOpenUrl)
+                        }
+                        if (remote && tv) Row(
                             Modifier.fillMaxWidth().padding(start = 13.dp, end = 8.dp, bottom = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -354,7 +381,7 @@ internal fun WideHomeDashboard(
                                 modifier = Modifier.tvFocusRing()
                             ) { Text("Подробнее", fontSize = 11.sp) }
                         }
-                        if (owner.id in showDetails && remote) {
+                        if (tv && owner.id in showDetails && remote) {
                             ProviderInfo(owner, title, true, {
                                 showDetails = ArrayList(showDetails - owner.id)
                             }, onOpenUrl)

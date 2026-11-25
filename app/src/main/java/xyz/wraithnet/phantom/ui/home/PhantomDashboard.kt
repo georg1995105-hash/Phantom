@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import xyz.wraithnet.phantom.R
 import xyz.wraithnet.phantom.data.*
+import xyz.wraithnet.phantom.ui.theme.subscriptionPanelColor
+import xyz.wraithnet.phantom.ui.theme.subscriptionPillColor
 import java.util.Locale
 
 private val crown = ImageVector.Builder("Корона", 24.dp, 24.dp, 24f, 24f).apply {
@@ -193,7 +195,7 @@ internal fun ConnectionPage(status: String,
                         Spacer(Modifier.height(3.dp))
                         Text(String.format(Locale.ROOT, "%02d:%02d:%02d",
                             seconds / 3600, seconds / 60 % 60, seconds % 60),
-                            fontSize = 11.sp, color = c.onSurfaceVariant, maxLines = 1)
+                            fontSize = if (tv) 11.sp else 13.sp, color = c.onSurfaceVariant, maxLines = 1)
                     }
                 }
             }
@@ -526,7 +528,7 @@ internal fun ServersPage(
 @Composable
 internal fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
     val c = MaterialTheme.colorScheme
-    val radius = 18.dp
+    val radius = 16.dp
     val shape = RoundedCornerShape(if (first) radius else 0.dp, if (first) radius else 0.dp,
         if (last) radius else 0.dp, if (last) radius else 0.dp)
     return clip(shape).background(c.surface).drawWithContent {
@@ -535,7 +537,7 @@ internal fun Modifier.groupSurface(first: Boolean, last: Boolean): Modifier {
         val r = radius.toPx()
         val top = if (first) stroke / 2 else -r
         val bottom = if (last) size.height - stroke / 2 else size.height + r
-        drawRoundRect(c.primary.copy(alpha = .34f), Offset(stroke / 2, top),
+        drawRoundRect(c.outline.copy(alpha = .70f), Offset(stroke / 2, top),
             Size(size.width - stroke, bottom - top), CornerRadius(r), style = Stroke(stroke))
     }
 }
@@ -575,7 +577,14 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
     // Keep the entire owner summary and its detail action in ONE metadata row.
     // All remote providers use the same layout; no provider-specific shortcut.
     Column(Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 0.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 50.dp),
+        if (!tv) {
+            SubscriptionMetadataPanel(
+                traffic = listOfNotNull(traffic, limit).joinToString(" / ").ifBlank { "—" },
+                trafficTitle = if (traffic == null && limit != null) "Лимит" else "Трафик",
+                expiry = expiry, displayName = displayName, details = details,
+                toggle = toggle, account = account, support = support, openUrl = openUrl,
+            )
+        } else Row(Modifier.fillMaxWidth().heightIn(min = 50.dp),
             verticalAlignment = Alignment.CenterVertically) {
             if (account != null) IconButton(
                 onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
@@ -638,6 +647,95 @@ internal fun ProviderInfo(sub: Subscription, displayName: String, details: Boole
             upload?.let { Caption("Отправлено · " + sizeLabel(it)) }
             download?.let { Caption("Получено · " + sizeLabel(it)) }
             Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+
+@Composable
+private fun SubscriptionValuePill(value: String) {
+    val c = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = c.subscriptionPillColor(),
+        border = BorderStroke(1.dp, c.outline.copy(alpha = .48f)),
+    ) {
+        Text(value, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            color = c.onSurface, fontSize = 12.sp, lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium, maxLines = 2)
+    }
+}
+
+@Composable
+private fun SubscriptionMetadataPanel(
+    traffic: String, trafficTitle: String, expiry: Long?, displayName: String, details: Boolean,
+    toggle: () -> Unit, account: String?, support: String?, openUrl: (String) -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    val date = when {
+        expiry == null || expiry == 0L -> "Срок действия"
+        else -> "До " + dateLabel(expiry)
+    }
+    val remaining = when {
+        expiry == null -> "—"
+        expiry == 0L -> "Бессрочно"
+        else -> "${daysLeft(expiry, System.currentTimeMillis() / 1000)} дн."
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        shape = RoundedCornerShape(10.dp), color = c.subscriptionPanelColor(),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Retain both provider actions on narrow phones; decorative icons yield first.
+        val compact = maxWidth < 310.dp
+            Row(Modifier.fillMaxWidth().padding(horizontal = if (compact) 6.dp else 8.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
+                if (account != null) IconButton(
+                    onClick = { openUrl(account) }, modifier = Modifier.size(38.dp).tvFocusRing()
+                ) {
+                    Icon(Icons.Default.Info, "Кабинет $displayName",
+                        Modifier.size(18.dp), tint = c.primary)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!compact) {
+                            Icon(Icons.Default.Storage, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(trafficTitle, fontSize = 11.sp, color = c.onSurfaceVariant)
+                    }
+                    SubscriptionValuePill(traffic)
+                }
+                Box(Modifier.width(1.dp).height(32.dp).background(c.outline.copy(alpha = .55f)))
+                Column(
+                    Modifier.weight(1f).heightIn(min = 48.dp).tvFocusRing()
+                        .clickable(onClick = toggle)
+                        .semantics { contentDescription = "Подробнее о $displayName" },
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!compact) {
+                            Icon(Icons.Default.DateRange, null, Modifier.size(13.dp), tint = c.onSurfaceVariant)
+                            Spacer(Modifier.width(4.dp))
+                        }
+                        Text(date, fontSize = 11.sp, lineHeight = 14.sp,
+                            modifier = Modifier.weight(1f), color = c.onSurfaceVariant, maxLines = 2)
+                        Icon(if (details) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null, Modifier.size(14.dp), tint = c.primary)
+                    }
+                    Spacer(Modifier.height(3.dp))
+                    SubscriptionValuePill(remaining)
+                }
+                if (support != null) IconButton(
+                    onClick = { openUrl(support) }, modifier = Modifier.size(38.dp).tvFocusRing()
+                ) {
+                    val host = android.net.Uri.parse(support).host?.lowercase()
+                    Icon(if (host in setOf("t.me", "telegram.me"))
+                        Icons.Default.Send else Icons.Default.SupportAgent,
+                        "Поддержка $displayName", Modifier.size(18.dp), tint = c.primary)
+                }
+            }
         }
     }
 }

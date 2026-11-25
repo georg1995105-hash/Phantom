@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
 import xyz.wraithnet.phantom.ui.theme.themeScheme
+import xyz.wraithnet.phantom.ui.theme.subscriptionPanelColor
+import xyz.wraithnet.phantom.ui.theme.subscriptionPillColor
 
 /** Separate theme gallery with previews showing the real theme palette. */
 @Composable
@@ -69,11 +71,11 @@ fun ThemeGalleryScreen(
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.LIGHT, selected, systemDark, onChoose,
-                    "Мягкий серо-светлый фон без резкой белизны")
+                    "Мягкий белый фон и серебристо-серые карточки")
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.GRAPHITE, selected, systemDark, onChoose,
-                    "Графитовые поверхности, мягкий голубой акцент")
+                    "Глубокий графит и приглушённый зелёный акцент")
             }
             item {
                 ThemeOptionCard(PhantomThemeMode.NIGHT, selected, systemDark, onChoose,
@@ -166,11 +168,17 @@ private fun ThemeOptionCard(
                     .clip(RoundedCornerShape(7.dp))
                     .background(colors.surface).padding(horizontal = 9.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(11.dp).clip(CircleShape).background(colors.primary))
-                    Spacer(Modifier.width(8.dp))
-                    Box(Modifier.fillMaxWidth(.65f).height(5.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(colors.onSurfaceVariant.copy(alpha=.8f)))
+                    Row(Modifier.fillMaxWidth().height(20.dp)
+                        .clip(RoundedCornerShape(5.dp)).background(colors.subscriptionPanelColor())
+                        .padding(horizontal = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Box(Modifier.weight(1f).height(12.dp).clip(CircleShape)
+                            .background(colors.subscriptionPillColor()))
+                        Box(Modifier.width(1.dp).height(12.dp).background(colors.outline))
+                        Box(Modifier.weight(1f).height(12.dp).clip(CircleShape)
+                            .background(colors.subscriptionPillColor()))
+                    }
                 }
             }
         }

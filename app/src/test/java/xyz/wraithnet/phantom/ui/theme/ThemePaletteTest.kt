@@ -1,9 +1,25 @@
 package xyz.wraithnet.phantom.ui.theme
 
+import androidx.compose.ui.graphics.luminance
 import org.junit.Assert.*
 import org.junit.Test
 
 class ThemePaletteTest {
+    @Test fun subscriptionPanelHasConsistentDepthAndReadableValues() {
+        for (mode in PhantomThemeMode.entries) {
+            for (dark in listOf(false, true)) {
+                val c = themeScheme(mode, dark)
+                val panel = c.subscriptionPanelColor()
+                val pill = c.subscriptionPillColor()
+                assertTrue("$mode panel must be darker than card", panel.luminance() < c.surface.luminance())
+                assertTrue("$mode pill must be lighter than panel", pill.luminance() > panel.luminance())
+                val a = c.onSurface.luminance()
+                val b = pill.luminance()
+                assertTrue("$mode pill text contrast", (maxOf(a, b) + .05f) / (minOf(a, b) + .05f) >= 4.5f)
+            }
+        }
+    }
+
     @Test fun autoUsesSystemAppearance() {
         assertEquals(themeScheme(PhantomThemeMode.LIGHT, false).background,
             themeScheme(PhantomThemeMode.AUTO, false).background)
