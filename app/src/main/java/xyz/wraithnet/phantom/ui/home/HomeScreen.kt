@@ -1596,7 +1596,7 @@ private fun PhantomSettings(
     var betaApkUpdates by remember { mutableStateOf(
         prefs.getBoolean(PhantomUpdates.BETA_UPDATES_PREF, false)) }
 
-    var showThemeGallery by remember { mutableStateOf(false) }
+    var showThemeGallery by rememberSaveable { mutableStateOf(false) }
     var tileMessage by remember { mutableStateOf<String?>(null) }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
@@ -1616,6 +1616,10 @@ private fun PhantomSettings(
     val tv = isTelevision()
     var group by rememberSaveable { mutableStateOf("") }
     var restoreTvFocus by remember { mutableStateOf("") }
+    val themeFocus = remember { FocusRequester() }
+    val appsFocus = remember { FocusRequester() }
+    var themeHasFocus by remember { mutableStateOf(false) }
+    var appsHasFocus by remember { mutableStateOf(false) }
     val connectionFocus = remember { FocusRequester() }
     val dnsFocus = remember { FocusRequester() }
     val pingFocus = remember { FocusRequester() }
@@ -1627,26 +1631,26 @@ private fun PhantomSettings(
     var backupHasFocus by remember { mutableStateOf(false) }
     var aboutHasFocus by remember { mutableStateOf(false) }
     var restoreAboutFocus by remember { mutableStateOf("") }
-    BackHandler(enabled = tv && group.isNotEmpty()) {
+    BackHandler(enabled = group.isNotEmpty()) {
         if (group == "about") restoreTvFocus = "about"
         group = ""
     }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(tv, group) {
-        if (tv && group == "background") settingsScroll.animateScrollToItem(4)
+        if (group == "background") settingsScroll.animateScrollToItem(2)
         if (tv && group == "network") settingsScroll.animateScrollToItem(0)
     }
     if (showThemeGallery) {
         ThemeGalleryScreen(
             selected = mode,
             onChoose = { chosen -> mode = chosen; onThemeChange(chosen) },
-            onBack = { showThemeGallery = false }
+            onBack = { showThemeGallery = false; restoreTvFocus = "theme" }
         )
         return
     }
     if (showLog) { DiagnosticsScreen(onBack = { showLog = false; restoreAboutFocus = "log" }); return }
     if (showPing) { PingSettingsScreen(onBack = { showPing = false; restoreTvFocus = "ping" }); return }
-    if (showApps) { AppRoutingScreen(onBack = { showApps = false }); return }
+    if (showApps) { AppRoutingScreen(onBack = { showApps = false; restoreTvFocus = "apps" }); return }
     if (showDns) { DnsSettingsScreen(onBack = { showDns = false; restoreTvFocus = "dns" }); return }
 
     if (showBackup) {
@@ -1718,8 +1722,9 @@ private fun PhantomSettings(
         // child screen. A single request silently fails or targets the TV rail.
         val targetIndex = when (destination) {
             "network", "dns", "ping" -> 0
-            "backup" -> 5
-            else -> 6
+            "theme", "apps" -> 1
+            "backup" -> 2
+            else -> 3
         }
         repeat(24) {
             settingsScroll.scrollToItem(targetIndex)
@@ -1729,6 +1734,8 @@ private fun PhantomSettings(
                     "network" -> connectionFocus.requestFocus()
                     "dns" -> dnsFocus.requestFocus()
                     "ping" -> pingFocus.requestFocus()
+                    "theme" -> themeFocus.requestFocus()
+                    "apps" -> appsFocus.requestFocus()
                     "backup" -> backupFocus.requestFocus()
                     "about" -> aboutFocus.requestFocus()
                 }
@@ -1742,6 +1749,8 @@ private fun PhantomSettings(
                 "network" -> connectionHasFocus
                 "dns" -> dnsHasFocus
                 "ping" -> pingHasFocus
+                "theme" -> themeHasFocus
+                "apps" -> appsHasFocus
                 "backup" -> backupHasFocus
                 "about" -> aboutHasFocus
                 else -> true
@@ -1756,15 +1765,23 @@ private fun PhantomSettings(
         }
         restoreTvFocus = ""
     }
-    LazyColumn(Modifier.fillMaxSize(), state = settingsScroll,
-        contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Panel {
-                SettingsAction("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune,
-                    modifier = Modifier.focusRequester(connectionFocus)
-                        .onFocusChanged { connectionHasFocus = it.hasFocus }) { toggle("network") }
-                if (group == "network") {
+    // The same action handlers and preference keys back the touch and TV layouts.
+    // Expanded controls occupy their own full-width row, never a narrow tile.
+    val twoColumns = LocalConfiguration.current.screenWidthDp >= 320 &&
+        androidx.compose.ui.platform.LocalDensity.current.fontScale <= 1.3f
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        LazyColumn(
+            Modifier.widthIn(max = 840.dp).fillMaxSize(), state = settingsScroll,
+            contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item(key = "settings-network") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsTile("Подключение", "DNS, фрагментация TLS", Icons.Default.Tune,
+                        modifier = Modifier.focusRequester(connectionFocus)
+                            .onFocusChanged { connectionHasFocus = it.hasFocus },
+                        wide = true, expanded = group == "network") { toggle("network") }
+                    if (group == "network") Panel {
                     funActionRow("DNS", Icons.Default.Dns,
                         modifier = Modifier.focusRequester(dnsFocus)
                             .onFocusChanged { dnsHasFocus = it.hasFocus }) {
@@ -1838,48 +1855,53 @@ private fun PhantomSettings(
                         Text(it, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                }
-            }
-        }
-        item { Panel { SettingsAction("Тема оформления", mode.title, Icons.Default.Palette) { showThemeGallery = true } } }
-        if (!tv) item {
-            Panel {
-                SettingsAction("Кнопка в шторке Android", "Быстрое подключение VPN", Icons.Default.PowerSettingsNew) {
-                    PhantomQuickTileService.offerToAdd(context) { tileMessage = it }
-                }
-                tileMessage?.let { Text(it, Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall) }
-            }
-        }
-        item {
-            Panel {
-                    Row(
-                        Modifier.fillMaxWidth().tvFocusRing().clickable {
-                            bootConnect = !bootConnect
-                            prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, bootConnect).apply()
-                        }.padding(horizontal = 16.dp, vertical = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Подключаться после перезагрузки", fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium)
-                            Text("Использовать последний сервер после включения телефона. " +
-                                "Сначала разрешите VPN в Android.",
-                                fontSize = 12.sp, lineHeight = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Switch(checked = bootConnect, onCheckedChange = if (tv) null else { checked ->
-                            bootConnect = checked
-                            prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, checked).apply()
-                        })
                     }
+                }
             }
-        }
-        item { Panel { SettingsAction("Туннелирование", "Выбор приложений", Icons.Default.Layers) { showApps = true } } }
-        item {
-            Panel {
-                SettingsAction("Фоновая работа", "Экран, батарея, всегда включённый VPN", Icons.Default.BatteryStd) { toggle("background") }
-                if (group == "background") {
+            item(key = "settings-primary") {
+                SettingsTileRow(twoColumns,
+                    first = {
+                        SettingsTile("Тема оформления", mode.title, Icons.Default.Palette,
+                            modifier = Modifier.focusRequester(themeFocus)
+                                .onFocusChanged { themeHasFocus = it.hasFocus },
+                            wide = !twoColumns) {
+                            themeHasFocus = false
+                            showThemeGallery = true
+                        }
+                    },
+                    second = {
+                        if (tv) SettingsTile("Туннелирование", "Выбор приложений", Icons.Default.Layers,
+                            modifier = Modifier.focusRequester(appsFocus)
+                                .onFocusChanged { appsHasFocus = it.hasFocus },
+                            wide = !twoColumns) {
+                            appsHasFocus = false
+                            showApps = true
+                        }
+                        else SettingsTile("Быстрый доступ", "Шторка Android", Icons.Default.PowerSettingsNew,
+                            wide = !twoColumns) {
+                            PhantomQuickTileService.offerToAdd(context) { tileMessage = it }
+                        }
+                    })
+                tileMessage?.let { Text(it, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall) }
+            }
+            item(key = "settings-runtime") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsTileRow(twoColumns,
+                        first = {
+                            if (tv) SettingsTile("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
+                                modifier = Modifier.focusRequester(backupFocus)
+                                    .onFocusChanged { backupHasFocus = it.hasFocus },
+                                wide = !twoColumns) {
+                                backupHasFocus = false
+                                showBackup = true
+                            } else SettingsTile("Туннелирование", "Выбор приложений", Icons.Default.Layers,
+                                wide = !twoColumns) { showApps = true }
+                        },
+                        second = {
+                            SettingsTile("Фоновая работа", "Экран, батарея, всегда включённый VPN", Icons.Default.BatteryStd,
+                                wide = !twoColumns, expanded = group == "background") { toggle("background") }
+                        })
+                    if (group == "background") Panel {
                     Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
                         keepActive = !keepActive
                         prefs.edit().putBoolean("keep_active", keepActive).apply()
@@ -1913,24 +1935,26 @@ private fun PhantomSettings(
                     funActionRow("Ограничения батареи", Icons.Default.BatteryStd) {
                         openSystemSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                     }
+                    }
                 }
             }
-        }
-        item { Panel { SettingsAction("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
-            modifier = Modifier.focusRequester(backupFocus)
-                .onFocusChanged { backupHasFocus = it.hasFocus }) {
-                backupHasFocus = false
-                showBackup = true
-            } } }
-        item {
-            Panel {
-                SettingsAction("О приложении", "Phantom $version", Icons.Default.Info,
-                    modifier = Modifier.focusRequester(aboutFocus)
-                        .onFocusChanged { aboutHasFocus = it.hasFocus }) {
-                    aboutHasFocus = false
-                    toggle("about")
-                }
-                if (group == "about") {
+            item(key = "settings-about") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (tv) SettingsTile("О приложении", "Phantom $version", Icons.Default.Info,
+                        modifier = Modifier.focusRequester(aboutFocus)
+                            .onFocusChanged { aboutHasFocus = it.hasFocus }, wide = true) {
+                        aboutHasFocus = false
+                        toggle("about")
+                    } else SettingsTileRow(twoColumns,
+                        first = {
+                            SettingsTile("Резервная копия", "Сохранение и восстановление", Icons.Default.Backup,
+                                wide = !twoColumns) { showBackup = true }
+                        },
+                        second = {
+                            SettingsTile("О приложении", "Phantom $version", Icons.Default.Info,
+                                wide = !twoColumns, expanded = group == "about") { toggle("about") }
+                        })
+                    if (!tv && group == "about") Panel {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -1963,6 +1987,31 @@ private fun PhantomSettings(
                     }
                     funActionRow("Компоненты и лицензии", Icons.Default.Layers) { showComponents = true }
                     funActionRow("Журнал VPN", Icons.Default.List) { showLog = true }
+                    }
+                }
+            }
+            item(key = "settings-boot") {
+                val changeBoot: (Boolean) -> Unit = { enabled ->
+                    bootConnect = enabled
+                    prefs.edit().putBoolean(VpnBootPolicy.PREF_KEY, enabled).apply()
+                }
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .55f))) {
+                    Row(Modifier.fillMaxWidth().tvFocusRing()
+                        .toggleable(value = bootConnect, role = Role.Switch, onValueChange = changeBoot)
+                        .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SettingsTileIcon(Icons.Default.Refresh)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Автоподключение", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text("После перезагрузки · последний сервер",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                            Text("Сначала разрешите VPN в Android.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Switch(checked = bootConnect, onCheckedChange = null)
+                    }
                 }
             }
         }
@@ -1970,21 +2019,62 @@ private fun PhantomSettings(
 }
 
 @Composable
-private fun SettingsAction(title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
-    modifier: Modifier = Modifier,
-    action: () -> Unit) {
-    val tv = isTelevision()
-    Row(modifier.fillMaxWidth().tvFocusRing().clickable(onClick = action)
-        .padding(horizontal = if (tv) 14.dp else 16.dp,
-            vertical = if (tv) 11.dp else 16.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Medium)
-            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun SettingsTileRow(twoColumns: Boolean, first: @Composable () -> Unit, second: @Composable () -> Unit) {
+    if (twoColumns) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.weight(1f).fillMaxHeight()) { first() }
+            Box(Modifier.weight(1f).fillMaxHeight()) { second() }
         }
-        Icon(Icons.Default.ChevronRight, null)
+    } else {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            first()
+            second()
+        }
+    }
+}
+
+@Composable
+private fun SettingsTileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    val c = MaterialTheme.colorScheme
+    Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(c.surfaceVariant),
+        contentAlignment = Alignment.Center) {
+        Icon(icon, null, Modifier.size(25.dp), tint = c.primary)
+    }
+}
+
+@Composable
+private fun SettingsTile(
+    title: String, summary: String, icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier, wide: Boolean = false, expanded: Boolean = false,
+    action: () -> Unit,
+) {
+    val c = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(20.dp)
+    val layout = if (wide) Modifier.fillMaxWidth().heightIn(min = 76.dp)
+        else Modifier.fillMaxSize().heightIn(min = 120.dp)
+    Surface(modifier = modifier.then(layout).tvFocusRing(shape)
+        .clip(shape).clickable(role = Role.Button, onClick = action),
+        shape = shape, color = c.surface,
+        border = BorderStroke(1.dp, if (expanded) c.primary else c.outline.copy(alpha = .55f))) {
+        if (wide) Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            SettingsTileIcon(icon)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                Text(summary, fontSize = 12.sp, color = c.onSurfaceVariant)
+            }
+            Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, null,
+                tint = c.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        } else Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SettingsTileIcon(icon)
+                Spacer(Modifier.weight(1f))
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, null,
+                    tint = c.onSurfaceVariant, modifier = Modifier.size(17.dp))
+            }
+            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 18.sp)
+            Text(summary, fontSize = 12.sp, lineHeight = 15.sp, color = c.onSurfaceVariant)
+        }
     }
 }
 
