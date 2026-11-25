@@ -681,6 +681,7 @@ fun HomeScreen(
     var otaError by remember { mutableStateOf<String?>(null) }
     var otaDismissed by remember { mutableStateOf(false) }
     var showOtaSheet by remember { mutableStateOf(false) }
+    var otaMinimized by remember { mutableStateOf(false) }
     var openBackupFromOta by remember { mutableStateOf(false) }
     // Only an explicit check from Settings may open the update sheet over Settings.
     var otaManuallyRequested by remember { mutableStateOf(false) }
@@ -702,6 +703,7 @@ fun HomeScreen(
                 if (result?.version != availableUpdate?.version) {
                     otaFile = null
                     otaDismissed = false
+                    otaMinimized = false
                 }
                 availableUpdate = result
                 if (result != null && !otaDismissed) {
@@ -733,6 +735,7 @@ fun HomeScreen(
                 if (result != null) {
                     otaDismissed = false
                     otaManuallyRequested = true
+                    otaMinimized = false
                     showOtaSheet = true
                 } else {
                     showOtaSheet = false
@@ -884,6 +887,7 @@ fun HomeScreen(
         // gradient's first stop, preserving the existing safe-area geometry.
         containerColor = if (tv) MaterialTheme.colorScheme.background
             else MaterialTheme.colorScheme.phantomPageTop(),
+        contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = if (tv) Modifier.padding(horizontal = 10.dp, vertical = 8.dp) else Modifier,
         topBar = {
             if (!tv && tab != Destination.HOME && tab != Destination.SERVERS)
@@ -914,6 +918,11 @@ fun HomeScreen(
             .background(colors.phantomPageBrush())) {
             if (tv) TvSideNavigation(tab) { tab = it }
             Column(Modifier.weight(1f).fillMaxHeight()) {
+                if (otaMinimized && !showOtaSheet && availableUpdate != null) {
+                    OtaCompactBanner(availableUpdate!!.version, otaDownload, otaProgress, otaSpeed,
+                        otaError, otaFile?.exists() == true,
+                        onOpen = { otaMinimized = false; otaManuallyRequested = true; showOtaSheet = true })
+                }
                 if (tv && tab != Destination.HOME) PageTitle(
                     tab,
                     exit = if (vpnStatus == "connected") exitNetwork else null,
@@ -1042,6 +1051,7 @@ fun HomeScreen(
                         resumeInstallAfterPermission = false
                         otaTransferMode = ""
                         showOtaSheet = false
+                        otaMinimized = false
                         otaDismissed = false
                         otaManuallyRequested = false
                         lastOtaCheck = 0L
@@ -1063,6 +1073,7 @@ fun HomeScreen(
                         resumeInstallAfterPermission = false
                         otaTransferMode = ""
                         showOtaSheet = false
+                        otaMinimized = false
                         otaDismissed = false
                         otaManuallyRequested = false
                         lastOtaCheck = 0L
@@ -1107,7 +1118,8 @@ fun HomeScreen(
             readyToInstall = otaFile?.exists() == true,
             transferMode = otaTransferMode,
             error = otaError,
-            onLater = { showOtaSheet = false; otaDismissed = true },
+            onLater = { showOtaSheet = false; otaMinimized = false; otaDismissed = true },
+            onMinimize = { showOtaSheet = false; otaMinimized = true; otaDismissed = true },
             onUpdate = { softTap(); startOtaInstall() },
             onDownloadInBrowser = { availableUpdate?.downloadUrl?.let(::openUrl) },
             signingMismatch = PhantomUpdates.hasOfficialSigningCertificate(context) == false,

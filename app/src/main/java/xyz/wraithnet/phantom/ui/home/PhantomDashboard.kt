@@ -824,6 +824,7 @@ internal fun AppUpdateSheet(
     onCancelDownload: () -> Unit,
     signingMismatch: Boolean = false,
     onOpenBackup: () -> Unit = {},
+    onMinimize: (() -> Unit)? = null,
 ) {
     val c = MaterialTheme.colorScheme
     val brief = remember(release.notes) { ReleaseNotes.summary(release.notes, 3) }
@@ -852,6 +853,8 @@ internal fun AppUpdateSheet(
                     Caption((if (release.isBeta) "Бета-версия " else "Версия ") +
                         release.version)
                 }
+                if (downloading && onMinimize != null) TextButton(onClick = onMinimize,
+                    modifier = Modifier.tvFocusRing()) { Text("Свернуть") }
             }
             if (release.delta != null && !readyToInstall) {
                 val deltaMb = release.delta.sizeBytes.toDouble() / 1_048_576.0
@@ -866,6 +869,8 @@ internal fun AppUpdateSheet(
                     modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
                         .verticalScroll(rememberScrollState()),
                     fontSize = 13.sp, lineHeight = 18.sp,
+                    maxLines = if (expanded) Int.MAX_VALUE else 5,
+                    overflow = TextOverflow.Ellipsis,
                     color = c.onSurfaceVariant)
                 if (brief != details) TextButton(
                     onClick = { expanded = !expanded },
@@ -935,7 +940,7 @@ internal fun AppUpdateSheet(
         }
     }
     if (tv) {
-        Dialog(onDismissRequest = { if (!downloading) onLater() },
+        Dialog(onDismissRequest = { if (downloading) onMinimize?.invoke() else onLater() },
             properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(
                 modifier = Modifier.fillMaxWidth(.72f).widthIn(max = 660.dp)
@@ -945,12 +950,40 @@ internal fun AppUpdateSheet(
             ) { sheetBody() }
         }
     } else ModalBottomSheet(
-        onDismissRequest = { if (!downloading) onLater() },
+        onDismissRequest = { if (downloading) onMinimize?.invoke() else onLater() },
         containerColor = c.surface,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true,
-            confirmValueChange = { it != SheetValue.Hidden || !downloadInProgress }),
+            confirmValueChange = { it != SheetValue.Hidden || !downloadInProgress || onMinimize != null }),
     ) { sheetBody() }
+}
+
+@Composable
+internal fun OtaCompactBanner(version: String, downloading: Boolean, progress: Int,
+    speed: Long, error: String?, ready: Boolean, onOpen: () -> Unit) {
+    val c = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+            .tvFocusRing(RoundedCornerShape(12.dp)).clickable(onClick = onOpen),
+        color = c.surface, contentColor = c.onSurface, shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SystemUpdateAlt, null, tint = c.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(when {
+                    downloading -> "Обновление $version · $progress%" +
+                        if (speed > 0) " · ${speed / 1024L} КБ/с" else ""
+                    error != null -> "Обновление $version · требуется внимание"
+                    ready -> "Обновление $version · готово к установке"
+                    else -> "Обновление $version"
+                }, Modifier.weight(1f), fontSize = 12.sp, color = c.onSurface)
+                Icon(Icons.Default.ExpandMore, "Открыть обновление", tint = c.primary)
+            }
+            if (downloading) LinearProgressIndicator(progress = { progress / 100f },
+                modifier = Modifier.fillMaxWidth().padding(top = 5.dp))
+        }
+    }
 }
 
 internal fun daysLeft(expiry: Long, now: Long): Long =

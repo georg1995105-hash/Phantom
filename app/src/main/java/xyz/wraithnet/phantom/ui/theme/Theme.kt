@@ -2,6 +2,8 @@ package xyz.wraithnet.phantom.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -183,5 +185,8 @@ fun PhantomTheme(
     mode: PhantomThemeMode = PhantomThemeMode.AUTO,
     content: @Composable () -> Unit,
 ) {
-    MaterialTheme(colorScheme = themeScheme(mode, isSystemInDarkTheme()), content = content)
+    val scheme = themeScheme(mode, isSystemInDarkTheme())
+    MaterialTheme(colorScheme = scheme) {
+        CompositionLocalProvider(LocalContentColor provides scheme.onBackground, content = content)
+    }
 }

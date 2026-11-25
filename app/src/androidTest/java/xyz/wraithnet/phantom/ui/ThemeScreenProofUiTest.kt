@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.LocalContentColor
+import xyz.wraithnet.phantom.ui.theme.phantomPageTop
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -68,8 +70,9 @@ class ThemeScreenProofUiTest {
                     CompositionLocalProvider(LocalConfiguration provides configuration) {
                         PhantomTheme(theme) {
                             val colors = MaterialTheme.colorScheme
-                            Scaffold(containerColor = colors.background,
+                            Scaffold(containerColor = colors.phantomPageTop(),
                                 bottomBar = { TabBar(tab) { tab = it } }) { padding ->
+                                check(LocalContentColor.current == colors.onBackground) { "Неверный наследуемый цвет текста страницы" }
                                 Box(Modifier.fillMaxSize().padding(padding).background(colors.phantomPageBrush())) {
                                     if (wide) {
                                         WideHomeDashboard(status = if (connected) "connected" else "disconnected", selected = selected,
