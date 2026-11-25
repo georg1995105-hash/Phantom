@@ -1637,8 +1637,8 @@ private fun PhantomSettings(
     }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(tv, group) {
-        if (group == "background") settingsScroll.animateScrollToItem(2)
-        if (tv && group == "network") settingsScroll.animateScrollToItem(0)
+        if (group == "background" && restoreTvFocus.isBlank()) settingsScroll.animateScrollToItem(2)
+        if (tv && group == "network" && restoreTvFocus.isBlank()) settingsScroll.animateScrollToItem(0)
     }
     if (showThemeGallery) {
         ThemeGalleryScreen(
