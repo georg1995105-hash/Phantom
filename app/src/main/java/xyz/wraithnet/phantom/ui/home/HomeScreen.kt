@@ -187,10 +187,7 @@ fun HomeScreen(
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
-    var hapticsEnabled by remember { mutableStateOf(prefs.getBoolean("haptic_feedback", true)) }
-    fun softTap() {
-        if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-    }
+    fun softTap() = haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
     LaunchedEffect(snackbar.currentSnackbarData) {
         if (snackbar.currentSnackbarData != null) {
             delay(1650L)
@@ -1093,11 +1090,6 @@ fun HomeScreen(
                 }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
-                    hapticsEnabled = hapticsEnabled,
-                    onHapticsChange = { enabled ->
-                        hapticsEnabled = enabled
-                        prefs.edit().putBoolean("haptic_feedback", enabled).apply()
-                    },
                     openBackupRequest = openBackupFromOta,
                     onBackupRequestHandled = { openBackupFromOta = false },
                     onCheckAppUpdate = ::checkAppUpdateNow,
@@ -1122,7 +1114,6 @@ fun HomeScreen(
                         pinnedSubId = prefs.getString("pinned_sub_id", null)
                         favorites = prefs.getStringSet("favorite_servers", emptySet()).orEmpty().toSet()
                         onThemeChange(PhantomThemeMode.fromStored(prefs.getString("theme", null)))
-                        hapticsEnabled = prefs.getBoolean("haptic_feedback", true)
                         PhantomAutoUpdateWorker.schedule(context.applicationContext)
                         otaDownloadJob?.cancel()
                         availableUpdate = null
@@ -1653,8 +1644,6 @@ private fun PhantomSettings(
     onCheckAppUpdate: () -> Unit,
     onUpdateChannelChanged: () -> Unit,
     onBackupRestored: () -> Unit,
-    hapticsEnabled: Boolean,
-    onHapticsChange: (Boolean) -> Unit,
     openBackupRequest: Boolean = false,
     onBackupRequestHandled: () -> Unit = {}
 ) {
@@ -1712,7 +1701,6 @@ private fun PhantomSettings(
     }
     val settingsScroll = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(tv, group) {
-        if (group == "background" && restoreTvFocus.isBlank()) settingsScroll.animateScrollToItem(2)
         if (tv && group == "network" && restoreTvFocus.isBlank()) settingsScroll.animateScrollToItem(0)
     }
     if (showThemeGallery) {
@@ -1755,8 +1743,8 @@ private fun PhantomSettings(
         }
     }
     fun toggle(name: String) { group = if (group == name) "" else name }
-    if (tv && group == "about") {
-        TvAboutSettings(
+    if (group == "about") {
+        AboutSettings(
             version = version,
             autoApkUpdates = autoApkUpdates,
             betaApkUpdates = betaApkUpdates,
@@ -1777,6 +1765,58 @@ private fun PhantomSettings(
             onFocusRestored = { restoreAboutFocus = "" },
             onBack = { group = ""; restoreTvFocus = "about" },
         )
+        return
+    }
+    if (group == "background") {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TextButton(onClick = { group = ""; restoreTvFocus = "background" },
+                modifier = Modifier.tvFocusRing()) {
+                Icon(Icons.Default.ArrowBack, null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("К настройкам")
+            }
+            Text("Фоновая работа", style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold)
+            Panel {
+                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
+                        keepActive = !keepActive
+                        prefs.edit().putBoolean("keep_active", keepActive).apply()
+                        if (VpnRuntimeBridge.snapshot(context).running) {
+                            context.startService(Intent(context, PhantomVpnService::class.java)
+                                .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
+                        }
+                    }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Работа при выключенном экране",
+                                fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.height(3.dp))
+                            Text("Удерживает процессор активным. Повышает расход батареи.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp, lineHeight = 16.sp)
+                        }
+                        Spacer(Modifier.width(7.dp))
+                        Switch(checked = keepActive, onCheckedChange = if (tv) null else { enabled ->
+                            keepActive = enabled
+                            prefs.edit().putBoolean("keep_active", enabled).apply()
+                            if (VpnRuntimeBridge.snapshot(context).running) {
+                                context.startService(Intent(context, PhantomVpnService::class.java)
+                                    .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
+                            }
+                        })
+                    }
+                    funActionRow("Всегда включённый VPN", Icons.Default.Settings) {
+                        openSystemSettings(Settings.ACTION_VPN_SETTINGS)
+                    }
+                    funActionRow("Ограничения батареи", Icons.Default.BatteryStd) {
+                        openSystemSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                    }
+                    }
+        }
         return
     }
     // Child screens replace this LazyColumn; focus may otherwise return to the
@@ -1850,7 +1890,7 @@ private fun PhantomSettings(
         LazyColumn(
             Modifier.widthIn(max = 840.dp).fillMaxSize(), state = settingsScroll,
             contentPadding = PaddingValues(horizontal = if (tv) 10.dp else 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item(key = "settings-network") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1978,43 +2018,9 @@ private fun PhantomSettings(
                             SettingsTile("Фоновая работа", "Экран, батарея, всегда включённый VPN", Icons.Default.BatteryStd,
                                 modifier = Modifier.focusRequester(backgroundFocus)
                                     .onFocusChanged { backgroundHasFocus = it.hasFocus },
-                                wide = !twoColumns, expanded = group == "background") { toggle("background") }
+                                wide = !twoColumns) { group = "background" }
                         })
-                    if (group == "background") Panel {
-                    Row(Modifier.fillMaxWidth().tvFocusRing().clickable {
-                        keepActive = !keepActive
-                        prefs.edit().putBoolean("keep_active", keepActive).apply()
-                        if (VpnRuntimeBridge.snapshot(context).running) {
-                            context.startService(Intent(context, PhantomVpnService::class.java)
-                                .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
-                        }
-                    }.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Работа при выключенном экране",
-                                fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            Spacer(Modifier.height(3.dp))
-                            Text("Удерживает процессор активным. Повышает расход батареи.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 12.sp, lineHeight = 16.sp)
-                        }
-                        Spacer(Modifier.width(7.dp))
-                        Switch(checked = keepActive, onCheckedChange = if (tv) null else { enabled ->
-                            keepActive = enabled
-                            prefs.edit().putBoolean("keep_active", enabled).apply()
-                            if (VpnRuntimeBridge.snapshot(context).running) {
-                                context.startService(Intent(context, PhantomVpnService::class.java)
-                                    .setAction(PhantomVpnService.ACTION_KEEP_ALIVE))
-                            }
-                        })
-                    }
-                    funActionRow("Всегда включённый VPN", Icons.Default.Settings) {
-                        openSystemSettings(Settings.ACTION_VPN_SETTINGS)
-                    }
-                    funActionRow("Ограничения батареи", Icons.Default.BatteryStd) {
-                        openSystemSettings(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-                    }
-                    }
+
                 }
             }
             item(key = "settings-about") {
@@ -2031,42 +2037,9 @@ private fun PhantomSettings(
                         },
                         second = {
                             SettingsTile("О приложении", "Phantom $version", Icons.Default.Info,
-                                wide = !twoColumns, expanded = group == "about") { toggle("about") }
+                                wide = !twoColumns) { group = "about" }
                         })
-                    if (!tv && group == "about") Panel {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Автообновление по Wi-Fi", fontSize = 15.sp)
-                            Text("Без разрыва активного VPN. Android может запросить подтверждение.",
-                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = autoApkUpdates, onCheckedChange = { enabled ->
-                            autoApkUpdates = enabled
-                            prefs.edit().putBoolean("auto_apk_updates", enabled).apply()
-                            PhantomAutoUpdateWorker.schedule(context.applicationContext)
-                        })
-                    }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Получать бета-обновления", fontSize = 15.sp)
-                            Text("Ранние тестовые версии. Возврат на стабильную — при следующем подходящем обновлении.",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = betaApkUpdates, onCheckedChange = { enabled ->
-                            betaApkUpdates = enabled
-                            PhantomUpdates.setBetaEnabled(context, enabled)
-                            onUpdateChannelChanged()
-                        })
-                    }
-                    funActionRow("Проверить обновление приложения", Icons.Default.SystemUpdateAlt) {
-                        onCheckAppUpdate()
-                    }
-                    funActionRow("Компоненты и лицензии", Icons.Default.Layers) { showComponents = true }
-                    funActionRow("Журнал VPN", Icons.Default.List) { showLog = true }
-                    }
+
                 }
             }
             item(key = "settings-boot") {
@@ -2093,24 +2066,7 @@ private fun PhantomSettings(
                     }
                 }
             }
-            if (!tv) item(key = "settings-haptics") {
-                val c = MaterialTheme.colorScheme
-                Surface(shape = RoundedCornerShape(20.dp), color = c.surface,
-                    border = BorderStroke(1.dp, c.outline.copy(alpha = .55f))) {
-                    Row(Modifier.fillMaxWidth()
-                        .toggleable(value = hapticsEnabled, role = Role.Switch, onValueChange = onHapticsChange)
-                        .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        SettingsTileIcon(Icons.Default.Vibration)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Тактильная отдача", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text("Лёгкая вибрация при действиях", color = c.onSurfaceVariant, fontSize = 12.sp)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Switch(checked = hapticsEnabled, onCheckedChange = null)
-                    }
-                }
-            }
+
         }
     }
 }
@@ -2160,7 +2116,7 @@ private fun SettingsTile(
     val c = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(20.dp)
     val layout = if (wide) Modifier.fillMaxWidth().heightIn(min = 76.dp)
-        else Modifier.fillMaxSize().heightIn(min = 120.dp)
+        else Modifier.fillMaxSize().heightIn(min = 96.dp)
     Surface(modifier = modifier.then(layout).tvFocusRing(shape)
         .clip(shape).clickable(role = Role.Button, onClick = action),
         shape = shape, color = c.surface,
@@ -2174,7 +2130,7 @@ private fun SettingsTile(
             }
             Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, null,
                 tint = c.onSurfaceVariant, modifier = Modifier.size(18.dp))
-        } else Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        } else Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 SettingsTileIcon(icon)
                 Spacer(Modifier.weight(1f))
@@ -2188,12 +2144,11 @@ private fun SettingsTile(
 }
 
 /**
- * Dedicated television About screen. On the phone the original inline
- * expandable section is retained; on TV hiding actions below the fold made
- * "About" appear empty when using a D-pad.
+ * Dedicated About screen shared by phone, tablet and TV; settings no longer
+ * expand below the fold. All update and diagnostics actions remain accessible.
  */
 @Composable
-private fun TvAboutSettings(
+private fun AboutSettings(
     version: String,
     autoApkUpdates: Boolean,
     betaApkUpdates: Boolean,
