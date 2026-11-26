@@ -35,6 +35,21 @@ class SubscriptionStorefrontUiTest {
             compose.onNodeWithText(extra).assertDoesNotExist()
         }
     }
+    @Test fun personalizedAccountTitleDisplaysOnlyInSubscriptionPage() {
+        val sub = Subscription(id = "owned", title = "🛡️ Phantom VPN",
+            accountTitle = "Phantom VPN — ADMIN",
+            source = "https://sub2.wraithnet.xyz/demo123", servers = emptyList())
+        compose.setContent {
+            MaterialTheme {
+                Box(Modifier.width(320.dp)) {
+                    SubscriptionPage(currentSubscription = sub) {}
+                }
+            }
+        }
+        compose.onNodeWithText("Phantom VPN — ADMIN").assertExists()
+        compose.onNodeWithText("🛡️ Phantom VPN").assertDoesNotExist()
+    }
+
     @Test fun importedSubscriptionIsReadOnlyAndKeepsShopEntryPoint() {
         val sub = Subscription(id = "imported", title = "Моя тестовая подписка",
             source = "https://example.org/subscription", servers = emptyList(),
