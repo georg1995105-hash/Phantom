@@ -52,4 +52,39 @@ class SubscriptionStorefrontUiTest {
         compose.onAllNodesWithText("В магазин").assertCountEquals(1)
     }
 
+    @Test fun ownSubscriptionShowsServerTitleAndOpensDevicePortal() {
+        var opens = 0
+        val sub = Subscription(id = "mine", title = "Phantom VPN — ADMIN",
+            source = "https://sub2.wraithnet.xyz/demo123", servers = emptyList())
+        compose.setContent {
+            MaterialTheme {
+                Box(Modifier.width(320.dp)) {
+                    SubscriptionPage(currentSubscription = sub,
+                        openDevices = { opens++ }) {}
+                }
+            }
+        }
+        compose.onNodeWithText("Phantom VPN — ADMIN").assertExists()
+        compose.onNodeWithContentDescription("Управление подключёнными устройствами")
+            .assertExists().performClick()
+        compose.runOnIdle { assertEquals(1, opens) }
+        compose.onAllNodesWithText("В магазин").assertCountEquals(1)
+    }
+
+    @Test fun thirdPartySubscriptionNeverShowsPhantomDeviceManagement() {
+        val sub = Subscription(id = "other", title = "Другой провайдер",
+            source = "https://example.org/subscription", servers = emptyList())
+        compose.setContent {
+            MaterialTheme {
+                Box(Modifier.width(320.dp)) {
+                    SubscriptionPage(currentSubscription = sub,
+                        openDevices = { throw AssertionError("Wrong account") }) {}
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("Управление подключёнными устройствами")
+            .assertDoesNotExist()
+        compose.onNodeWithText("Другой провайдер").assertExists()
+    }
+
 }
