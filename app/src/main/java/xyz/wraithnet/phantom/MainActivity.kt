@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        xyz.wraithnet.phantom.service.PhantomUpdateInstallReceiver.setForeground(this, true)
         refreshVersion.intValue++
         val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
         prefs.edit().putBoolean("ui_visible", true).apply()
@@ -222,6 +223,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        xyz.wraithnet.phantom.service.PhantomUpdateInstallReceiver.setForeground(this, false)
         val prefs = getSharedPreferences("phantom_preferences", MODE_PRIVATE)
         prefs.edit().putBoolean("ui_visible", false).apply()
         if (PhantomVpnService.isTunnelActive(vpnStatus.value)) {

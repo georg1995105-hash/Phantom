@@ -203,4 +203,22 @@ class XrayTunConfigTest {
             .getJSONObject("streamSettings").getString("network"))
     }
 
+    @Test fun trojanWithoutSecurityDefaultsToTlsAndNeverPlaintext() {
+        fun stream(link: String) = JSONObject(XrayConfigBuilder.build(
+            SubscriptionParser.parse(link).servers.single()
+        )).getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings")
+
+        val base = "trojan://password@vpn.example:443?sni=vpn.example"
+        val safe = stream(base)
+        assertEquals("tls", safe.getString("security"))
+        assertEquals("vpn.example", safe.getJSONObject("tlsSettings").getString("serverName"))
+
+        // Explicit TLS and REALITY remain supported; explicit plaintext
+        // Trojan must fail rather than silently removing encryption.
+        assertEquals("tls", stream("$base&security=tls").getString("security"))
+        assertThrows(IllegalArgumentException::class.java) {
+            stream("$base&security=none")
+        }
+    }
+
 }

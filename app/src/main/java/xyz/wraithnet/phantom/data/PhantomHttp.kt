@@ -180,6 +180,7 @@ object PhantomHttp {
             error is ConnectException || error is SocketException
 
     class Failure(message: String, cause: IOException) : IOException(message, cause)
+    internal class HttpStatusException(val status: Int) : IOException("Сервер ответил HTTP " + status)
 
     internal suspend fun <T> get(
         context: Context,
@@ -222,7 +223,7 @@ object PhantomHttp {
                 if (vpnRoute != null && !ActiveVpnSubscriptionProxy.isActive(context, vpnRoute)) {
                     throw IOException("Выбранная нода VPN отключена или изменена")
                 }
-                if (!it.isSuccessful) throw IOException("Сервер ответил HTTP " + it.code)
+                if (!it.isSuccessful) throw HttpStatusException(it.code)
                 if (request.url.isHttps && !it.request.url.isHttps) {
                     throw IOException("Небезопасная переадресация HTTPS отклонена")
                 }

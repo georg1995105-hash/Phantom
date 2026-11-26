@@ -9,7 +9,6 @@ import android.app.PendingIntent
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.net.VpnService
 import android.net.ConnectivityManager
 import android.net.Network
@@ -51,8 +50,34 @@ class PhantomVpnService : VpnService() {
     private val mutex = Mutex()
     // Intent commands may launch on different IO threads; the latest tap wins.
     private val commandEpoch = AtomicLong(0)
-    private lateinit var prefs: SharedPreferences
+    // Only the default UI process owns and writes phantom_preferences.
+    @Volatile private var requested = false
+    @Volatile private var lastProfile = ""
+    @Volatile private var connectedSince = 0L
     private var vpnInterface: ParcelFileDescriptor? = null
+    private var blockingInterface: ParcelFileDescriptor? = null
+
+    private fun persist(requested: Boolean? = null, lastProfile: String? = null,
+        running: Boolean? = null, status: String? = null, since: Long? = null) {
+        if (!runCatching {
+                VpnSettingsBridge.persist(this, requested, lastProfile, running, status, since)
+            }.getOrDefault(false)) {
+            VpnEventLog.record(this, "storage", "Не удалось сохранить состояние VPN через IPC")
+        }
+    }
+
+    /** TUN with no native reader: included apps and DNS cannot use physical egress. */
+    private fun establishBlockingTun(settings: VpnSettingsBridge.Snapshot): ParcelFileDescriptor? {
+        val builder = Builder().setSession("Phantom · переключение")
+            .setMtu(1400)
+            .addAddress("10.111.0.2", 30)
+            .addRoute("0.0.0.0", 0)
+            .addAddress("fd00:1111::2", 64)
+            .addRoute("::", 0)
+            .addDnsServer("10.111.0.1")
+        AppRouting.apply(this, builder, settings.routeMode, settings.applications)
+        return builder.establish()
+    }
     private var controller: CoreController? = null
     private var singBoxBridge: SingBoxBridge? = null
     private var singBoxSession: Any? = null
@@ -85,7 +110,14 @@ class PhantomVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
-        prefs = getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE)
+        runCatching { VpnSettingsBridge.persisted(this) }.onSuccess {
+            requested = it.requested
+            lastProfile = it.lastProfile
+        }.onFailure {
+            VpnEventLog.record(this, "storage", "Не удалось прочитать состояние VPN")
+        }
+        // A restarted :vpn process cannot inherit a dead native TUN.
+        persist(running = false, status = STATUS_DISCONNECTED, since = 0L)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification("Phantom VPN"))
         observePhysicalNetworks()
@@ -115,7 +147,7 @@ class PhantomVpnService : VpnService() {
                 if (revokedByAndroid) return@withLock
                 val route = runCatching { physicalRoute() }.getOrNull()
                 when (PhysicalHandoverPolicy.decide(
-                    requested = prefs.getBoolean("vpn_requested", false),
+                    requested = requested,
                     running = running,
                     currentRoute = route,
                     previousRoute = lastPhysicalRoute,
@@ -141,7 +173,7 @@ class PhantomVpnService : VpnService() {
                         }
                     }
                     PhysicalHandoverPolicy.Decision.BOOTSTRAP -> {
-                        val profile = prefs.getString("vpn_last_profile", "").orEmpty()
+                        val profile = lastProfile
                         if (profile.isNotBlank()) startLocked(profile, commandEpoch.get())
                     }
                 }
@@ -168,7 +200,8 @@ class PhantomVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> {
                 val epoch = commandEpoch.incrementAndGet()
-                prefs.edit().putBoolean("vpn_requested", false).apply()
+                requested = false
+                persist(requested = false)
                 handoverJob?.cancel()
                 ioScope.launch {
                     mutex.withLock {
@@ -176,7 +209,7 @@ class PhantomVpnService : VpnService() {
                         stopLocked()
                     }
                     if (epoch == commandEpoch.get() &&
-                        !prefs.getBoolean("vpn_requested", false)
+                        !requested
                     ) stopSelfResult(startId)
                 }
             }
@@ -194,7 +227,7 @@ class PhantomVpnService : VpnService() {
                 val epoch = commandEpoch.incrementAndGet()
                 ioScope.launch { mutex.withLock {
                     if (epoch == commandEpoch.get()) {
-                        startLocked(prefs.getString("vpn_last_profile", "").orEmpty(), epoch)
+                        startLocked(lastProfile, epoch)
                     }
                 } }
             }
@@ -205,26 +238,29 @@ class PhantomVpnService : VpnService() {
                 val profile = intent.getStringExtra(EXTRA_PROFILE).orEmpty()
                 // Empty START is a rejected replacement, not a service state change.
                 val epoch = commandEpoch.incrementAndGet()
-                prefs.edit().putBoolean("vpn_requested", true).apply()
+                requested = true
+                persist(requested = true)
                 ioScope.launch { mutex.withLock {
                     if (epoch == commandEpoch.get()) startLocked(profile, epoch)
                 } }
             }
             ACTION_BOOT_START -> {
-                val last = prefs.getString("vpn_last_profile", "").orEmpty()
+                val last = lastProfile
                 if (last.isNotBlank() && VpnService.prepare(this) == null) {
-                    prefs.edit().putBoolean("vpn_requested", true).apply()
+                    requested = true
+                    persist(requested = true)
                     setState(STATUS_STARTING)
                     updateNotification("Ожидание сети после включения телефона")
                     scheduleNetworkCheck()
                 } else stopSelf()
             }
             else -> {
-                val last = prefs.getString("vpn_last_profile", "").orEmpty()
+                val last = lastProfile
                 val alwaysOn = Build.VERSION.SDK_INT >= 29 && isAlwaysOn
                 if (last.isNotBlank() && (alwaysOn ||
-                    prefs.getBoolean("vpn_requested", false))) {
-                    prefs.edit().putBoolean("vpn_requested", true).apply()
+                    requested)) {
+                    requested = true
+                    persist(requested = true)
                     scheduleNetworkCheck()
                 } else {
                     stopSelf()
@@ -245,6 +281,8 @@ class PhantomVpnService : VpnService() {
         } catch (_: Exception) {
             if (!commandCurrent()) return
             if (running) rejectLiveReplacement("Новые настройки VPN не получены")
+            else if (blockingInterface != null)
+                setState(STATUS_DEGRADED, "Трафик заблокирован: настройки VPN недоступны")
             else setState(STATUS_ERROR, "Не удалось получить настройки VPN")
             return
         }
@@ -270,8 +308,11 @@ class PhantomVpnService : VpnService() {
             val reason = e.message ?: "Некорректный профиль VPN"
             if (running) {
                 rejectLiveReplacement(reason)
+            } else if (blockingInterface != null) {
+                setState(STATUS_DEGRADED, "Трафик заблокирован: " + reason)
             } else {
-                prefs.edit().putBoolean("vpn_requested", false).apply()
+                requested = false
+                persist(requested = false)
                 setState(STATUS_ERROR, reason)
             }
             return
@@ -279,8 +320,26 @@ class PhantomVpnService : VpnService() {
         // STOP/revoke/new START can arrive during settings IPC or preflight.
         // Do not tear down the existing TUN for a superseded command.
         if (!commandCurrent()) return
-        val previousClosed = stopLocked(false)
-        setState(STATUS_STARTING)
+        // Android establishes the replacement route atomically. Install an
+        // unserved catch-all TUN while the old VPN is still alive; only then
+        // retire the old native core. No intermediate physical-network window.
+        if (vpnInterface != null) {
+            val blocker = runCatching { establishBlockingTun(settings) }.getOrNull()
+            if (blocker == null) {
+                rejectLiveReplacement("Не удалось защитить трафик при смене сервера")
+                return
+            }
+            runCatching { blockingInterface?.close() }
+            blockingInterface = blocker
+            // Publish the protected state BEFORE retiring the old core. A
+            // concurrent OTA worker must never observe an idle gap here.
+            VpnRuntimeBridge.publish(STATUS_DEGRADED, 0L,
+                "Переключение VPN: трафик заблокирован", blocking = true)
+        }
+        val previousClosed = stopLocked(false, preserveBlocking = true)
+        if (blockingInterface != null)
+            setState(STATUS_DEGRADED, "Переключение сервера: трафик временно заблокирован")
+        else setState(STATUS_STARTING)
         try {
             check(previousClosed) {
                 "Старое ядро sing-box не завершилось. Подключение остановлено во избежание сбоя"
@@ -343,9 +402,9 @@ class PhantomVpnService : VpnService() {
             singBoxPinnedPort = singBoxPort
             singBoxRecoveryAttempts = 0
             ActiveVpnSubscriptionProxy.publish(subscriptionProxyPort, password, raw)
-            prefs.edit().putString("vpn_last_profile", raw)
-                .putBoolean("vpn_running", true)
-                .putLong("vpn_connected_since_elapsed", SystemClock.elapsedRealtime()).apply()
+            lastProfile = raw
+            connectedSince = SystemClock.elapsedRealtime()
+            persist(lastProfile = raw, running = true, since = connectedSince)
             configureWakeLock(settings.keepActive)
             lastPhysicalRoute = runCatching { physicalRoute() }.getOrNull()
             setState(STATUS_DEGRADED)
@@ -354,11 +413,31 @@ class PhantomVpnService : VpnService() {
             verificationTarget = VerificationTarget(
                 runningConfig, subscriptionProxyPort, password, singBoxPort)
             verifyCurrentTunnel()
+            runCatching { blockingInterface?.close() }
+            blockingInterface = null
+            VpnRuntimeBridge.publish(state, connectedSince, lastStatusError)
         } catch (e: Exception) {
-            stopLocked(false)
+            if (!revokedByAndroid && vpnInterface != null && blockingInterface != null) {
+                // A native failure after the new establish() deactivates the
+                // prior blocker. Re-establish one BEFORE closing the new TUN.
+                val fresh = runCatching { establishBlockingTun(settings) }.getOrNull()
+                runCatching { blockingInterface?.close() }
+                if (fresh != null) blockingInterface = fresh
+                else {
+                    // Android refused a new interface: retain the already
+                    // established (but unserved) one as a capturing blocker.
+                    blockingInterface = vpnInterface
+                    vpnInterface = null
+                }
+            }
+            val protected = blockingInterface != null && !revokedByAndroid
+            stopLocked(false, preserveBlocking = protected)
             if (revokedByAndroid) setState(STATUS_DISCONNECTED)
+            else if (protected) setState(STATUS_DEGRADED,
+                "Подключение не удалось; трафик заблокирован: " +
+                    (e.message ?: "Ошибка транспорта"))
             else setState(STATUS_ERROR, e.message ?: "Не удалось подключиться")
-            updateNotification("Ошибка подключения")
+            updateNotification(if (protected) "VPN · трафик заблокирован" else "Ошибка подключения")
         }
     }
 
@@ -403,9 +482,13 @@ class PhantomVpnService : VpnService() {
                             "Старый sing-box не завершён; требуется ручное переподключение")
                     }
                 } else if (!revokedByAndroid) {
-                    stopLocked(false)
-                    setState(STATUS_ERROR, "Процесс sing-box завершился при запуске")
-                    updateNotification("Ошибка движка VPN")
+                    val protected = blockingInterface != null
+                    stopLocked(false, preserveBlocking = protected)
+                    if (protected) setState(STATUS_DEGRADED,
+                        "Трафик заблокирован: процесс sing-box завершился при запуске")
+                    else setState(STATUS_ERROR, "Процесс sing-box завершился при запуске")
+                    updateNotification(if (protected) "VPN · трафик заблокирован"
+                        else "Ошибка движка VPN")
                 }
             }
         }
@@ -423,7 +506,7 @@ class PhantomVpnService : VpnService() {
 
     private fun canRecoverSingBox(epoch: Long): Boolean = SingBoxRecoveryPolicy.canAttempt(
         running = running,
-        requested = prefs.getBoolean("vpn_requested", false),
+        requested = requested,
         revoked = revokedByAndroid,
         sameEpoch = epoch == commandEpoch.get(),
         coreAndTunAlive = controller != null && vpnInterface != null,
@@ -461,7 +544,7 @@ class PhantomVpnService : VpnService() {
                         "sing-box изменил порт, закреплённый за Xray"
                     }
                     check(!revokedByAndroid && epoch == commandEpoch.get() &&
-                        prefs.getBoolean("vpn_requested", false)) {
+                        requested) {
                         "Сеанс VPN заменён новой командой"
                     }
                     setState(STATUS_DEGRADED)
@@ -481,7 +564,7 @@ class PhantomVpnService : VpnService() {
                     // Android revoke and queued STOP/RELOAD win even if a native
                     // Binder start finished while the lifecycle mutex was held.
                     if (!running || revokedByAndroid || epoch != commandEpoch.get() ||
-                        !prefs.getBoolean("vpn_requested", false)) return@withLock 0
+                        !requested) return@withLock 0
                     if (!exited) singBoxRecoveryAttempts = SingBoxRecoveryPolicy.MAX_ATTEMPTS
                     val exhausted = singBoxRecoveryAttempts >= SingBoxRecoveryPolicy.MAX_ATTEMPTS
                     setState(STATUS_DEGRADED, if (!exited)
@@ -585,7 +668,7 @@ class PhantomVpnService : VpnService() {
      * Tear down the dependency chain in order: isolated sing-box -> Xray -> TUN.
      * The next profile must not begin until the former Go worker has exited.
      */
-    private fun stopLocked(report: Boolean = true): Boolean {
+    private fun stopLocked(report: Boolean = true, preserveBlocking: Boolean = false): Boolean {
         singBoxRecoveryJob?.cancel()
         singBoxRecoveryJob = null
         singBoxRecoveryAttempts = 0
@@ -608,8 +691,12 @@ class PhantomVpnService : VpnService() {
         controller = null
         runCatching { vpnInterface?.close() }
         vpnInterface = null
-        prefs.edit().putBoolean("vpn_running", false)
-            .putLong("vpn_connected_since_elapsed", 0L).apply()
+        if (!preserveBlocking) {
+            runCatching { blockingInterface?.close() }
+            blockingInterface = null
+        }
+        connectedSince = 0L
+        persist(running = false, since = 0L)
         if (report) {
             setState(STATUS_DISCONNECTED)
             updateNotification("VPN отключён")
@@ -674,10 +761,10 @@ class PhantomVpnService : VpnService() {
         // Persist and publish the real service state BEFORE asking SystemUI to redraw.
         state = next
         lastStatusError = error
-        prefs.edit().putString("vpn_status", next).apply()
+        persist(status = next)
         VpnRuntimeBridge.publish(next,
-            if (isTunnelActive(next))
-                prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L, error)
+            if (isTunnelActive(next)) connectedSince else 0L,
+            error, blocking = blockingInterface != null)
         VpnEventLog.record(applicationContext, next, error)
         sendStatus(next, error)
         PhantomQuickTileService.notifyStateChanged(applicationContext)
@@ -688,7 +775,7 @@ class PhantomVpnService : VpnService() {
             Intent(ACTION_STATUS).setPackage(packageName)
                 .putExtra(EXTRA_STATUS, status).putExtra(EXTRA_ERROR, error)
                 .putExtra(EXTRA_CONNECTED_SINCE,
-                    if (isTunnelActive(status)) prefs.getLong("vpn_connected_since_elapsed", 0L) else 0L)
+                    if (isTunnelActive(status)) connectedSince else 0L)
         )
     }
 
@@ -741,15 +828,16 @@ class PhantomVpnService : VpnService() {
         singBoxSession = null
         singBoxRecoveryJob?.cancel()
         singBoxRecoveryJob = null
-        prefs.edit().putBoolean("vpn_requested", false).apply()
+        requested = false
+        persist(requested = false)
         handoverJob?.cancel()
         verificationSession = null
         verificationTarget = null
         verificationJob?.cancel()
         ActiveVpnSubscriptionProxy.clear()
         running = false
-        prefs.edit().putBoolean("vpn_running", false)
-            .putLong("vpn_connected_since_elapsed", 0L).apply()
+        connectedSince = 0L
+        persist(running = false, since = 0L)
         setState(STATUS_DISCONNECTED)
         super.onRevoke()
     }
@@ -762,14 +850,11 @@ class PhantomVpnService : VpnService() {
         verificationJob?.cancel()
         VpnRuntimeBridge.publish(STATUS_DISCONNECTED)
         ActiveVpnSubscriptionProxy.clear()
-        if (::prefs.isInitialized) {
-            running = false
-            prefs.edit().putBoolean("vpn_running", false)
-                .putString("vpn_status", STATUS_DISCONNECTED)
-                .putLong("vpn_connected_since_elapsed", 0L).apply()
-            PhantomQuickTileService.notifyStateChanged(applicationContext)
-            sendStatus(STATUS_DISCONNECTED)
-        }
+        running = false
+        connectedSince = 0L
+        persist(running = false, status = STATUS_DISCONNECTED, since = 0L)
+        PhantomQuickTileService.notifyStateChanged(applicationContext)
+        sendStatus(STATUS_DISCONNECTED)
         handoverJob?.cancel()
         networkCallback?.let { callback ->
             runCatching {
@@ -789,6 +874,8 @@ class PhantomVpnService : VpnService() {
         }
         runCatching { controller?.stopLoop() }
         runCatching { vpnInterface?.close() }
+        runCatching { blockingInterface?.close() }
+        blockingInterface = null
         ioScope.cancel()
         super.onDestroy()
     }

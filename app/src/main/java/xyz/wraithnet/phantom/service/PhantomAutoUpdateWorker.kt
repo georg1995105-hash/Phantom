@@ -31,7 +31,7 @@ class PhantomAutoUpdateWorker(context: Context, params: WorkerParameters) :
         if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
             !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return Result.success()
         // Installing an APK kills its running process; wait for VPN to be idle.
-        if (prefs.getBoolean("vpn_running", false)) return Result.success()
+        if (!PhantomUpdates.automaticInstallAllowed(ctx)) return Result.success()
         // A differently signed legacy/CI APK cannot be upgraded in-place.
         // Do not repeatedly transfer a huge installer that Android must reject.
         if (PhantomUpdates.hasOfficialSigningCertificate(ctx) != true) {
@@ -45,11 +45,11 @@ class PhantomAutoUpdateWorker(context: Context, params: WorkerParameters) :
             val apk = PhantomUpdates.download(ctx, next, onProgress = { })
             // A user can opt out while a large beta APK is downloading.
             // Never install a previously selected beta after switching to Stable.
-            if (prefs.getBoolean("vpn_running", false) ||
+            if (!PhantomUpdates.automaticInstallAllowed(ctx) ||
                 !prefs.getBoolean("auto_apk_updates", true) ||
                 PhantomUpdates.selectedChannel(ctx) != channel) return Result.success()
-            PhantomUpdates.openInstaller(ctx, apk)
-            Result.success()
+            if (PhantomUpdates.openInstaller(ctx, apk, next, allowPermissionPrompt = false, requireIdleVpn = true))
+                Result.success() else Result.retry()
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (_: Exception) {

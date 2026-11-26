@@ -4,9 +4,6 @@ import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.os.Build
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import android.os.PersistableBundle
 import android.content.Context
 import android.content.res.Configuration
@@ -62,6 +59,9 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import xyz.wraithnet.phantom.service.PhantomUpdateInstallReceiver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.coroutineScope
@@ -112,6 +112,28 @@ import kotlin.coroutines.resume
 import xyz.wraithnet.phantom.data.TvSubscriptionPairing
 
 
+// A minimized update is an app-level operation, not a child of a modal sheet
+// or a particular Activity composition. No Activity is retained by the job.
+private object OtaUiState {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    val availableUpdate = mutableStateOf<PhantomRelease?>(null)
+    val otaChecking = mutableStateOf(false)
+    val otaDownload = mutableStateOf(false)
+    val otaDownloadJob = mutableStateOf<Job?>(null)
+    val otaProgress = mutableIntStateOf(0)
+    val otaSpeed = mutableLongStateOf(0L)
+    val otaTransferMode = mutableStateOf("")
+    val otaFile = mutableStateOf<File?>(null)
+    val otaError = mutableStateOf<String?>(null)
+    val otaDismissed = mutableStateOf(false)
+    val showOtaSheet = mutableStateOf(false)
+    val otaMinimized = mutableStateOf(false)
+    val otaManuallyRequested = mutableStateOf(false)
+    val lastOtaCheck = mutableLongStateOf(0L)
+    val lastOtaAttempt = mutableLongStateOf(0L)
+    val otaChannelEpoch = mutableIntStateOf(0)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -128,7 +150,37 @@ fun HomeScreen(
     onThemeChange: (PhantomThemeMode) -> Unit = {},
 ) {
     val context = LocalContext.current
-    val store = remember { SubscriptionStore(context) }
+    val appContext = context.applicationContext
+    val store = remember { SubscriptionStore(appContext) }
+    var initialSubscriptions by remember { mutableStateOf<List<Subscription>?>(null) }
+    var startupError by remember { mutableStateOf<String?>(null) }
+    var startupRetry by remember { mutableIntStateOf(0) }
+    LaunchedEffect(store, startupRetry) {
+        startupError = null
+        try {
+            initialSubscriptions = withContext(Dispatchers.IO) { store.read() }
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (error: Exception) {
+            startupError = error.message ?: "Не удалось прочитать подписки"
+        }
+    }
+    val initial = initialSubscriptions
+    if (initial == null) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                if (startupError == null) CircularProgressIndicator()
+                else {
+                    Text(startupError.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    TextButton(onClick = { startupRetry++ }, modifier = Modifier.tvFocusRing()) {
+                        Text("Повторить")
+                    }
+                }
+            }
+        }
+        return
+    }
     LaunchedEffect(Unit) { PhantomAutoUpdateWorker.schedule(context.applicationContext) }
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
@@ -142,7 +194,7 @@ fun HomeScreen(
     }
     val scope = rememberCoroutineScope()
     val subscriptionChanges = remember { Mutex() }
-    var subscriptions by remember { mutableStateOf(store.read()) }
+    var subscriptions by remember { mutableStateOf(initial) }
     var selectedId by remember { mutableStateOf(prefs.getString("selected_server_id", null)) }
     var selectedSubId by remember { mutableStateOf(prefs.getString("selected_subscription_id", null)) }
     var pinnedSubId by remember { mutableStateOf(prefs.getString("pinned_sub_id", null)) }
@@ -669,36 +721,54 @@ fun HomeScreen(
         }
     }
 
-    var availableUpdate by remember { mutableStateOf<PhantomRelease?>(null) }
-    var otaChecking by remember { mutableStateOf(false) }
-    var otaDownload by remember { mutableStateOf(false) }
-    var otaDownloadJob by remember { mutableStateOf<Job?>(null) }
-    var otaProgress by remember { mutableIntStateOf(0) }
-    var otaSpeed by remember { mutableLongStateOf(0L) }
-    var otaTransferMode by remember { mutableStateOf("") }
-    var resumeInstallAfterPermission by remember { mutableStateOf(false) }
-    var otaFile by remember { mutableStateOf<File?>(null) }
-    var otaError by remember { mutableStateOf<String?>(null) }
-    var otaDismissed by remember { mutableStateOf(false) }
-    var showOtaSheet by remember { mutableStateOf(false) }
-    var otaMinimized by remember { mutableStateOf(false) }
+    var availableUpdate by OtaUiState.availableUpdate
+    var otaChecking by OtaUiState.otaChecking
+    var otaDownload by OtaUiState.otaDownload
+    var otaDownloadJob by OtaUiState.otaDownloadJob
+    var otaProgress by OtaUiState.otaProgress
+    var otaSpeed by OtaUiState.otaSpeed
+    var otaTransferMode by OtaUiState.otaTransferMode
+    var otaFile by OtaUiState.otaFile
+    var otaError by OtaUiState.otaError
+    var otaDismissed by OtaUiState.otaDismissed
+    var showOtaSheet by OtaUiState.showOtaSheet
+    var otaMinimized by OtaUiState.otaMinimized
     var openBackupFromOta by remember { mutableStateOf(false) }
-    // Only an explicit check from Settings may open the update sheet over Settings.
-    var otaManuallyRequested by remember { mutableStateOf(false) }
-    var lastOtaCheck by remember { mutableLongStateOf(0L) }
-    var lastOtaAttempt by remember { mutableLongStateOf(0L) }
-    var otaChannelEpoch by remember { mutableIntStateOf(0) }
+    var otaManuallyRequested by OtaUiState.otaManuallyRequested
+    var lastOtaCheck by OtaUiState.lastOtaCheck
+    var lastOtaAttempt by OtaUiState.lastOtaAttempt
+    var otaChannelEpoch by OtaUiState.otaChannelEpoch
+
+    val installerError by PhantomUpdateInstallReceiver.installError.collectAsState()
+    LaunchedEffect(installerError) {
+        if (installerError != null) {
+            otaError = installerError
+            if (availableUpdate != null && !showOtaSheet) otaMinimized = true
+        }
+    }
+    LaunchedEffect(refreshVersion, otaDownload) {
+        if (!otaDownload && otaDownloadJob?.isActive != true) {
+            try {
+                if (PhantomUpdates.resumePendingInstall(appContext)) otaError = null
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (error: Exception) {
+                PhantomUpdates.clearPendingInstall(appContext)
+                otaError = error.message ?: "Не удалось продолжить установку"
+            }
+        }
+    }
 
     // Retry after network failures on a later foreground, instead of suppressing OTA for six hours.
     LaunchedEffect(refreshVersion, otaChannelEpoch) {
         val requestEpoch = otaChannelEpoch
         val now = System.currentTimeMillis()
-        if (now - lastOtaCheck >= 6L * 60 * 60 * 1000L &&
+        if (!otaDownload && otaDownloadJob?.isActive != true &&
+            now - lastOtaCheck >= 6L * 60 * 60 * 1000L &&
             now - lastOtaAttempt >= 2L * 60 * 1000L) {
             lastOtaAttempt = now
             try {
                 val result = PhantomUpdates.check(context)
-                if (requestEpoch != otaChannelEpoch) return@LaunchedEffect
+                if (requestEpoch != otaChannelEpoch || otaDownloadJob?.isActive == true) return@LaunchedEffect
                 lastOtaCheck = System.currentTimeMillis()
                 if (result?.version != availableUpdate?.version) {
                     otaFile = null
@@ -759,69 +829,45 @@ fun HomeScreen(
             return
         }
         otaError = null
-        resumeInstallAfterPermission = false
-        otaDownloadJob = scope.launch {
+        PhantomUpdateInstallReceiver.installError.value = null
+        otaDownload = true
+        val requestEpoch = otaChannelEpoch
+        otaDownloadJob = OtaUiState.scope.launch {
             try {
-                val file = otaFile?.takeIf { it.exists() } ?: run {
-                    otaDownload = true
-                    otaProgress = 0
-                    otaSpeed = 0L
-                    otaTransferMode = ""
-                    PhantomUpdates.download(context, release,
-                        onProgress = { otaProgress = it },
-                        onSpeed = { otaSpeed = it },
-                        onStatus = { otaTransferMode = it })
-                        .also { otaFile = it }
-                }
-                // Protect against a channel change during the download.
+                otaProgress = 0
+                otaSpeed = 0L
+                otaTransferMode = ""
+                val file = PhantomUpdates.download(appContext, release,
+                    onProgress = { otaProgress = it },
+                    onSpeed = { otaSpeed = it },
+                    onStatus = { otaTransferMode = it })
+                if (requestEpoch != otaChannelEpoch) return@launch
+                otaFile = file
                 if (!PhantomUpdates.channelAllows(release,
-                        PhantomUpdates.selectedChannel(context))) {
+                        PhantomUpdates.selectedChannel(appContext))) {
                     otaError = "Канал обновлений изменён. Проверьте новую версию."
                     return@launch
                 }
-                val launched = PhantomUpdates.openInstaller(context, file)
-                if (!launched) {
-                    resumeInstallAfterPermission = true
-                    otaError = "Разрешите установку из Phantom — затем установка продолжится сама"
+                otaTransferMode = "Подготовка установки"
+                otaSpeed = 0L
+                val launched = PhantomUpdates.openInstaller(appContext, file, release)
+                if (!launched && requestEpoch == otaChannelEpoch) {
+                    otaError = if (!appContext.packageManager.canRequestPackageInstalls())
+                        "Разрешите установку из Phantom — затем установка продолжится сама"
+                    else "Вернитесь в Phantom для продолжения установки"
                 }
             } catch (_: CancellationException) {
-                otaError = "Загрузка остановлена. Можно скачать через браузер."
+                if (requestEpoch == otaChannelEpoch) otaError = "Загрузка остановлена. Можно продолжить."
             } catch (e: Exception) {
-                otaError = e.message ?: "Не удалось установить обновление"
+                if (requestEpoch == otaChannelEpoch) {
+                    otaFile = null
+                    otaError = e.message ?: "Не удалось установить обновление"
+                }
             } finally {
                 otaDownload = false
                 otaDownloadJob = null
             }
         }
-    }
-
-    // The first permission grant should not force the user to press Install twice.
-    // The APK has already been reconstructed and verified before this point.
-    val installLifecycle = (context as? LifecycleOwner)?.lifecycle
-    DisposableEffect(installLifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && resumeInstallAfterPermission &&
-                Build.VERSION.SDK_INT >= 26 &&
-                context.packageManager.canRequestPackageInstalls()) {
-                resumeInstallAfterPermission = false
-                val verified = otaFile?.takeIf { it.isFile }
-                if (verified != null && availableUpdate?.let {
-                        PhantomUpdates.channelAllows(it, PhantomUpdates.selectedChannel(context))
-                    } == true) {
-                    scope.launch {
-                        try {
-                            if (PhantomUpdates.openInstaller(context, verified)) {
-                                otaError = null
-                            }
-                        } catch (e: Exception) {
-                            otaError = e.message ?: "Не удалось открыть установщик"
-                        }
-                    }
-                }
-            }
-        }
-        installLifecycle?.addObserver(observer)
-        onDispose { installLifecycle?.removeObserver(observer) }
     }
 
     fun openUrl(url: String) {
@@ -950,7 +996,8 @@ fun HomeScreen(
                             importing = importBusy,
                             focusEpoch = refreshVersion,
                             modalVisible = showTvPairing || showImportMenu ||
-                                importMode != null || qrSource != null || activeSubMenu != null,
+                                importMode != null || qrSource != null || activeSubMenu != null ||
+                                (showOtaSheet && availableUpdate != null),
                             onToggle = {
                                 softTap()
                                 when {
@@ -1048,7 +1095,7 @@ fun HomeScreen(
                         otaDownloadJob?.cancel()
                         availableUpdate = null
                         otaFile = null
-                        resumeInstallAfterPermission = false
+                        PhantomUpdates.clearPendingInstall(appContext)
                         otaTransferMode = ""
                         showOtaSheet = false
                         otaMinimized = false
@@ -1059,7 +1106,7 @@ fun HomeScreen(
                         otaChannelEpoch++ // Fresh check; ignore the six-hour cache.
                     },
                     onBackupRestored = {
-                        applySubscriptions(store.read())
+                        scope.launch { reloadSubscriptions() }
                         selectedId = prefs.getString("selected_server_id", null)
                         selectedSubId = prefs.getString("selected_subscription_id", null)
                         pinnedSubId = prefs.getString("pinned_sub_id", null)
@@ -1070,7 +1117,7 @@ fun HomeScreen(
                         otaDownloadJob?.cancel()
                         availableUpdate = null
                         otaFile = null
-                        resumeInstallAfterPermission = false
+                        PhantomUpdates.clearPendingInstall(appContext)
                         otaTransferMode = ""
                         showOtaSheet = false
                         otaMinimized = false
@@ -1131,8 +1178,8 @@ fun HomeScreen(
             },
             onCancelDownload = {
                 otaDownloadJob?.cancel()
-                otaDownload = false
-                otaError = "Загрузка остановлена. Можно скачать через браузер."
+                PhantomUpdates.clearPendingInstall(appContext)
+                otaError = "Загрузка остановлена. Можно продолжить."
             },
         )
     }

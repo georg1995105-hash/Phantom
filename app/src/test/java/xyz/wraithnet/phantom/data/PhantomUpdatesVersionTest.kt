@@ -4,6 +4,52 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PhantomUpdatesVersionTest {
+    @Test fun automaticInstallRequiresConfirmedIdleVpn() {
+        assertTrue(PhantomUpdates.automaticInstallSafe("disconnected", true))
+        assertFalse(PhantomUpdates.automaticInstallSafe("disconnected", false))
+        listOf("starting", "connected", "degraded", "error", "unknown").forEach {
+            assertFalse(PhantomUpdates.automaticInstallSafe(it, true))
+        }
+    }
+
+    @Test fun deltaNetworkFailureIsDistinctFromInvalidPatch() {
+        assertTrue(PhantomUpdates.retryDeltaAfter(java.io.IOException("connection lost")))
+        assertTrue(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(503)))
+        assertTrue(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(429)))
+        assertFalse(PhantomUpdates.retryDeltaAfter(PhantomHttp.HttpStatusException(404)))
+        assertFalse(PhantomUpdates.retryDeltaAfter(IllegalArgumentException("invalid digest")))
+    }
+
+    @Test fun committedSessionWithoutConfirmationIsNotReportedSuccessful() {
+        // A process restart loses the transient Intent; user can still recover
+        // by abandoning an inactive orphan and restaging the VERIFIED APK.
+        assertTrue(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = false,
+            appInForeground = true, promptAllowed = true))
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = true, installerActive = false,
+            appInForeground = true, promptAllowed = true))
+        // Never race Android while an existing install is making progress.
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = true,
+            appInForeground = true, promptAllowed = true))
+        // A background/automatic update may not silently prompt or restage.
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = false,
+            appInForeground = false, promptAllowed = true))
+        assertFalse(PhantomUpdates.shouldRestageOrphanedInstallSession(
+            recoveredConfirmation = false, installerActive = false,
+            appInForeground = true, promptAllowed = false))
+    }
+
+    @Test fun cachedApkIsQualifiedByExactVersionAndFullDigest() {
+        val release = PhantomRelease("0.3.37", "", "a".repeat(64), 2000L, "")
+        assertEquals("phantom-0.3.37-" + "a".repeat(64) + ".apk", PhantomUpdates.cacheName(release))
+        assertNotEquals(PhantomUpdates.cacheName(release), PhantomUpdates.cacheName(release.copy(sha256 = "b".repeat(64))))
+        assertThrows(IllegalArgumentException::class.java) { PhantomUpdates.cacheName(release.copy(version = "../evil")) }
+        assertThrows(IllegalArgumentException::class.java) { PhantomUpdates.cacheName(release.copy(sha256 = "invalid")) }
+    }
+
     @Test fun allSupportedArchitecturesSelectExactlyOneUniversalOfficialApk() {
         val universal = "phantom-universal-release.apk"
         for (abis in listOf(listOf("arm64-v8a"), listOf("armeabi-v7a"),

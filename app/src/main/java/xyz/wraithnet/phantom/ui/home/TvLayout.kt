@@ -56,8 +56,12 @@ internal fun hasQrCamera(context: Context): Boolean {
 internal fun Modifier.tvFocusRing(shape: Shape = RoundedCornerShape(12.dp)): Modifier {
     if (!isTelevision()) return this
     var focused by remember { mutableStateOf(false) }
+    val c = MaterialTheme.colorScheme
     return onFocusChanged { focused = it.isFocused }.then(
-        if (focused) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, shape) else Modifier
+        // Two contrasting outlines stay visible on filled buttons, selected
+        // cards and the background, without changing control size or position.
+        if (focused) Modifier.border(2.dp, c.onSurface, shape).border(4.dp, c.surface, shape)
+        else Modifier
     )
 }
 

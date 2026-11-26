@@ -30,7 +30,7 @@ internal object ExitNetworkLookup {
     }
 
     suspend fun query(context: Context, profileRaw: String): Info? {
-        val route = ActiveVpnSubscriptionProxy.forProfile(profileRaw) ?: return null
+        val route = ActiveVpnSubscriptionProxy.forProfile(context, profileRaw) ?: return null
         return runCatching {
             PhantomHttp.get(
                 context = context,

@@ -432,7 +432,14 @@ object XrayConfigBuilder {
 
     private fun trojan(raw: String): JSONObject {
         val uri = ShareLinkCodec.endpointUri(raw)
-        val query = query(uri)
+        val query = query(uri).toMutableMap().apply {
+            // Trojan links default to TLS by protocol contract. Missing security
+            // must never silently become plaintext when using the shared builder.
+            if (this["security"].isNullOrBlank()) this["security"] = "tls"
+        }
+        require(query["security"]?.lowercase() in setOf("tls", "reality")) {
+            "Trojan требует TLS или REALITY"
+        }
         val outbound = JSONObject()
             .put("protocol", "trojan")
             .put("settings", JSONObject().put("servers", JSONArray().put(JSONObject()

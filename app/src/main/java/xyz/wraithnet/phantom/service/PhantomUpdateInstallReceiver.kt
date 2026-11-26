@@ -12,19 +12,46 @@ import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.os.Build
 import xyz.wraithnet.phantom.R
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** OS callback for an already verified self-update. */
 class PhantomUpdateInstallReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_RESULT = "xyz.wraithnet.phantom.UPDATE_INSTALL_RESULT"
         private const val CHANNEL = "phantom_updates"
+        @Volatile var isForeground = false
+            private set
+        private var pendingConfirmation: Intent? = null
+        private var confirmationDispatched = false
+        internal val installError = MutableStateFlow<String?>(null)
+
+        fun setForeground(context: Context, visible: Boolean) {
+            isForeground = visible
+            if (visible) openPendingConfirmation(context)
+        }
+
+        fun openPendingConfirmation(context: Context, force: Boolean = false): Boolean {
+            if (!isForeground) return false
+            val confirmation = pendingConfirmation ?: return false
+            if (confirmationDispatched && !force) return true
+            // Keep the OS-provided intent until a terminal result, so an explicit
+            // retry can reopen confirmation without staging another APK.
+            val opened = runCatching { context.startActivity(confirmation) }.isSuccess
+            if (opened) confirmationDispatched = true
+            return opened
+        }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_RESULT) return
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
         when (status) {
-            PackageInstaller.STATUS_SUCCESS -> Unit
+            PackageInstaller.STATUS_SUCCESS -> {
+                pendingConfirmation = null
+                confirmationDispatched = false
+                installError.value = null
+                context.getSystemService(NotificationManager::class.java).cancel(827)
+            }
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val confirmation = if (Build.VERSION.SDK_INT >= 33)
@@ -32,10 +59,18 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
                 else intent.getParcelableExtra(Intent.EXTRA_INTENT)
                 if (confirmation != null) {
                     confirmation.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    pendingConfirmation = confirmation
+                    confirmationDispatched = false
+                    openPendingConfirmation(context)
                     notifyUser(context, "Подтвердите обновление Phantom", confirmation)
                 }
             }
-            else -> notifyUser(context, "Не удалось установить обновление Phantom", null)
+            else -> {
+                pendingConfirmation = null
+                confirmationDispatched = false
+                installError.value = "Android не завершил установку (код $status). Можно повторить установку."
+                notifyUser(context, "Не удалось установить обновление Phantom", null)
+            }
         }
     }
 
@@ -46,7 +81,6 @@ class PhantomUpdateInstallReceiver : BroadcastReceiver() {
         )
         if (Build.VERSION.SDK_INT >= 33 &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            confirmation?.let { runCatching { context.startActivity(it) } }
             return
         }
         val action = confirmation?.let {
