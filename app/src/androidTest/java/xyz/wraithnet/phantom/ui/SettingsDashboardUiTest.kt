@@ -29,7 +29,11 @@ class SettingsDashboardUiTest {
                 }
                 fun open(label: String) {
                     val target = hasText(label) and hasClickAction()
-                    compose.onNode(hasScrollAction()).performScrollToNode(target)
+                    if (compose.onAllNodes(target).fetchSemanticsNodes().isEmpty()) {
+                        compose.onNode(hasScrollAction()).performScrollToNode(target)
+                    } else {
+                        compose.onNode(target).performScrollTo()
+                    }
                     compose.awaitVisible(target).performClick()
                 }
                 fun see(label: String) {
@@ -55,14 +59,20 @@ class SettingsDashboardUiTest {
                 open("Туннелирование")
                 see("Приложения и VPN")
                 back()
+                compose.onAllNodesWithText("Тактильная отдача").assertCountEquals(0)
                 open("Фоновая работа")
                 see("Работа при выключенном экране")
+                see("К настройкам")
+                compose.onAllNodesWithText("Подключение").assertCountEquals(0)
                 back()
                 open("Резервная копия")
                 see("Сохранить резервную копию")
                 see("Восстановить из файла")
                 back()
                 open("О приложении")
+                see("К настройкам")
+                see("Проверить обновление приложения")
+                compose.onAllNodesWithText("Подключение").assertCountEquals(0)
                 open("Компоненты и лицензии")
                 see("ВОЗМОЖНОСТИ КЛИЕНТА")
                 back()
