@@ -106,12 +106,7 @@ class MainActivity : ComponentActivity() {
             val preferences = remember { getSharedPreferences("phantom_preferences", MODE_PRIVATE) }
             var theme by remember {
                 mutableStateOf(
-                    runCatching {
-                        PhantomThemeMode.valueOf(
-                            preferences.getString("theme", PhantomThemeMode.FOREST.name)
-                                ?: PhantomThemeMode.FOREST.name
-                        )
-                    }.getOrDefault(PhantomThemeMode.FOREST)
+                    PhantomThemeMode.fromStored(preferences.getString("theme", null))
                 )
             }
             val lightBars = theme == PhantomThemeMode.LIGHT ||

@@ -22,7 +22,7 @@ object PhantomBackup {
     )
     private val booleanKeys = setOf(
         "keep_active", "fragmentation_enabled", "connect_on_boot", PhantomHttp.DNS_FALLBACK_KEY,
-        "auto_apk_updates", PhantomUpdates.BETA_UPDATES_PREF, "auto_tuic_ping"
+        "auto_apk_updates", PhantomUpdates.BETA_UPDATES_PREF, "auto_tuic_ping", "haptic_feedback"
     )
     private const val TIMEOUT_KEY = "ping_timeout_seconds"
     private val setKeys = listOf("app_route_packages", "favorite_servers")

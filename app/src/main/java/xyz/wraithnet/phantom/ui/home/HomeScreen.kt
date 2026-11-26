@@ -14,6 +14,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import org.json.JSONObject
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -102,6 +103,7 @@ import xyz.wraithnet.phantom.data.SubscriptionQuickImport
 import xyz.wraithnet.phantom.data.SubscriptionStore
 import xyz.wraithnet.phantom.service.PhantomVpnService
 import xyz.wraithnet.phantom.ui.theme.PhantomThemeMode
+import xyz.wraithnet.phantom.ui.theme.SettingsIconAccent
 import xyz.wraithnet.phantom.ui.theme.phantomPageBrush
 import xyz.wraithnet.phantom.ui.theme.phantomPageTop
 import java.text.SimpleDateFormat
@@ -185,7 +187,10 @@ fun HomeScreen(
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
-    fun softTap() = haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    var hapticsEnabled by remember { mutableStateOf(prefs.getBoolean("haptic_feedback", true)) }
+    fun softTap() {
+        if (hapticsEnabled) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
     LaunchedEffect(snackbar.currentSnackbarData) {
         if (snackbar.currentSnackbarData != null) {
             delay(1650L)
@@ -1088,6 +1093,11 @@ fun HomeScreen(
                 }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
+                    hapticsEnabled = hapticsEnabled,
+                    onHapticsChange = { enabled ->
+                        hapticsEnabled = enabled
+                        prefs.edit().putBoolean("haptic_feedback", enabled).apply()
+                    },
                     openBackupRequest = openBackupFromOta,
                     onBackupRequestHandled = { openBackupFromOta = false },
                     onCheckAppUpdate = ::checkAppUpdateNow,
@@ -1111,8 +1121,8 @@ fun HomeScreen(
                         selectedSubId = prefs.getString("selected_subscription_id", null)
                         pinnedSubId = prefs.getString("pinned_sub_id", null)
                         favorites = prefs.getStringSet("favorite_servers", emptySet()).orEmpty().toSet()
-                        runCatching { PhantomThemeMode.valueOf(prefs.getString("theme", "FOREST") ?: "FOREST") }
-                            .getOrNull()?.let(onThemeChange)
+                        onThemeChange(PhantomThemeMode.fromStored(prefs.getString("theme", null)))
+                        hapticsEnabled = prefs.getBoolean("haptic_feedback", true)
                         PhantomAutoUpdateWorker.schedule(context.applicationContext)
                         otaDownloadJob?.cancel()
                         availableUpdate = null
@@ -1643,15 +1653,15 @@ private fun PhantomSettings(
     onCheckAppUpdate: () -> Unit,
     onUpdateChannelChanged: () -> Unit,
     onBackupRestored: () -> Unit,
+    hapticsEnabled: Boolean,
+    onHapticsChange: (Boolean) -> Unit,
     openBackupRequest: Boolean = false,
     onBackupRequestHandled: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("phantom_preferences", Context.MODE_PRIVATE) }
     var mode by remember {
-        mutableStateOf(runCatching {
-            PhantomThemeMode.valueOf(prefs.getString("theme", "FOREST") ?: "FOREST")
-        }.getOrDefault(PhantomThemeMode.FOREST))
+        mutableStateOf(PhantomThemeMode.fromStored(prefs.getString("theme", null)))
     }
     var keepActive by remember { mutableStateOf(prefs.getBoolean("keep_active", false)) }
     var bootConnect by remember { mutableStateOf(prefs.getBoolean(VpnBootPolicy.PREF_KEY, false)) }
@@ -2083,6 +2093,24 @@ private fun PhantomSettings(
                     }
                 }
             }
+            if (!tv) item(key = "settings-haptics") {
+                val c = MaterialTheme.colorScheme
+                Surface(shape = RoundedCornerShape(20.dp), color = c.surface,
+                    border = BorderStroke(1.dp, c.outline.copy(alpha = .55f))) {
+                    Row(Modifier.fillMaxWidth()
+                        .toggleable(value = hapticsEnabled, role = Role.Switch, onValueChange = onHapticsChange)
+                        .padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        SettingsTileIcon(Icons.Default.Vibration)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Тактильная отдача", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Text("Лёгкая вибрация при действиях", color = c.onSurfaceVariant, fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Switch(checked = hapticsEnabled, onCheckedChange = null)
+                    }
+                }
+            }
         }
     }
 }
@@ -2105,9 +2133,21 @@ private fun SettingsTileRow(twoColumns: Boolean, first: @Composable () -> Unit, 
 @Composable
 private fun SettingsTileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     val c = MaterialTheme.colorScheme
+    val accent = when (icon) {
+        Icons.Default.Tune -> SettingsIconAccent.CONNECTION
+        Icons.Default.Palette -> SettingsIconAccent.THEME
+        Icons.Default.PowerSettingsNew -> SettingsIconAccent.QUICK_ACCESS
+        Icons.Default.Layers -> SettingsIconAccent.ROUTING
+        Icons.Default.BatteryStd -> SettingsIconAccent.BACKGROUND
+        Icons.Default.Backup -> SettingsIconAccent.BACKUP
+        Icons.Default.Info -> SettingsIconAccent.ABOUT
+        Icons.Default.Refresh -> SettingsIconAccent.AUTOCONNECT
+        else -> null
+    }
+    val tint by animateColorAsState(accent?.color(c) ?: c.primary, label = "settings icon")
     Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(c.surfaceVariant),
         contentAlignment = Alignment.Center) {
-        Icon(icon, null, Modifier.size(25.dp), tint = c.primary)
+        Icon(icon, null, Modifier.size(25.dp), tint = tint)
     }
 }
 

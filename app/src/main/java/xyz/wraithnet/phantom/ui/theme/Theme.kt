@@ -18,7 +18,27 @@ enum class PhantomThemeMode(val title: String) {
     LIGHT("Светлая"),
     GRAPHITE("Графит"),
     NIGHT("Тёмно-синяя"),
-    FOREST("Тёмно-зелёная"),
+    FOREST("Тёмно-зелёная");
+    companion object {
+        fun fromStored(value: String?): PhantomThemeMode =
+            entries.firstOrNull { it.name == value } ?: AUTO
+    }
+}
+
+// Settings accents deliberately affect only the glyph, not the tile or its shape.
+// Dark and light variants maintain contrast against each theme's surfaceVariant.
+internal enum class SettingsIconAccent(val dark: Color, val light: Color) {
+    CONNECTION(Color(0xFFA4C8EB), Color(0xFF244C70)),
+    THEME(Color(0xFFC9B6DF), Color(0xFF5A3C78)),
+    QUICK_ACCESS(Color(0xFFE4C085), Color(0xFF725010)),
+    ROUTING(Color(0xFF8ED1D6), Color(0xFF176065)),
+    BACKGROUND(Color(0xFFACD4A2), Color(0xFF315E39)),
+    BACKUP(Color(0xFF9CCBEC), Color(0xFF20547B)),
+    ABOUT(Color(0xFFC1CCD7), Color(0xFF394A58)),
+    AUTOCONNECT(Color(0xFF9FD3BD), Color(0xFF216052));
+
+    fun color(scheme: ColorScheme): Color =
+        if (scheme.surfaceVariant.luminance() > .5f) light else dark
 }
 
 // The AUTO palette intentionally differs from GRAPHITE and NIGHT on dark devices.
