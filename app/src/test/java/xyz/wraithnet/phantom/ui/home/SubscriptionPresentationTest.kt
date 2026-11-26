@@ -2,6 +2,8 @@ package xyz.wraithnet.phantom.ui.home
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import xyz.wraithnet.phantom.data.Subscription
 import org.junit.Test
 
@@ -77,6 +79,25 @@ class SubscriptionPresentationTest {
             source = "https://example.org/b", servers = emptyList())
         assertEquals("Общий · 1", subscriptionDisplayName(first, listOf(first, second)))
         assertEquals("Общий · 2", subscriptionDisplayName(second, listOf(first, second)))
+    }
+
+    @Test fun devicePortalLinkRequiresStrictFirstPartySubscriptionUrl() {
+        assertTrue(supportsDeviceManagement("https://sub2.wraithnet.xyz/demo123"))
+        assertTrue(supportsDeviceManagement("https://sub2.wraithnet.xyz/demo123/json"))
+        assertFalse(supportsDeviceManagement("http://sub2.wraithnet.xyz/demo123"))
+        assertFalse(supportsDeviceManagement("https://sub2.wraithnet.xyz.evil.test/demo123"))
+        assertFalse(supportsDeviceManagement("https://sub2.wraithnet.xyz:8443/demo123"))
+        assertFalse(supportsDeviceManagement("https://example.org/demo123"))
+        assertFalse(supportsDeviceManagement("vless://key@example.org:443"))
+    }
+
+    @Test fun perUserSubscriptionTitleIsNeverHardcoded() {
+        val admin = Subscription(id = "admin", title = "Phantom VPN — ADMIN",
+            source = "https://sub2.wraithnet.xyz/admin", servers = emptyList())
+        val guest = Subscription(id = "guest", title = "Phantom VPN — Клиент",
+            source = "https://sub2.wraithnet.xyz/guest", servers = emptyList())
+        assertEquals("Phantom VPN — ADMIN", subscriptionDisplayName(admin, listOf(admin, guest)))
+        assertEquals("Phantom VPN — Клиент", subscriptionDisplayName(guest, listOf(admin, guest)))
     }
 
 }
