@@ -5,6 +5,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ThemePaletteTest {
+    @Test fun freshInstallUsesAutoAndExplicitChoicesSurvive() {
+        assertEquals(PhantomThemeMode.AUTO, PhantomThemeMode.fromStored(null))
+        assertEquals(PhantomThemeMode.AUTO, PhantomThemeMode.fromStored("invalid"))
+        for (mode in PhantomThemeMode.entries) assertEquals(mode, PhantomThemeMode.fromStored(mode.name))
+    }
+
+    @Test fun settingsGlyphsAreDistinctAndReadableInEveryPalette() {
+        for (mode in PhantomThemeMode.entries) for (dark in listOf(false, true)) {
+            val scheme = themeScheme(mode, dark)
+            val bg = scheme.surfaceVariant.luminance()
+            val accents = SettingsIconAccent.entries.map { it.color(scheme) }
+            assertEquals(SettingsIconAccent.entries.size, accents.distinct().size)
+            for (accent in accents) {
+                val fg = accent.luminance()
+                assertTrue("$mode settings icon contrast", (maxOf(fg, bg) + .05f) / (minOf(fg, bg) + .05f) >= 3f)
+            }
+        }
+    }
+
     @Test fun subscriptionPanelHasConsistentDepthAndReadableValues() {
         for (mode in PhantomThemeMode.entries) {
             for (dark in listOf(false, true)) {

@@ -2,6 +2,8 @@ package xyz.wraithnet.phantom.ui.home
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.rotate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -312,7 +314,7 @@ internal fun ConnectionImportActions(
         if (!hasSubscriptions) {
             Text(if (onTvPair != null)
                 "Отсканируйте QR-код телевизора в Phantom на телефоне или введите ссылку."
-                else "Добавьте подписку или ключ через меню.",
+                else "Скопируйте ссылку подписки, затем нажмите «Добавить подписку или ключ».",
                 modifier = Modifier.padding(bottom = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center, color = c.onSurfaceVariant)
@@ -424,11 +426,12 @@ internal fun ServersPage(
     val ownListState = rememberLazyListState()
     LazyColumn(
         state = listState ?: ownListState,
-        contentPadding = PaddingValues(horizontal = if (tv) 8.dp else 16.dp, vertical = 6.dp),
+        contentPadding = PaddingValues(start = if (tv) 8.dp else 16.dp,
+            end = if (tv) 8.dp else 16.dp, top = 6.dp, bottom = 12.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         if (header != null) item(key = "combined-home") { header() }
-        if (groups.isEmpty()) item {
+        if (groups.isEmpty() && header == null) item {
             Text("Добавьте подписку или ключ, чтобы увидеть серверы", Modifier.padding(12.dp))
         }
         groups.forEach { (owner, servers) ->
@@ -452,8 +455,10 @@ internal fun ServersPage(
                             }.semantics {
                                 contentDescription = (if (show) "Свернуть" else "Раскрыть") + " подписку " + name
                             }, verticalAlignment = Alignment.CenterVertically) {
-                            Icon(if (show) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-                                null, Modifier.padding(horizontal = 6.dp).size(18.dp), tint = c.primary)
+                            val angle by animateFloatAsState(if (show) 90f else 0f, tween(150),
+                                label = "subscription expansion")
+                            Icon(Icons.Default.ChevronRight, null,
+                                Modifier.padding(horizontal = 6.dp).size(18.dp).rotate(angle), tint = c.primary)
                             Text(name, modifier = Modifier.weight(1f),
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -512,14 +517,17 @@ internal fun ServersPage(
                 val remembered = owner.id != selected?.first?.id && owner.selectedServerId == server.id
                 Column(Modifier.groupSurface(first = single, last = index == servers.lastIndex)) {
                     if (!single) HorizontalDivider(color = c.outline.copy(alpha = .22f))
-                    Row(Modifier.fillMaxWidth().background(when {
+                    val rowColor by animateColorAsState(when {
                         chosen -> c.primary.copy(alpha = .12f)
                         remembered -> c.primary.copy(alpha = .06f)
                         else -> Color.Transparent
-                    })
+                    }, tween(150), label = "server selection")
+                    val marker by animateColorAsState(if (chosen) c.primary else Color.Transparent,
+                        tween(150), label = "server marker")
+                    Row(Modifier.fillMaxWidth().background(rowColor)
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (chosen) Spacer(Modifier.width(3.dp).height(24.dp)
-                            .background(c.primary, RoundedCornerShape(2.dp)))
+                        Spacer(Modifier.width(3.dp).height(24.dp)
+                            .background(marker, RoundedCornerShape(2.dp)))
                         Row(Modifier.weight(1f).heightIn(min = if (tv) 48.dp else 54.dp).tvFocusRing().combinedClickable(
                                 onClick = { choose(owner, server) },
                                 onLongClickLabel = "Открыть JSON конфигурации",

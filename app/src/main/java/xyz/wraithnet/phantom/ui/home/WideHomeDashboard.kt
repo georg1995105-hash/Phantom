@@ -1,6 +1,9 @@
 package xyz.wraithnet.phantom.ui.home
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.rotate
 import xyz.wraithnet.phantom.ui.theme.powerCenter
 import xyz.wraithnet.phantom.ui.theme.powerMiddle
 import xyz.wraithnet.phantom.ui.theme.powerEdge
@@ -267,7 +270,8 @@ internal fun WideHomeDashboard(
                 color = scheme.surfaceVariant.copy(alpha = .38f),
                 shape = RoundedCornerShape(15.dp)
             ) {
-                Text("Добавьте подписку или ключ, чтобы появились серверы.",
+                Text(if (tv) "Добавьте подписку с телефона по QR-коду или введите ссылку."
+                    else "Скопируйте ссылку подписки, затем нажмите «Добавить подписку или ключ».",
                     modifier = Modifier.fillMaxWidth().padding(17.dp),
                     color = scheme.onSurfaceVariant)
             }
@@ -303,9 +307,10 @@ internal fun WideHomeDashboard(
                                     .padding(start = 7.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(if (visible) Icons.Default.ExpandMore
-                                    else Icons.Default.ChevronRight, null,
-                                    modifier = Modifier.size(20.dp), tint = scheme.primary)
+                                val angle by animateFloatAsState(if (visible) 90f else 0f,
+                                    tween(150), label = "wide subscription expansion")
+                                Icon(Icons.Default.ChevronRight, null,
+                                    modifier = Modifier.size(20.dp).rotate(angle), tint = scheme.primary)
                                 Spacer(Modifier.width(7.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text(title, fontWeight = FontWeight.SemiBold,
@@ -424,13 +429,16 @@ internal fun WideHomeDashboard(
                                 val active = selected?.first?.id == owner.id &&
                                     selected?.second?.id == server.id
                                 val shape = RoundedCornerShape(13.dp)
+                                val selectionColor by animateColorAsState(
+                                    if (active) scheme.primaryContainer.copy(alpha = .40f)
+                                    else if (tv) scheme.surface else Color.Transparent,
+                                    tween(150), label = "wide server selection")
                                 Surface(
                                     shape = if (tv) shape else RectangleShape,
                                     border = if (tv) BorderStroke(if (active) 2.dp else 1.dp,
                                         if (active) scheme.primary.copy(alpha = .7f)
                                         else scheme.outline.copy(alpha = .24f)) else null,
-                                    color = if (active) scheme.primaryContainer.copy(alpha = .40f)
-                                        else if (tv) scheme.surface else Color.Transparent,
+                                    color = selectionColor,
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Row(Modifier.fillMaxWidth().heightIn(min = if (tv) 59.dp else 58.dp),
