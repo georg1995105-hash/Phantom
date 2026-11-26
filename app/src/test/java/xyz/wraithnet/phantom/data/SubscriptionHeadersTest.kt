@@ -5,6 +5,17 @@ import org.junit.Test
 import java.util.Base64
 
 class SubscriptionHeadersTest {
+    @Test fun firstPartyPersonalizedLabelRejectsUnknownOrUnsafeHeaders() {
+        fun encoded(text: String): String = "base64:" +
+            Base64.getEncoder().encodeToString(text.toByteArray(Charsets.UTF_8))
+        assertEquals("Phantom VPN — ADMIN", SubscriptionHeaders.decodeAccountTitle(encoded("Phantom VPN — ADMIN")))
+        assertEquals("Phantom VPN — Клиент", SubscriptionHeaders.decodeAccountTitle(encoded(" Phantom VPN — Клиент ")))
+        for (invalid in listOf(null, "Phantom VPN — ADMIN", "base64:!!!", encoded("{{USERNAME}}"),
+            encoded("Phantom VPN\nAdmin"), encoded("X".repeat(150)))) {
+            assertNull(SubscriptionHeaders.decodeAccountTitle(invalid))
+        }
+    }
+
     @Test fun providerAnnounceIsDecodedAndCanBeRemoved() {
         val announce = "Объявление провайдера: подписка обновлена"
         val encoded = Base64.getEncoder().encodeToString(announce.toByteArray(Charsets.UTF_8))

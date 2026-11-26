@@ -81,6 +81,17 @@ class SubscriptionPresentationTest {
         assertEquals("Общий · 2", subscriptionDisplayName(second, listOf(first, second)))
     }
 
+    @Test fun personalizedAccountNameAffectsOnlyAccountPageNotHomeServerTitle() {
+        val sub = Subscription(id = "s", title = "🛡️ Phantom VPN",
+            accountTitle = "Phantom VPN — ADMIN",
+            source = "https://sub2.wraithnet.xyz/demo123", servers = emptyList())
+        assertEquals("Phantom VPN — ADMIN", subscriptionAccountLabel(sub))
+        assertEquals("🛡️ Phantom VPN", subscriptionDisplayName(sub, listOf(sub)))
+        val external = sub.copy(source = "https://example.org/sub", title = "Other")
+        assertEquals("Other", subscriptionAccountLabel(external))
+        assertEquals("🛡️ Phantom VPN", subscriptionAccountLabel(sub.copy(accountTitle = null)))
+    }
+
     @Test fun devicePortalLinkRequiresStrictFirstPartySubscriptionUrl() {
         assertTrue(supportsDeviceManagement("https://sub2.wraithnet.xyz/demo123"))
         assertTrue(supportsDeviceManagement("https://sub2.wraithnet.xyz/demo123/json"))

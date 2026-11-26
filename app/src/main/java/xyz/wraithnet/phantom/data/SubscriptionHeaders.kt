@@ -2,6 +2,24 @@ package xyz.wraithnet.phantom.data
 
 /** Decodes the optional standard profile-title response header, plain or base64 encoded. */
 object SubscriptionHeaders {
+    /**
+     * First-party subscription-tab label, not a second profile-title.
+     * Rejects plain text, malformed bytes and unreplaced templates. The existing
+     * profile-title remains untouched for all other VPN clients and the Home tab.
+     */
+    fun decodeAccountTitle(value: String?): String? {
+        val raw = value?.trim()?.takeIf {
+            it.startsWith("base64:", ignoreCase = true) && it.length <= 1024
+        } ?: return null
+        val decoded = runCatching { ShareLinkCodec.base64Text(raw.substringAfter(':')) }
+            .getOrNull()?.trim() ?: return null
+        return decoded.takeIf {
+            it.length in 1..96 && !it.contains("\uFFFD") &&
+                !it.contains("{{") && !it.contains("}}") &&
+                it.none { ch -> ch.isISOControl() }
+        }
+    }
+
     /** Provider announcement is optional and may be Base64 encoded. "0" removes it. */
     fun decodeAnnouncement(value: String?): String? {
         val raw = value?.trim()?.takeIf { it.isNotBlank() && it != "0" } ?: return null

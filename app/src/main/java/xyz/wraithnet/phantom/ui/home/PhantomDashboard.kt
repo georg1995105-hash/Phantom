@@ -1025,6 +1025,13 @@ internal fun subscriptionAccessSnapshot(sub: Subscription, nowSeconds: Long): Su
     return SubscriptionAccessSnapshot(days, used, limit, progress)
 }
 
+/** This page alone uses the optional first-party account name from the server. */
+internal fun subscriptionAccountLabel(sub: Subscription): String =
+    if (supportsDeviceManagement(sub.source)) sub.accountTitle?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title
+    else sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title
+
 @Composable
 private fun SubscriptionAccessSummary(sub: Subscription) {
     val colors = MaterialTheme.colorScheme
@@ -1056,7 +1063,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                 color = colors.onSurfaceVariant)
             Spacer(Modifier.height(5.dp))
-            Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
+            Text(subscriptionAccountLabel(sub),
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 maxLines = if (tv) 8 else 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
