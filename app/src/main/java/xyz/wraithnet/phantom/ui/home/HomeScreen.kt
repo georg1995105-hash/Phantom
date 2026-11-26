@@ -1660,6 +1660,9 @@ private fun PhantomSettings(
 
     var showThemeGallery by rememberSaveable { mutableStateOf(false) }
     var tileMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(tileMessage) {
+        if (tileMessage != null) { delay(3000L); tileMessage = null }
+    }
     var fragment by remember { mutableStateOf(FragmentationOptions.load(context)) }
     var fragmentMessage by remember { mutableStateOf<String?>(null) }
     var showLog by remember { mutableStateOf(false) }
@@ -2087,7 +2090,7 @@ private fun SettingsTileRow(twoColumns: Boolean, first: @Composable () -> Unit, 
 }
 
 @Composable
-private fun SettingsTileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun SettingsTileIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, compact: Boolean = false) {
     val c = MaterialTheme.colorScheme
     val accent = when (icon) {
         Icons.Default.Tune -> SettingsIconAccent.CONNECTION
@@ -2101,9 +2104,9 @@ private fun SettingsTileIcon(icon: androidx.compose.ui.graphics.vector.ImageVect
         else -> null
     }
     val tint by animateColorAsState(accent?.color(c) ?: c.primary, label = "settings icon")
-    Box(Modifier.size(44.dp).clip(RoundedCornerShape(13.dp)).background(c.surfaceVariant),
+    Box(Modifier.size(if (compact) 36.dp else 44.dp).clip(RoundedCornerShape(13.dp)).background(c.surfaceVariant),
         contentAlignment = Alignment.Center) {
-        Icon(icon, null, Modifier.size(25.dp), tint = tint)
+        Icon(icon, null, Modifier.size(if (compact) 22.dp else 25.dp), tint = tint)
     }
 }
 
@@ -2132,7 +2135,7 @@ private fun SettingsTile(
                 tint = c.onSurfaceVariant, modifier = Modifier.size(18.dp))
         } else Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SettingsTileIcon(icon)
+                SettingsTileIcon(icon, compact = true)
                 Spacer(Modifier.weight(1f))
                 Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ChevronRight, null,
                     tint = c.onSurfaceVariant, modifier = Modifier.size(17.dp))
@@ -2165,8 +2168,10 @@ private fun AboutSettings(
     val logFocus = remember { FocusRequester() }
     var componentsHasFocus by remember { mutableStateOf(false) }
     var logHasFocus by remember { mutableStateOf(false) }
+    val tv = isTelevision()
     LaunchedEffect(focusOnReturn) {
         if (focusOnReturn.isBlank()) return@LaunchedEffect
+        if (!tv) { onFocusRestored(); return@LaunchedEffect }
         repeat(16) {
             withFrameNanos { }
             runCatching {
@@ -2207,9 +2212,9 @@ private fun AboutSettings(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
             Row(
-                Modifier.fillMaxWidth().tvFocusRing().clickable {
-                    onToggleAuto(!autoApkUpdates)
-                }.padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth().tvFocusRing().toggleable(
+                    value = autoApkUpdates, role = Role.Switch, onValueChange = onToggleAuto
+                ).padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
@@ -2222,9 +2227,9 @@ private fun AboutSettings(
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
             Row(
-                Modifier.fillMaxWidth().tvFocusRing().clickable {
-                    onToggleBeta(!betaApkUpdates)
-                }.padding(horizontal = 18.dp, vertical = 12.dp),
+                Modifier.fillMaxWidth().tvFocusRing().toggleable(
+                    value = betaApkUpdates, role = Role.Switch, onValueChange = onToggleBeta
+                ).padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
