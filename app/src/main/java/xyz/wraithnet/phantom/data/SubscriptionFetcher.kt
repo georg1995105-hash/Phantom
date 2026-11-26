@@ -19,6 +19,7 @@ data class DownloadedSubscription(
     val announcement: String? = null,
     val supportUrl: String? = null,
     val webPageUrl: String? = null,
+    val accountTitle: String? = null,
 )
 
 object SubscriptionFetcher {
@@ -92,6 +93,10 @@ object SubscriptionFetcher {
                 else SubscriptionHeaders.safeHttpUrl(response.header("support-url")),
             webPageUrl = if (response.header("profile-web-page-url") == null) previous?.webPageUrl
                 else SubscriptionHeaders.safeHttpUrl(response.header("profile-web-page-url")),
+            accountTitle = if (usesProviderJson(url))
+                SubscriptionHeaders.decodeAccountTitle(response.header("x-phantom-profile-name"))
+                    ?: previous?.accountTitle
+                else null,
         )
     }
 

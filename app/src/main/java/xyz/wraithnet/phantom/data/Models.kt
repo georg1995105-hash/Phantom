@@ -27,6 +27,8 @@ data class Subscription(
     val announcement: String? = null,
     val supportUrl: String? = null,
     val webPageUrl: String? = null,
+    /** Optional verified first-party display label, shown only in the Subscription tab. */
+    val accountTitle: String? = null,
 )
 
 data class SubscriptionInfo(

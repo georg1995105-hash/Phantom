@@ -380,7 +380,8 @@ fun HomeScreen(
                     expiresAt = downloaded?.expiresAt,
                     announcement = downloaded?.announcement,
                     supportUrl = downloaded?.supportUrl,
-                    webPageUrl = downloaded?.webPageUrl
+                    webPageUrl = downloaded?.webPageUrl,
+                    accountTitle = downloaded?.accountTitle
                 )
                 persist { current ->
                     require(current.none { it.source.trim() == source }) {
@@ -571,7 +572,8 @@ fun HomeScreen(
                 expiresAt = remote.expiresAt,
                 announcement = remote.announcement,
                 supportUrl = remote.supportUrl,
-                webPageUrl = remote.webPageUrl
+                webPageUrl = remote.webPageUrl,
+                accountTitle = remote.accountTitle ?: item.accountTitle
             )
             persist { current ->
                 // Fail the manual action if its owner was deleted or its URL
@@ -1085,7 +1087,10 @@ fun HomeScreen(
                         }
                     }
                 }
-                Destination.SUBSCRIPTIONS -> SubscriptionPage(currentSubscription = selectedMatch?.first) {
+                Destination.SUBSCRIPTIONS -> SubscriptionPage(
+                    currentSubscription = selectedMatch?.first,
+                    openDevices = { openUrl("https://go.veor.pro/?devices=1") }
+                ) {
                     openUrl("https://go.veor.pro/")
                 }
                 Destination.SETTINGS -> PhantomSettings(

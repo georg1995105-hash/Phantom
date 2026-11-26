@@ -1025,6 +1025,13 @@ internal fun subscriptionAccessSnapshot(sub: Subscription, nowSeconds: Long): Su
     return SubscriptionAccessSnapshot(days, used, limit, progress)
 }
 
+/** This page alone uses the optional first-party account name from the server. */
+internal fun subscriptionAccountLabel(sub: Subscription): String =
+    if (supportsDeviceManagement(sub.source)) sub.accountTitle?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title
+    else sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title
+
 @Composable
 private fun SubscriptionAccessSummary(sub: Subscription) {
     val colors = MaterialTheme.colorScheme
@@ -1056,7 +1063,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                 color = colors.onSurfaceVariant)
             Spacer(Modifier.height(5.dp))
-            Text(sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title,
+            Text(subscriptionAccountLabel(sub),
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 maxLines = if (tv) 8 else 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
@@ -1090,9 +1097,49 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
     }
 }
 
+/** The customer portal is available only for our own subscriptions, never imported third-party links. */
+internal fun supportsDeviceManagement(source: String): Boolean =
+    SubscriptionFetcher.usesProviderJson(source)
+
 @Composable
-internal fun SubscriptionPage(currentSubscription: Subscription? = null, openShop: () -> Unit) {
+private fun DeviceManagementEntry(onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(14.dp)
+    Surface(
+        modifier = Modifier.fillMaxWidth()
+            .tvFocusRing(shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Управление подключёнными устройствами" },
+        shape = shape,
+        color = colors.surfaceVariant.copy(alpha = .37f),
+        border = BorderStroke(1.dp, colors.outline.copy(alpha = .28f)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Devices, null, tint = colors.primary,
+                modifier = Modifier.size(21.dp))
+            Spacer(Modifier.width(12.dp))
+            Text("Подключённые устройства", modifier = Modifier.weight(1f),
+                fontWeight = FontWeight.Medium, fontSize = 14.sp)
+            Icon(Icons.Default.ChevronRight, null,
+                tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+@Composable
+internal fun SubscriptionPage(
+    currentSubscription: Subscription? = null,
+    openDevices: (() -> Unit)? = null,
+    openShop: () -> Unit
+) {
+    val colors = MaterialTheme.colorScheme
+    val devicesAction = openDevices?.takeIf {
+        currentSubscription != null && supportsDeviceManagement(currentSubscription.source)
+    }
     if (isTelevision()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -1107,6 +1154,9 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                         fontWeight = FontWeight.SemiBold)
                     if (currentSubscription != null) {
                         SubscriptionAccessSummary(currentSubscription)
+                        devicesAction?.let {
+                            DeviceManagementEntry(onClick = it)
+                        }
                     } else {
                         Text("Подписка не выбрана. Добавьте свою ссылку или оформите доступ.",
                             color = colors.onSurfaceVariant)
@@ -1148,6 +1198,10 @@ internal fun SubscriptionPage(currentSubscription: Subscription? = null, openSho
                 Column(Modifier.padding(11.dp)) {
                     if (currentSubscription != null) {
                         SubscriptionAccessSummary(currentSubscription)
+                        devicesAction?.let {
+                            Spacer(Modifier.height(9.dp))
+                            DeviceManagementEntry(onClick = it)
+                        }
                     } else {
                         Surface(color = colors.surfaceVariant.copy(alpha = .30f),
                             shape = RoundedCornerShape(14.dp)) {
