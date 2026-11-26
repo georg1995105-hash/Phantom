@@ -1085,7 +1085,10 @@ fun HomeScreen(
                         }
                     }
                 }
-                Destination.SUBSCRIPTIONS -> SubscriptionPage(currentSubscription = selectedMatch?.first) {
+                Destination.SUBSCRIPTIONS -> SubscriptionPage(
+                    currentSubscription = selectedMatch?.first,
+                    openDevices = { openUrl("https://go.veor.pro/?devices=1") }
+                ) {
                     openUrl("https://go.veor.pro/")
                 }
                 Destination.SETTINGS -> PhantomSettings(
