@@ -32,6 +32,7 @@ object SubscriptionDevicesApi {
     data class Snapshot(
         val title: String, val count: Int, val limit: Int?,
         val canDelete: Boolean, val devices: List<Device>,
+        val sessionsRefreshed: Boolean? = null,
     )
     internal fun shortUuid(source: String): String? =
         if (SubscriptionFetcher.usesProviderJson(source))
@@ -100,6 +101,7 @@ object SubscriptionDevicesApi {
         require(count == devices.size) { "Список устройств изменился. Обновите его." }
         val title = root.optString("title").trim().take(100).ifBlank { "Phantom VPN" }
         return Snapshot(title, count, root.optInt("limit").takeIf { it > 0 },
-            root.optBoolean("delete_enabled", false), devices)
+            root.optBoolean("delete_enabled", false), devices,
+            root.optBoolean("sessions_refreshed").takeIf { root.has("sessions_refreshed") })
     }
 }
