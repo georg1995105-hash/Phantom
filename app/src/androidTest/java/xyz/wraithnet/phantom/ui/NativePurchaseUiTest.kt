@@ -18,16 +18,20 @@ class NativePurchaseUiTest {
     private class Store : PurchaseClient {
         var purchases = 0
         var recovered = false
+        var expectRenewal = false
         var draft: JSONObject? = null
         val catalog = JSONObject("""{"sales_enabled":true,"payment_available":true,"cards":[],"plans":[{"id":27,"name":"Проверочный тариф","devices":8,"traffic_gb":987,"durations":[{"days":45,"amount":"349.00"}]}]}""")
         override suspend fun sync() = catalog
+        override suspend fun renewal(source: String) = JSONObject().put("access_id","owned").put("plan_id",27)
         override suspend fun recover(code: String): JSONObject {
             assertEquals("a".repeat(64),code); recovered = true
             return JSONObject().put("access_id","recovered")
         }
         override suspend fun checkout(plan: JSONObject,duration: JSONObject,aid: String?,renew: Boolean): JSONObject {
             assertEquals(27,plan.getInt("id")); assertEquals("349.00",duration.getString("amount"))
-            assertNull(aid); assertFalse(renew); purchases++; draft = JSONObject()
+            assertEquals(expectRenewal,renew)
+            if (expectRenewal) assertEquals("owned",aid) else assertNull(aid)
+            purchases++; draft = JSONObject()
             return JSONObject().put("access_id","owned").put("status","PENDING")
         }
         override fun pending() = draft
@@ -46,6 +50,14 @@ class NativePurchaseUiTest {
         compose.onNodeWithText("Пароль").assertDoesNotExist()
         compose.onNodeWithText("Электронная почта").assertDoesNotExist()
         compose.onNodeWithText("Подписка добавлена. Можно подключаться к VPN.").assertDoesNotExist()
+    }
+    @Test fun importedSubscriptionRenewsItsOriginalOwner() {
+        val store = Store().apply { expectRenewal = true }
+        compose.setContent { MaterialTheme { NativePurchaseScreen({},store,renewSource="https://sub2.wraithnet.xyz/abcdefgh12345678") } }
+        compose.waitUntil(5000) { compose.onAllNodesWithText("Продление подписки").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(isToggleable()).performScrollTo().performClick()
+        compose.onNodeWithText("Оплатить · 349.00 ₽").performScrollTo().assertIsEnabled().performClick()
+        compose.waitUntil(5000) { store.purchases == 1 }
     }
     @Test fun guestRecoveryIsAnIndependentAction() {
         val store = Store()

@@ -22,6 +22,7 @@ import org.json.JSONObject
 /** Existing Remnashop guest checkout and financial state; no on-device payment verdict. */
 internal interface PurchaseClient {
     suspend fun sync(): JSONObject
+    suspend fun renewal(source: String): JSONObject
     suspend fun recover(code: String): JSONObject
     suspend fun checkout(plan: JSONObject, duration: JSONObject, aid: String?, renew: Boolean): JSONObject
     fun pending(): JSONObject?
@@ -63,9 +64,10 @@ internal class NativeStore(context: Context) : PurchaseClient {
             }
         }).build()
 
-    private suspend fun request(path: String, body: JSONObject? = null): JSONObject = withContext(Dispatchers.IO) {
+    private suspend fun request(path: String, body: JSONObject? = null, bearer: String? = null): JSONObject = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(BASE + path)
             .header("Cache-Control", "no-store").header("User-Agent", "Phantom-Android")
+        if (bearer != null) builder.header("Authorization", "Bearer $bearer")
         if (body == null) builder.get() else builder
             .header("Origin", "https://go.veor.pro").header("X-Phantom-CSRF", csrf)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
@@ -110,6 +112,23 @@ internal class NativeStore(context: Context) : PurchaseClient {
         }
         if (recovered) data = bootstrap()
         data
+    }
+    override suspend fun renewal(source: String): JSONObject = operation.withLock {
+        val bearer = SubscriptionDevicesApi.shortUuid(source)
+            ?: throw IOException("Эта подписка не поддерживает продление в Phantom.")
+        bootstrap()
+        val fingerprint = java.security.MessageDigest.getInstance("SHA-256").digest(source.toByteArray())
+            .joinToString("") { "%02x".format(it.toInt() and 255) }
+        val code = vault.read().optJSONObject("renewal_codes")?.optString(fingerprint).orEmpty()
+            .ifBlank { PurchaseVault.newCode().also { value ->
+                vault.update { root ->
+                    val codes = root.optJSONObject("renewal_codes") ?: JSONObject()
+                    codes.put(fingerprint,value); root.put("renewal_codes",codes)
+                }
+            } }
+        val result = request("/native/renewal", JSONObject().put("recovery_code",code), bearer)
+        if (result.optBoolean("recovery_code_accepted")) saveRecovery(result.getString("access_id"),code)
+        result
     }
     override suspend fun recover(code: String): JSONObject = operation.withLock {
         bootstrap()

@@ -29,7 +29,7 @@ import xyz.wraithnet.phantom.data.PurchaseClient
 import xyz.wraithnet.phantom.data.objects
 
 @Composable
-internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refreshVersion: Int = 0, copySubscription: (String) -> Unit = {}) {
+internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refreshVersion: Int = 0, renewSource: String? = null, copySubscription: (String) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tv = isTelevision()
@@ -44,6 +44,7 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
     var selectedPlan by rememberSaveable { mutableIntStateOf(0) }
     var selectedDays by rememberSaveable { mutableIntStateOf(0) }
     var access by rememberSaveable { mutableStateOf<String?>(null) }
+    var renewalPlan by remember(renewSource) { mutableStateOf<Int?>(null) }
     var payment by remember { mutableStateOf<JSONObject?>(null) }
     var paymentUrl by remember { mutableStateOf<String?>(null) }
     var paying by remember { mutableStateOf<String?>(null) }
@@ -81,6 +82,19 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
             try { block() }
             catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) { failure = e.message ?: "Не удалось выполнить действие. Повторите проверку." }
+            finally { busy = false }
+        }
+    }
+    LaunchedEffect(renewSource) {
+        if (renewSource != null) {
+            busy = true
+            try {
+                val result = client.renewal(renewSource)
+                access = result.getString("access_id"); renewalPlan = result.getInt("plan_id")
+                selectedPlan = result.getInt("plan_id"); selectedDays = 0
+                refresh()
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (e: Exception) { failure = e.message ?: "Не удалось получить условия продления." }
             finally { busy = false }
         }
     }
@@ -145,14 +159,14 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
                     }
                 }
                 val chosenCard = cards.firstOrNull { it.optString("access_id") == access }
-                val renewing = chosenCard?.optJSONObject("subscription") != null
+                val renewing = renewSource != null || chosenCard?.optJSONObject("subscription") != null
                 if (renewing) {
                     Text("Продление подписки", style = MaterialTheme.typography.titleMedium)
-                    TextButton(onClick = { access = null }, enabled = !busy && client.pending() == null,
+                    TextButton(onClick = { if (renewSource != null) back() else access = null }, enabled = !busy && client.pending() == null,
                         modifier = Modifier.tvFocusRing()) { Text("Купить новую") }
                 }
                 val plans = catalog?.optJSONArray("plans")?.objects().orEmpty().filter {
-                    !renewing || it.getInt("id") == chosenCard?.optJSONObject("subscription")?.optInt("plan_id")
+                    !renewing || it.getInt("id") == (renewalPlan ?: chosenCard?.optJSONObject("subscription")?.optInt("plan_id"))
                 }
                 val plan = plans.firstOrNull { it.getInt("id") == selectedPlan } ?: plans.firstOrNull()
                 plans.forEach { item ->
@@ -189,7 +203,7 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
                     TextButton(onClick = { legalPage = "https://go.veor.pro/legal/privacy.txt" }, modifier = Modifier.tvFocusRing()) { Text("Конфиденциальность") }
                 }
                 Button(enabled = !busy && plan != null && duration != null && accepted &&
-                    catalog?.optBoolean("sales_enabled") == true && catalog?.optBoolean("payment_available") == true,
+                    (renewSource == null || renewalPlan != null) && catalog?.optBoolean("sales_enabled") == true && catalog?.optBoolean("payment_available") == true,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing(), onClick = {
                         action {
                             val result = client.checkout(plan!!, duration!!, if (renewing) access else null, renewing)

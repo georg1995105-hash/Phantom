@@ -157,6 +157,7 @@ fun HomeScreen(
     val store = remember { SubscriptionStore(appContext) }
     val purchaseStore = remember { xyz.wraithnet.phantom.data.NativeStore(appContext) }
     var showPurchase by rememberSaveable { mutableStateOf(false) }
+    var renewPurchaseId by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(refreshVersion) {
         try {
             if (purchaseStore.pending() != null) purchaseStore.sync()
@@ -1121,7 +1122,8 @@ fun HomeScreen(
                         subscriptions.firstOrNull { it.id == id }
                     }?.takeIf { SubscriptionDevicesApi.supports(it.source) }
                     if (showPurchase) {
-                        NativePurchaseScreen(back = { showPurchase = false }, client = purchaseStore,
+                        NativePurchaseScreen(back = { showPurchase = false; renewPurchaseId = null }, client = purchaseStore,
+                            renewSource = subscriptions.firstOrNull { it.id == renewPurchaseId }?.source,
                             refreshVersion = refreshVersion,
                             copySubscription = { copyLink(it, "Подписка скопирована") })
                     } else if (deviceOwner != null) {
@@ -1146,7 +1148,7 @@ fun HomeScreen(
                                 onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
-                        SubscriptionPage { showPurchase = true }
+                        SubscriptionPage { renewPurchaseId = null; showPurchase = true }
                     }
                 }
                 Destination.SETTINGS -> PhantomSettings(
@@ -1490,6 +1492,13 @@ fun HomeScreen(
                             sub.servers.size == 1 -> "Ключ скопирован"
                             else -> "Конфигурация скопирована"
                         })
+                    }
+                    if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Продлить подписку", Icons.Default.ShoppingCart) {
+                        activeSubMenu = null
+                        managingDevicesFor = null
+                        renewPurchaseId = sub.id
+                        showPurchase = true
+                        tab = Destination.SUBSCRIPTIONS
                     }
                     if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Мои устройства", Icons.Default.Devices) {
                         activeSubMenu = null
