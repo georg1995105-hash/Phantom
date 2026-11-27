@@ -131,7 +131,7 @@ class PhantomQuickTileService : TileService() {
         val snapshot = VpnRuntimeBridge.snapshot(this)
         val state = snapshot.status
         val running = snapshot.running
-        tile.label = "Phantom VPN"
+        tile.label = "Phantom"
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_phantom)
         tile.state = when {
             !snapshot.available -> Tile.STATE_UNAVAILABLE
@@ -165,14 +165,14 @@ class PhantomQuickTileService : TileService() {
         /** The tile can also be added manually from Android's Edit tiles screen. */
         fun offerToAdd(context: Context, onResult: (String) -> Unit) {
             if (Build.VERSION.SDK_INT < 33) {
-                onResult("Откройте редактирование шторки и добавьте плитку Phantom VPN")
+                onResult("Откройте редактирование шторки и добавьте плитку Phantom")
                 return
             }
             try {
                 val manager = context.getSystemService(StatusBarManager::class.java)
                 manager.requestAddTileService(
                     ComponentName(context, PhantomQuickTileService::class.java),
-                    "Phantom VPN",
+                    "Phantom",
                     Icon.createWithResource(context, R.drawable.ic_stat_phantom),
                     context.mainExecutor
                 ) { code ->
@@ -183,7 +183,7 @@ class PhantomQuickTileService : TileService() {
                             "Плитка Phantom уже добавлена"
                         StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED ->
                             "Плитка не добавлена. Её можно добавить через редактирование шторки."
-                        else -> "Откройте редактирование быстрых настроек и найдите Phantom VPN"
+                        else -> "Откройте редактирование быстрых настроек и найдите Phantom"
                     })
                 }
             } catch (_: Exception) {

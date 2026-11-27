@@ -53,7 +53,7 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
     val exportCode = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) runCatching {
             context.contentResolver.openOutputStream(uri)?.use {
-                it.write(("Phantom VPN — код восстановления\n\n" + displayedCode +
+                it.write(("Phantom — код восстановления\n\n" + displayedCode +
                     "\n\nВведите в Phantom → Купить подписку → Восстановить покупку.\nХраните в тайне.\n").toByteArray())
             } ?: error("Не удалось сохранить файл")
         }.onFailure { failure = "Не удалось сохранить код. Повторите сохранение." }

@@ -347,7 +347,7 @@ fun HomeScreen(
         }
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         // Android 13+: suppress plaintext previews of VPN secrets in the system clipboard.
-        val clip = ClipData.newPlainText("Phantom VPN", value)
+        val clip = ClipData.newPlainText("Phantom", value)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             clip.description.extras = PersistableBundle().apply {
                 putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
@@ -2280,7 +2280,7 @@ private fun AboutSettings(
             fontWeight = FontWeight.SemiBold)
         Panel {
             Column(Modifier.fillMaxWidth().padding(18.dp)) {
-                Text("PHANTOM VPN", style = MaterialTheme.typography.titleLarge,
+                Text("PHANTOM", style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
                 Text("Версия ${version}",

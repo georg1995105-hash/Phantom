@@ -10,6 +10,37 @@ import org.junit.runner.RunWith
 /** Real SharedPreferences recovery and serializable UI/Worker mutations. */
 @RunWith(AndroidJUnit4::class)
 class SubscriptionStoreSafetyTest {
+    @Test fun legacySnapshotsMigrateToKeystoreWithoutChangingProfilesOrSettings() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val context = object : android.content.ContextWrapper(base) {
+            override fun getSharedPreferences(name: String,mode: Int) = super.getSharedPreferences("secure-migration-$name",mode)
+        }
+        val prefs = context.getSharedPreferences("phantom_data",Context.MODE_PRIVATE)
+        val legacy = """[{"id":"old-owner","title":"Legacy","source":"https://example.invalid/private-subscription","servers":[{"id":"old-server","name":"Node","scheme":"vless","raw":"vless://00000000-0000-0000-0000-000000000001@example.invalid:443"}],"customTitle":"My subscription","selectedServerId":"old-server"}]"""
+        prefs.edit().clear().putString("subscriptions",legacy).putString("subscriptions_previous",legacy)
+            .putString("device_id","same-device").commit()
+        try {
+            val before = SubscriptionStore(context).read()
+            assertEquals("old-owner",before.single().id)
+            assertEquals("My subscription",before.single().customTitle)
+            for (key in listOf("subscriptions","subscriptions_previous")) {
+                val stored = prefs.getString(key,"")!!
+                assertTrue(SubscriptionCipher.isEncrypted(stored))
+                assertFalse(stored.contains("private-subscription"))
+                assertFalse(stored.contains("vless://"))
+            }
+            assertEquals(before,SubscriptionStore(context).read())
+            assertEquals("same-device",SubscriptionStore(context).deviceId())
+            // Authentication detects altered ciphertext and recovers the last valid snapshot.
+            val cipherText = prefs.getString("subscriptions","")!!
+            val prefix = "encrypted:v1:"
+            val blob = android.util.Base64.decode(cipherText.removePrefix(prefix),android.util.Base64.NO_WRAP)
+            blob[blob.lastIndex] = (blob.last().toInt() xor 1).toByte()
+            prefs.edit().putString("subscriptions",prefix+android.util.Base64.encodeToString(blob,android.util.Base64.NO_WRAP)).commit()
+            assertEquals(before,SubscriptionStore(context).read())
+        } finally { prefs.edit().clear().commit() }
+    }
+
     @Test fun previousSnapshotRecoversCorruptCurrentWithoutDiscardingEverySubscription() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("phantom_data", Context.MODE_PRIVATE)

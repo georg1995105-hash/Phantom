@@ -33,7 +33,7 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             // Signing done separately in CI (apksigner), so release APK is unsigned
             signingConfig = null
             proguardFiles(

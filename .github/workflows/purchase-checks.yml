@@ -51,7 +51,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest,xyz.wraithnet.phantom.ui.SubscriptionStorefrontUiTest,xyz.wraithnet.phantom.ui.home.TvSubscriptionTextUiTest,xyz.wraithnet.phantom.data.PurchaseVaultTest :app:connectedDebugAndroidTest
+            ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest,xyz.wraithnet.phantom.ui.SubscriptionStorefrontUiTest,xyz.wraithnet.phantom.ui.home.TvSubscriptionTextUiTest,xyz.wraithnet.phantom.data.PurchaseVaultTest,xyz.wraithnet.phantom.data.SubscriptionStoreSafetyTest,xyz.wraithnet.phantom.data.PhantomBackupRestoreTest :app:connectedDebugAndroidTest
             adb shell wm size 1920x1200
             adb shell wm density 240
             ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest :app:connectedDebugAndroidTest
