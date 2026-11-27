@@ -6,14 +6,20 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -33,8 +40,10 @@ import org.json.JSONObject
 import xyz.wraithnet.phantom.data.NativeStore
 import xyz.wraithnet.phantom.data.PurchaseClient
 import xyz.wraithnet.phantom.data.PurchaseOfferChanged
+import xyz.wraithnet.phantom.data.RenewalUnavailable
 import xyz.wraithnet.phantom.data.objects
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun NativePurchaseScreen(
     back: () -> Unit,
@@ -42,8 +51,13 @@ internal fun NativePurchaseScreen(
     refreshVersion: Int = 0,
     renewSource: String? = null,
     renewTitle: String? = null,
+    onRenewalUnavailable: ((String) -> Unit)? = null,
     copySubscription: (String) -> Unit = {},
+    accessCard: (@Composable () -> Unit)? = null,
+    openShop: (() -> Unit)? = null,
 ) {
+    val embedded = accessCard != null
+    val termHeading = remember { BringIntoViewRequester() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tv = isTelevision()
@@ -70,7 +84,7 @@ internal fun NativePurchaseScreen(
         if (uri != null) runCatching {
             context.contentResolver.openOutputStream(uri)?.use {
                 it.write(("Phantom — код восстановления\n\n" + displayedCode +
-                    "\n\nВ Phantom откройте Подписка → Купить подписку или В магазин → Восстановить покупку.\nХраните в тайне.\n").toByteArray())
+                    "\n\nВ Phantom откройте Подписка → Восстановить покупку.\nХраните в тайне.\n").toByteArray())
             } ?: error("Не удалось сохранить файл")
         }.onFailure { failure = "Не удалось сохранить код. Повторите сохранение." }
     }
@@ -114,7 +128,9 @@ internal fun NativePurchaseScreen(
             catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) {
                 failure = e.message ?: "Не удалось выполнить действие. Повторите проверку."
-                if (e is PurchaseOfferChanged) {
+                if (e is RenewalUnavailable && onRenewalUnavailable != null) {
+                    onRenewalUnavailable(e.message.orEmpty())
+                } else if (e is PurchaseOfferChanged) {
                     payment = null; paymentUrl = null
                     if (renewSource != null) {
                         renewalPlan = null
@@ -123,6 +139,7 @@ internal fun NativePurchaseScreen(
                     accepted = false
                     try { loadOffers() }
                     catch (cancel: CancellationException) { throw cancel }
+                    catch (unavailable: RenewalUnavailable) { onRenewalUnavailable?.invoke(unavailable.message.orEmpty()) }
                     catch (_: Exception) { /* Keep the quote error and retry with the next refresh. */ }
                 }
             }
@@ -153,6 +170,9 @@ internal fun NativePurchaseScreen(
             catch (e: Exception) { failure = e.message ?: "Подтверждение задерживается. Повторите проверку." }
         }
     }
+    LaunchedEffect(selectedPlan) {
+        if (embedded && selectedPlan != 0) termHeading.bringIntoView()
+    }
     if (paying != null) {
         InAppPayment(paying!!, saveRecovery = if (displayedCode.isBlank()) null else ({ exportCode.launch("Phantom-recovery.txt") })) {
             paying = null; checking++
@@ -164,20 +184,26 @@ internal fun NativePurchaseScreen(
         return
     }
     val leave = { if (recovering) recovering = false else back() }
-    BackHandler(onBack = leave)
+    BackHandler(enabled = !embedded || recovering, onBack = leave)
     val cards = catalog?.optJSONArray("cards")?.objects().orEmpty()
     val chosenCard = cards.firstOrNull { it.optString("access_id") == access }
     val renewing = renewSource != null || access != null
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = leave, modifier = Modifier.tvFocusRing()) { Text("Назад") }
-                Text(when {
-                    recovering -> "Восстановить покупку"
-                    pending != null -> "Сохранённый счёт"
-                    renewing -> "Продление подписки"
-                    else -> "Купить подписку"
-                }, style = MaterialTheme.typography.titleLarge)
+            if (!embedded || recovering) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = leave, modifier = Modifier.tvFocusRing()) { Text("Назад") }
+                    Text(when {
+                        recovering -> "Восстановить покупку"
+                        pending != null -> "Сохранённый счёт"
+                        renewing -> "Продление подписки"
+                        else -> "Купить подписку"
+                    }, style = MaterialTheme.typography.titleLarge)
+                }
+            } else {
+                accessCard?.invoke()
+                Text(if (pending != null) "Сохранённый счёт" else "Тарифы",
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             failure?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -214,10 +240,10 @@ internal fun NativePurchaseScreen(
                 } else {
                     if (renewSource != null) {
                         renewTitle?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    } else if (!renewing) {
+                    } else if (!embedded && !renewing) {
                         Text("Без регистрации, почты и пароля", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (renewSource == null) cards.forEach { card ->
+                    if (!embedded && renewSource == null) cards.forEach { card ->
                         val id = card.getString("access_id")
                         val sub = card.optJSONObject("subscription")
                         if (sub != null) TextButton(onClick = { copySubscription(sub.getString("url")) }, modifier = Modifier.tvFocusRing()) { Text("Скопировать подписку") }
@@ -247,7 +273,8 @@ internal fun NativePurchaseScreen(
                     val plans = catalog?.optJSONArray("plans")?.objects().orEmpty().filter {
                         !renewing || it.getInt("id") == (renewalPlan ?: chosenCard?.optJSONObject("subscription")?.optInt("plan_id"))
                     }
-                    val plan = plans.firstOrNull { it.getInt("id") == selectedPlan } ?: plans.firstOrNull()
+                    val plan = plans.firstOrNull { it.getInt("id") == selectedPlan }
+                        ?: if (embedded) null else plans.firstOrNull()
                     if (plans.isNotEmpty()) {
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val columns = if (maxWidth >= 560.dp && plans.size > 1) 2 else 1
@@ -275,7 +302,8 @@ internal fun NativePurchaseScreen(
                     val duration = durations.firstOrNull { it.getInt("days") == selectedDays } ?: durations.firstOrNull()
                     if (durations.isNotEmpty()) {
                         Column(Modifier.selectableGroup()) {
-                            Text("Срок подписки", style = MaterialTheme.typography.titleSmall)
+                            Text("Срок подписки", Modifier.bringIntoViewRequester(termHeading),
+                                style = MaterialTheme.typography.titleSmall)
                             durations.forEach { item ->
                                 val selected = item === duration
                                 val shape = MaterialTheme.shapes.small
@@ -288,7 +316,7 @@ internal fun NativePurchaseScreen(
                                 ) {
                                     RadioButton(selected = selected, onClick = null, enabled = !busy)
                                     Text("${item.getInt("days")} дней", Modifier.weight(1f))
-                                    Text("${item.getString("amount")} ₽", style = MaterialTheme.typography.labelLarge)
+                                    Text(priceLabel(item.getString("amount")), style = MaterialTheme.typography.labelLarge)
                                 }
                             }
                         }
@@ -306,7 +334,7 @@ internal fun NativePurchaseScreen(
                             catalog?.optBoolean("sales_enabled") == true && catalog?.optBoolean("payment_available") == true,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing(), onClick = {
                                 action { showPayment(client.checkout(plan, duration, if (renewing) access else null, renewing)) }
-                            }) { Text("Оплатить · ${duration.getString("amount")} ₽") }
+                            }) { Text("Оплатить · ${priceLabel(duration.getString("amount"))}") }
                     }
                 }
                 if (tv && paymentUrl != null && pending != null) {
@@ -333,6 +361,13 @@ internal fun NativePurchaseScreen(
                 if (renewSource == null) {
                     TextButton(onClick = { recovering = true }, modifier = Modifier.tvFocusRing()) { Text("Восстановить покупку") }
                 }
+                openShop?.let {
+                    TextButton(onClick = it, modifier = Modifier.tvFocusRing()) {
+                        Text("В магазин")
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.NorthEast, null, Modifier.size(16.dp))
+                    }
+                }
             }
             if (displayedCode.isNotBlank()) {
                 Text("Код восстановления", style = MaterialTheme.typography.titleMedium)
@@ -344,6 +379,8 @@ internal fun NativePurchaseScreen(
         }
     }
 }
+
+private fun priceLabel(amount: String): String = "${amount.removeSuffix(".00").replace('.', ',')} ₽"
 
 @Composable
 private fun PurchasePlanCard(
@@ -368,17 +405,32 @@ private fun PurchasePlanCard(
         contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface,
         border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(plan.getString("name"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                if (selectable) RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(plan.getString("name"), Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                startingTerm?.let {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(priceLabel(it.getString("amount")),
+                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("за ${it.getInt("days")} дн.", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
             Text("Устройств: ${plan.getInt("devices")} · ${plan.getInt("traffic_gb")} ГБ / месяц",
                 color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium)
-            startingTerm?.let {
-                val amount = it.getString("amount").removeSuffix(".00").replace('.', ',')
-                Text("$amount ₽ за ${it.getInt("days")} дн.", style = MaterialTheme.typography.titleSmall)
+            if (selectable) {
+                HorizontalDivider(color = colors.outlineVariant.copy(alpha = .65f))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (selected) "Тариф выбран" else "Выбрать срок", Modifier.weight(1f),
+                        color = colors.primary, style = MaterialTheme.typography.labelLarge)
+                    if (!selected) Icon(Icons.Default.ChevronRight, null, Modifier.size(20.dp), tint = colors.primary)
+                }
             }
         }
     }

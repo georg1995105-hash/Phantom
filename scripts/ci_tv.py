@@ -332,7 +332,7 @@ if not page_size_16k:
         assert any(n.get("text") == item for n in nodes()), "Missing TV navigation label: " + item
     screenshot("00-navigation-full-labels")
     tap("Вкладка Подписка")
-    wait_label("Купить подписку")
+    wait_label("Тарифы")
     screenshot("00-subscription-access")
     tap("Вкладка Настройки")
     wait_label("Подключение")
