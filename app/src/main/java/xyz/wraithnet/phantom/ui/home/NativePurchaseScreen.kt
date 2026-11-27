@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import xyz.wraithnet.phantom.data.NativeStore
 import xyz.wraithnet.phantom.data.PurchaseClient
+import xyz.wraithnet.phantom.data.PurchaseOfferChanged
 import xyz.wraithnet.phantom.data.objects
 
 @Composable
@@ -81,7 +82,15 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
         scope.launch {
             try { block() }
             catch (cancel: CancellationException) { throw cancel }
-            catch (e: Exception) { failure = e.message ?: "Не удалось выполнить действие. Повторите проверку." }
+            catch (e: Exception) {
+                failure = e.message ?: "Не удалось выполнить действие. Повторите проверку."
+                if (e is PurchaseOfferChanged) {
+                    payment = null; paymentUrl = null
+                    try { refresh() }
+                    catch (cancel: CancellationException) { throw cancel }
+                    catch (_: Exception) { /* Keep the quote error and retry with the next refresh. */ }
+                }
+            }
             finally { busy = false }
         }
     }

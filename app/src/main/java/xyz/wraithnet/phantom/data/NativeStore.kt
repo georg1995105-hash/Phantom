@@ -29,7 +29,11 @@ internal interface PurchaseClient {
     fun recoveryCode(access: String? = null): String
 }
 
-internal class NativeStore(context: Context) : PurchaseClient {
+internal class PurchaseOfferChanged(message: String) : IOException(message)
+
+internal class NativeStore(context: Context,
+    configureHttp: OkHttpClient.Builder.() -> Unit = {},
+) : PurchaseClient {
     private val app = context.applicationContext
     private val vault = PurchaseVault(app)
     private var csrf = ""
@@ -62,7 +66,7 @@ internal class NativeStore(context: Context) : PurchaseClient {
                     root.put("cookies", saved)
                 }
             }
-        }).build()
+        }).apply(configureHttp).build()
 
     private suspend fun request(path: String, body: JSONObject? = null, bearer: String? = null): JSONObject = withContext(Dispatchers.IO) {
         val builder = Request.Builder().url(BASE + path)
@@ -75,6 +79,9 @@ internal class NativeStore(context: Context) : PurchaseClient {
             val text = response.body?.let { PhantomHttp.readUtf8Limited(it.byteStream(), 512 * 1024) }.orEmpty()
             val result = runCatching { JSONObject(text) }.getOrNull()
             if (!response.isSuccessful) {
+                // Only this explicit server verdict is guaranteed to precede invoice dispatch.
+                if (result?.optString("reason") == "QUOTE_CHANGED")
+                    throw PurchaseOfferChanged("Тариф изменился. Выберите актуальные условия и повторите оплату.")
                 val fallback = when (response.code) {
                     401 -> "Доступ истёк. Введите код восстановления."
                     429 -> "Подождите немного и повторите действие."
@@ -152,12 +159,19 @@ internal class NativeStore(context: Context) : PurchaseClient {
             val saved = draft
             vault.update { it.put("draft", saved) }
         }
-        val prepared = request("/prepare", requireNotNull(draft))
-        val access = prepared.getString("access_id")
-        draft.optString("recovery_code").takeIf { it.isNotBlank() }?.let { saveRecovery(access, it) }
-        val iid = prepared.getString("intent_id")
-        vault.update { it.put("pending_intent", iid) }
-        request("/intents/$iid/checkout", JSONObject())
+        try {
+            val prepared = request("/prepare", requireNotNull(draft))
+            val access = prepared.getString("access_id")
+            draft.optString("recovery_code").takeIf { it.isNotBlank() }?.let { saveRecovery(access, it) }
+            val iid = prepared.getString("intent_id")
+            vault.update { it.put("pending_intent", iid) }
+            request("/intents/$iid/checkout", JSONObject())
+        } catch (changed: PurchaseOfferChanged) {
+            // Never discard an uncertain network/provider outcome. QUOTE_CHANGED
+            // is emitted by native quote validation before creating any invoice.
+            vault.update { it.remove("draft"); it.remove("pending_intent") }
+            throw changed
+        }
     }
     suspend fun state(iid: String): JSONObject = request("/intents/${UUID.fromString(iid)}")
     override suspend fun sync(): JSONObject = syncing.withLock {
