@@ -42,7 +42,7 @@ class NativeDevicesUiTest {
                         deletes++
                         snapshot = snapshot.copy(
                             devices = snapshot.devices.filterNot { it.id == id },
-                            count = 1)
+                            count = 1, sessionsRefreshed = true)
                         snapshot
                     }
                 )
@@ -53,14 +53,14 @@ class NativeDevicesUiTest {
         }
         compose.onNodeWithText("Phantom VPN — ADMIN").assertExists()
         compose.onNodeWithText("vivo V2514").assertExists()
-        compose.onAllNodesWithText("Отключить устройство").onFirst().performClick()
-        compose.onNodeWithText("Отключить устройство?").assertExists()
+        compose.onAllNodesWithText("Удалить устройство").onFirst().performClick()
+        compose.onNodeWithText("Удалить устройство?").assertExists()
         compose.onNodeWithText("Отмена").performClick()
         compose.runOnIdle { assertEquals(0, deletes) }
-        compose.onAllNodesWithText("Отключить устройство").onFirst().performClick()
-        compose.onNodeWithText("Отключить", useUnmergedTree = true).performClick()
+        compose.onAllNodesWithText("Удалить устройство").onFirst().performClick()
+        compose.onNodeWithText("Удалить", useUnmergedTree = true).performClick()
         compose.waitUntil(5000) {
-            compose.onAllNodesWithText("Устройство отключено. Место освобождено.")
+            compose.onAllNodesWithText("Устройство удалено.")
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.runOnIdle { assertEquals(1, deletes) }
@@ -68,4 +68,85 @@ class NativeDevicesUiTest {
         compose.onNodeWithContentDescription("Назад").performClick()
         compose.runOnIdle { assertEquals(1, back) }
     }
+
+    @Test fun cachedListAndBulkRemovalUseOneConfirmedRequest() {
+        val sub = Subscription(id = "manual", title = "Phantom VPN",
+            source = "https://sub2.wraithnet.xyz/abcdefgh12345678", servers = emptyList())
+        val devices = (1..19).map { index ->
+            SubscriptionDevicesApi.Device(
+                id = index.toString(16).padStart(64, '0'), platform = "Android",
+                model = "Device " + index, osVersion = "16", app = "Phantom",
+                addedAt = null, seenAt = null, current = index == 19)
+        }
+        val snapshot = SubscriptionDevicesApi.Snapshot(
+            title = "Phantom VPN — ADMIN", count = devices.size, limit = null,
+            canDelete = true, devices = devices, canDeleteAll = true)
+        var bulk = 0
+        var singles = 0
+        compose.setContent {
+            MaterialTheme {
+                NativeDevicesScreen(sub, "local-id-phantom", back = {},
+                    initialSnapshot = snapshot,
+                    initialLoad = { _, _ -> snapshot },
+                    load = { _, _ -> snapshot },
+                    remove = { _, _, _ -> singles++; error("Unexpected single removal") },
+                    removeAll = { source, _, ids ->
+                        assertEquals(sub.source, source)
+                        assertEquals(devices.map { it.id }, ids)
+                        bulk++
+                        snapshot.copy(count = 0, devices = emptyList(), sessionsRefreshed = true)
+                    })
+            }
+        }
+        compose.onNodeWithText("Phantom VPN — ADMIN").assertExists()
+        compose.onNodeWithText("Удалить все устройства").performClick()
+        compose.onNodeWithText("Удалить все устройства?").assertExists()
+        compose.onNodeWithText("Отмена").performClick()
+        compose.runOnIdle { assertEquals(0, bulk) }
+        compose.onNodeWithText("Удалить все устройства").performClick()
+        compose.onNodeWithText("Удалить", useUnmergedTree = true).performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Все устройства удалены.").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.runOnIdle {
+            assertEquals(1, bulk)
+            assertEquals(0, singles)
+        }
+        compose.onNodeWithText("В этой подписке пока нет зарегистрированных устройств.").assertExists()
+        compose.onNodeWithText("Удалить все устройства").assertDoesNotExist()
+    }
+    @Test fun failedRefreshDoesNotDisableConfirmedDevices() {
+        val sub = Subscription(id = "manual", title = "Phantom VPN",
+            source = "https://sub2.wraithnet.xyz/abcdefgh12345678", servers = emptyList())
+        val device = SubscriptionDevicesApi.Device(
+            id = "a".repeat(64), platform = "Android", model = "Tablet",
+            osVersion = "16", app = "Phantom", addedAt = null, seenAt = null, current = false)
+        val snapshot = SubscriptionDevicesApi.Snapshot(
+            title = "Phantom VPN — ADMIN", count = 1, limit = null,
+            canDelete = true, devices = listOf(device), canDeleteAll = true)
+        var deletes = 0
+        compose.setContent {
+            MaterialTheme {
+                NativeDevicesScreen(sub, "local-id-phantom", back = {},
+                    initialSnapshot = snapshot,
+                    initialLoad = { _, _ -> error("Ошибка загрузки") },
+                    remove = { _, _, id ->
+                        assertEquals(device.id, id)
+                        deletes++
+                        snapshot.copy(count = 0, devices = emptyList(), sessionsRefreshed = true)
+                    })
+            }
+        }
+        compose.onNodeWithText("Ошибка загрузки").assertExists()
+        compose.onNodeWithText("Удалить все устройства").assertIsEnabled()
+        compose.onNodeWithText("Удалить устройство").assertIsEnabled().performClick()
+        compose.onNodeWithText("Удалить устройство?").assertExists()
+        compose.onNodeWithText("Удалить").performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Устройство удалено.").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.runOnIdle { assertEquals(1, deletes) }
+        compose.onNodeWithText("Tablet").assertDoesNotExist()
+    }
+
 }

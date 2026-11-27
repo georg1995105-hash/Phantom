@@ -202,7 +202,7 @@ class MultipleSubscriptionsUiTest {
                 // per-owner gauge icon is visible without opening this menu.
                 compose.onNode(hasText("Проверить пинг всех серверов")).assertDoesNotExist()
                 compose.onNode(hasText("Проверить пинг")).assertDoesNotExist()
-                for (action in listOf("Обновить подписку", "Копировать ссылку",
+                for (action in listOf("Обновить подписку", "Скопировать подписку",
                         "Показать QR-код", "Закрепить", "Поделиться", "Удалить подписку")) {
                     compose.onNode(hasText(action)).assertExists()
                 }
@@ -216,7 +216,7 @@ class MultipleSubscriptionsUiTest {
                 assertEquals(2, store.read().size)
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                     .performTouchInput { click() }
-                compose.awaitVisible(hasText("В магазин"))
+                compose.awaitVisible(hasText("Купить подписку"))
                 compose.onNode(hasText("Купить")).assertDoesNotExist()
                 compose.onNode(hasText("Личный кабинет")).assertDoesNotExist()
                 compose.onNode(hasText("Поддержка")).assertDoesNotExist()

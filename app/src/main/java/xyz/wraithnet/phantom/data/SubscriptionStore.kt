@@ -9,6 +9,8 @@ import java.util.UUID
 class SubscriptionStore(context: Context) {
     private val prefs = context.getSharedPreferences("phantom_data", Context.MODE_PRIVATE)
 
+    private val cipher = SubscriptionCipher()
+
     companion object {
         // The UI and WorkManager run in the app process. A shared process-wide lock
         // protects their read-modify-write operations and durable rollback snapshot.
@@ -26,7 +28,7 @@ class SubscriptionStore(context: Context) {
     }
 
     private fun decode(json: String): List<Subscription> {
-        val array = JSONArray(json)
+        val array = JSONArray(cipher.decrypt(json))
         return buildList {
             for (i in 0 until array.length()) add(fromJson(array.getJSONObject(i)))
         }
@@ -36,13 +38,23 @@ class SubscriptionStore(context: Context) {
     private fun readLocked(): List<Subscription> {
         val current = prefs.getString(CURRENT, null) ?: return emptyList()
         return try {
-            decode(current)
+            val decoded = decode(current)
+            if (!SubscriptionCipher.isEncrypted(current)) {
+                // Commit both snapshots together: never keep the legacy private links in plaintext.
+                val editor = prefs.edit().putString(CURRENT,cipher.encrypt(current))
+                prefs.getString(PREVIOUS,null)?.let { previous ->
+                    if (!SubscriptionCipher.isEncrypted(previous))
+                        editor.putString(PREVIOUS,cipher.encrypt(previous))
+                }
+                check(editor.commit()) { "Не удалось защитить сохранённые подписки" }
+            }
+            decoded
         } catch (failure: Exception) {
             val previous = prefs.getString(PREVIOUS, null)
             if (previous != null) {
                 val recovered = runCatching { decode(previous) }.getOrNull()
                 if (recovered != null) {
-                    check(prefs.edit().putString(CURRENT, previous).commit()) {
+                    check(prefs.edit().putString(CURRENT, cipher.encrypt(cipher.decrypt(previous))).commit()) {
                         "Не удалось восстановить предыдущие подписки"
                     }
                     return recovered
@@ -71,8 +83,8 @@ class SubscriptionStore(context: Context) {
         val oldDevice = prefs.getString("device_id", null)
         val merged = PhantomBackup.merge(JSONArray(current.map(::toJson)), incoming)
         val decoded = decode(merged.toString())
-        val editor = prefs.edit().putString(CURRENT, merged.toString())
-        if (oldJson != null) editor.putString(PREVIOUS, oldJson)
+        val editor = prefs.edit().putString(CURRENT, cipher.encrypt(merged.toString()))
+        if (oldJson != null) editor.putString(PREVIOUS, cipher.encrypt(cipher.decrypt(oldJson)))
         deviceId?.let { editor.putString("device_id", it) }
         try {
             check(editor.commit()) { "Не удалось сохранить подписки" }
@@ -99,11 +111,11 @@ class SubscriptionStore(context: Context) {
     private fun writeLocked(items: List<Subscription>) {
         val json = JSONArray(items.map(::toJson)).toString()
         val old = prefs.getString(CURRENT, null)
-        if (old == json) return
+        if (old != null && runCatching { cipher.decrypt(old) == json }.getOrDefault(false)) return
         // Check validity before a backup can overwrite the last good snapshot.
-        val editor = prefs.edit().putString(CURRENT, json)
+        val editor = prefs.edit().putString(CURRENT, cipher.encrypt(json))
         if (old != null && runCatching { decode(old) }.isSuccess) {
-            editor.putString(PREVIOUS, old)
+            editor.putString(PREVIOUS, cipher.encrypt(cipher.decrypt(old)))
         }
         check(editor.commit()) { "Не удалось сохранить подписки" }
     }

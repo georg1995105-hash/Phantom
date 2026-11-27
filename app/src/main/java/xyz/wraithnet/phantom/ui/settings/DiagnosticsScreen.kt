@@ -73,7 +73,7 @@ fun DiagnosticsScreen(onBack: () -> Unit) {
                         }
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
                             as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("Phantom VPN log", body))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Phantom log", body))
                         message = "Журнал скопирован"
                     }
                 ) {

@@ -119,7 +119,7 @@ class PhantomVpnService : VpnService() {
         // A restarted :vpn process cannot inherit a dead native TUN.
         persist(running = false, status = STATUS_DISCONNECTED, since = 0L)
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, notification("Phantom VPN"))
+        startForeground(NOTIFICATION_ID, notification("Phantom"))
         observePhysicalNetworks()
     }
 
@@ -781,7 +781,7 @@ class PhantomVpnService : VpnService() {
 
     private fun createNotificationChannel() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Phantom VPN", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_ID, "Phantom", NotificationManager.IMPORTANCE_LOW)
         )
     }
 
@@ -798,7 +798,7 @@ class PhantomVpnService : VpnService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Phantom VPN")
+            .setContentTitle("Phantom")
             .setContentText(message)
             .setSmallIcon(R.drawable.ic_stat_phantom)
             .setContentIntent(open)

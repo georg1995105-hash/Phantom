@@ -21,6 +21,15 @@ if [ "$prepare_rc" -ne 0 ]; then
     echo "Android test APK preparation failed (exit=$prepare_rc)"
     exit "$prepare_rc"
 fi
+# The headless API 35 emulator sometimes leaves the system Quickstep launcher
+# in a verified ANR (see Build APK run 45986217826). Returning to that broken
+# Home task can prevent ActivityScenario from observing the real onDestroy,
+# even after both clipboard/duplicate-import assertions have succeeded.
+# Reset ONLY that system launcher on this disposable CI emulator and put the
+# Settings activity behind Phantom so its finish() has a responsive target.
+# Do not suppress UI failures or relax the real lifecycle assertion.
+adb shell am force-stop com.android.launcher3 || exit $?
+adb shell am start -W -a android.settings.SETTINGS >/dev/null || exit $?
 preflight="xyz.wraithnet.phantom.aaa.AQuickSubscriptionUiTest"
 timeout --signal=TERM --kill-after=15s 240s ./gradlew --no-daemon --max-workers=1 -PnativeSmoke \
     "-Pandroid.testInstrumentationRunnerArguments.class=$preflight" :app:connectedDebugAndroidTest
