@@ -15,16 +15,14 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        // Gradle resolves metadata and artifacts from the same repository.
-        // Central repeatedly failed to deliver this lint dependency in CI (#688).
-        // Route only this exact version to our existing Central mirror.
-        google {
-            content { excludeVersion("commons-codec", "commons-codec", "1.10") }
-        }
-        mavenCentral {
-            content { excludeVersion("commons-codec", "commons-codec", "1.10") }
-        }
+        google()
+        // GitHub runners have repeatedly received artifact-level 404s from
+        // repo.maven.apache.org after metadata was already selected there.
+        // Gradle keeps artifacts pinned to the repository that supplied the
+        // metadata, so a later mirror is not a real fallback. Use the existing
+        // Maven Central mirror first and keep Central itself as a fallback.
         maven("https://maven-central.storage-download.googleapis.com/maven2/")
+        mavenCentral()
     }
 }
 
