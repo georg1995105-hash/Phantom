@@ -29,6 +29,7 @@ internal fun NativeDevicesScreen(
     back: () -> Unit,
     load: suspend (String, String) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::list,
     remove: suspend (String, String, String) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::remove,
+    removeAll: suspend (String, String, List<String>) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::removeAll,
     initialSnapshot: SubscriptionDevicesApi.Snapshot? = null,
     initialLoad: suspend (String, String) -> SubscriptionDevicesApi.Snapshot = load,
     onBusyChange: (Boolean) -> Unit = {},
@@ -60,46 +61,38 @@ internal fun NativeDevicesScreen(
         } finally { loading = false }
     }
 
-    fun deleteDevices(targets: List<SubscriptionDevicesApi.Device>) {
+    fun deleteDevices(targets: List<SubscriptionDevicesApi.Device>, all: Boolean) {
         if (busy != null || loading || targets.isEmpty()) return
         val source = sub.source
-        val ordered = targets.sortedBy { it.current } // Current phone last.
-        val total = ordered.size
-        busy = ordered.first().id
+        val ids = targets.map { it.id }
+        busy = ids.first()
         onBusyChange(true)
         confirm = null
         confirmAll = false
         failure = null
         feedback = null
-        progress = if (total == 1) "Отключение устройства…" else "Удаление устройств: 0 из " + total
+        progress = if (all) "Удаление всех устройств…" else "Отключение устройства…"
         scope.launch {
-            var completed = 0
-            var sessionsConfirmed = true
             try {
-                for (target in ordered) {
-                    // A previous response may already confirm this device is absent.
-                    if (data?.devices?.none { it.id == target.id } != true) {
-                        busy = target.id
-                        val updated = remove(source, localHwid, target.id)
-                        data = updated
-                        if (updated.devices.any { it.id == target.id })
-                            throw IllegalStateException("Сервер не подтвердил отключение устройства.")
-                        sessionsConfirmed = sessionsConfirmed && updated.sessionsRefreshed == true
-                    }
-                    completed++
-                    if (total > 1) progress = "Удаление устройств: " + completed + " из " + total
+                val updated = if (all) removeAll(source, localHwid, ids)
+                    else remove(source, localHwid, ids.single())
+                data = updated
+                val remaining = updated.devices.count { it.id in ids }
+                if (remaining > 0) {
+                    throw IllegalStateException(if (all)
+                        "Удалено " + (ids.size - remaining) + " из " + ids.size + ". Обновите список."
+                    else "Сервер не подтвердил отключение устройства.")
                 }
                 feedback = when {
-                    total == 1 && sessionsConfirmed -> "Устройство отключено. Место освобождено."
-                    total == 1 -> "Устройство удалено. Активные соединения могут завершиться при переподключении."
-                    data?.devices?.isNotEmpty() == true -> "Выбранные устройства удалены. В списке появились другие устройства."
-                    sessionsConfirmed -> "Все выбранные устройства отключены."
-                    else -> "Все выбранные устройства удалены. Активные соединения могут завершиться при переподключении."
+                    !all && updated.sessionsRefreshed == true -> "Устройство отключено. Место освобождено."
+                    !all -> "Устройство удалено. Активные соединения могут завершиться при переподключении."
+                    updated.devices.isNotEmpty() -> "Выбранные устройства удалены. В списке появились другие устройства."
+                    updated.sessionsRefreshed == true -> "Все устройства отключены."
+                    else -> "Все устройства удалены. Активные соединения могут завершиться при переподключении."
                 }
             } catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) {
-                val message = e.message ?: "Не удалось отключить устройство."
-                failure = if (total > 1) "Удалено " + completed + " из " + total + ". " + message else message
+                failure = e.message ?: "Не удалось отключить устройство."
             } finally {
                 progress = null
                 busy = null
@@ -123,7 +116,7 @@ internal fun NativeDevicesScreen(
             confirmButton = {
                 TextButton(enabled = busy == null && !loading && targets.isNotEmpty(),
                     modifier = Modifier.tvFocusRing(),
-                    onClick = { deleteDevices(targets) }) {
+                    onClick = { deleteDevices(targets, all) }) {
                     Text(if (all) "Удалить все" else "Отключить")
                 }
             },
@@ -156,7 +149,7 @@ internal fun NativeDevicesScreen(
                 ?: (state.count.toString() + " · без ограничения")
             Text("Подключённые устройства: " + capacity,
                 style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-            if (state.canDelete && state.devices.isNotEmpty()) {
+            if (state.canDelete && state.canDeleteAll && state.devices.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(
                     onClick = { confirmAll = true },
