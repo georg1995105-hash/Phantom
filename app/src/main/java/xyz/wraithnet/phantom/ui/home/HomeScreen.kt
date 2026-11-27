@@ -1134,6 +1134,12 @@ fun HomeScreen(
                                             .also { cacheDevices(source, it) }
                                     }
                                 },
+                                removeAll = { source, hwid, ids ->
+                                    deviceRequests.withLock {
+                                        SubscriptionDevicesApi.removeAll(source, hwid, ids)
+                                            .also { cacheDevices(source, it) }
+                                    }
+                                },
                                 onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
