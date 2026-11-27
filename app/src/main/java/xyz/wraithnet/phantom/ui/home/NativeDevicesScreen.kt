@@ -29,24 +29,30 @@ internal fun NativeDevicesScreen(
     back: () -> Unit,
     load: suspend (String, String) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::list,
     remove: suspend (String, String, String) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::remove,
+    initialSnapshot: SubscriptionDevicesApi.Snapshot? = null,
+    initialLoad: suspend (String, String) -> SubscriptionDevicesApi.Snapshot = load,
+    onBusyChange: (Boolean) -> Unit = {},
 ) {
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
-    var data by remember(sub.source) { mutableStateOf<SubscriptionDevicesApi.Snapshot?>(null) }
+    var data by remember(sub.source) { mutableStateOf(initialSnapshot) }
     var failure by remember(sub.source) { mutableStateOf<String?>(null) }
-    var loading by remember(sub.source) { mutableStateOf(false) }
+    var loading by remember(sub.source) { mutableStateOf(true) }
     var busy by remember(sub.source) { mutableStateOf<String?>(null) }
     var confirm by remember(sub.source) { mutableStateOf<SubscriptionDevicesApi.Device?>(null) }
+    var confirmAll by remember(sub.source) { mutableStateOf(false) }
+    var progress by remember(sub.source) { mutableStateOf<String?>(null) }
     var generation by remember(sub.source) { mutableIntStateOf(0) }
     var feedback by remember(sub.source) { mutableStateOf<String?>(null) }
 
-    BackHandler(enabled = busy == null && confirm == null) { back() }
+    BackHandler { if (busy == null && confirm == null && !confirmAll) back() }
     LaunchedEffect(sub.source, generation) {
         loading = true
         failure = null
         feedback = null
         try {
-            data = load(sub.source, localHwid)
+            data = if (generation == 0) initialLoad(sub.source, localHwid)
+                else load(sub.source, localHwid)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
@@ -54,42 +60,76 @@ internal fun NativeDevicesScreen(
         } finally { loading = false }
     }
 
+    fun deleteDevices(targets: List<SubscriptionDevicesApi.Device>) {
+        if (busy != null || loading || targets.isEmpty()) return
+        val source = sub.source
+        val ordered = targets.sortedBy { it.current } // Current phone last.
+        val total = ordered.size
+        busy = ordered.first().id
+        onBusyChange(true)
+        confirm = null
+        confirmAll = false
+        failure = null
+        feedback = null
+        progress = if (total == 1) "Отключение устройства…" else "Удаление устройств: 0 из " + total
+        scope.launch {
+            var completed = 0
+            var sessionsConfirmed = true
+            try {
+                for (target in ordered) {
+                    // A previous response may already confirm this device is absent.
+                    if (data?.devices?.none { it.id == target.id } != true) {
+                        busy = target.id
+                        val updated = remove(source, localHwid, target.id)
+                        data = updated
+                        if (updated.devices.any { it.id == target.id })
+                            throw IllegalStateException("Сервер не подтвердил отключение устройства.")
+                        sessionsConfirmed = sessionsConfirmed && updated.sessionsRefreshed == true
+                    }
+                    completed++
+                    if (total > 1) progress = "Удаление устройств: " + completed + " из " + total
+                }
+                feedback = when {
+                    total == 1 && sessionsConfirmed -> "Устройство отключено. Место освобождено."
+                    total == 1 -> "Устройство удалено. Активные соединения могут завершиться при переподключении."
+                    data?.devices?.isNotEmpty() == true -> "Выбранные устройства удалены. В списке появились другие устройства."
+                    sessionsConfirmed -> "Все выбранные устройства отключены."
+                    else -> "Все выбранные устройства удалены. Активные соединения могут завершиться при переподключении."
+                }
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (e: Exception) {
+                val message = e.message ?: "Не удалось отключить устройство."
+                failure = if (total > 1) "Удалено " + completed + " из " + total + ". " + message else message
+            } finally {
+                progress = null
+                busy = null
+                onBusyChange(false)
+            }
+        }
+    }
+
     val target = confirm
-    if (target != null) {
+    if (target != null || confirmAll) {
+        val all = confirmAll
+        val targets = if (all) data?.devices.orEmpty() else listOfNotNull(target)
         AlertDialog(
-            onDismissRequest = { if (busy == null) confirm = null },
-            title = { Text("Отключить устройство?") },
-            text = { Text((target.model ?: "Устройство") +
-                (if (target.current) " · Это устройство" else "") +
+            onDismissRequest = { confirm = null; confirmAll = false },
+            title = { Text(if (all) "Удалить все устройства?" else "Отключить устройство?") },
+            text = { Text(if (all)
+                "Будут удалены все " + targets.size + " устройств этой подписки, включая текущее, если оно в списке. Подписка и её срок сохранятся. Устройства с сохранённой ссылкой смогут подключиться снова."
+            else (target?.model ?: "Устройство") +
+                (if (target?.current == true) " · Это устройство" else "") +
                 "\n\nМесто в подписке освободится. Другие устройства этой подписки могут кратковременно переподключиться. Если ссылка сохранена, удалённое устройство сможет подключиться снова.") },
             confirmButton = {
-                TextButton(enabled = busy == null, modifier = Modifier.tvFocusRing(),
-                    onClick = {
-                        val source = sub.source
-                        val chosen = target.id
-                        busy = chosen
-                        scope.launch {
-                            try {
-                                val updated = remove(source, localHwid, chosen)
-                                if (updated.devices.any { it.id == chosen })
-                                    throw IllegalStateException("Сервер не подтвердил отключение устройства.")
-                                data = updated
-                                feedback = if (updated.sessionsRefreshed != true)
-                                    "Устройство удалено. Активные соединения могут завершиться при переподключении."
-                                else "Устройство отключено. Место освобождено."
-                                failure = null
-                                confirm = null
-                            } catch (cancel: CancellationException) { throw cancel }
-                            catch (e: Exception) {
-                                failure = e.message ?: "Не удалось отключить устройство."
-                                confirm = null
-                            } finally { busy = null }
-                        }
-                    }) { Text("Отключить") }
+                TextButton(enabled = busy == null && !loading && targets.isNotEmpty(),
+                    modifier = Modifier.tvFocusRing(),
+                    onClick = { deleteDevices(targets) }) {
+                    Text(if (all) "Удалить все" else "Отключить")
+                }
             },
             dismissButton = {
-                TextButton(enabled = busy == null, modifier = Modifier.tvFocusRing(),
-                    onClick = { confirm = null }) { Text("Отмена") }
+                TextButton(modifier = Modifier.tvFocusRing(),
+                    onClick = { confirm = null; confirmAll = false }) { Text("Отмена") }
             }
         )
     }
@@ -116,15 +156,26 @@ internal fun NativeDevicesScreen(
                 ?: (state.count.toString() + " · без ограничения")
             Text("Подключённые устройства: " + capacity,
                 style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            if (state.canDelete && state.devices.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(
+                    onClick = { confirmAll = true },
+                    enabled = busy == null && !loading && failure == null,
+                    modifier = Modifier.fillMaxWidth().tvFocusRing()
+                ) { Text("Удалить все устройства") }
+            }
             if (state.limit != null && state.count >= state.limit) {
                 Spacer(Modifier.height(6.dp))
                 Text("Лимит достигнут. Отключите устройство, которым больше не пользуетесь.",
                     style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
-        if (loading) {
-            Spacer(Modifier.height(12.dp))
+        if (loading || busy != null) {
+            Spacer(Modifier.height(6.dp))
             LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
+        progress?.let { message ->
+            Text(message, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
         failure?.let { message ->
             Spacer(Modifier.height(12.dp))
