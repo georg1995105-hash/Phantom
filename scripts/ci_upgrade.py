@@ -427,16 +427,16 @@ node("Подписка обновлена")
 show_servers()
 visible_after_scroll("Управление подпиской OfflineSubscriptionCheck")
 tap("Подписка")
-node("Купить подписку")
+node("В магазин")
 screenshot("forest-subscriptions")
-# The subscription tab intentionally contains only one native purchase button.
+# The selected remote subscription and its native shop entry stay available on narrow screens.
 adb("shell", "wm", "size", "720x1600")
-node("Купить подписку")
+node("В магазин")
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")
 # Opening the catalogue stays in Phantom; never create an invoice in upgrade QA.
 adb("logcat", "-c")
-tap_in_list("Купить подписку")
+tap_in_list("В магазин")
 node("Без регистрации, почты и пароля")
 activity_log = adb("logcat", "-d", "-s", "ActivityTaskManager:I")
 assert "android.intent.action.VIEW" not in activity_log, "Purchase unexpectedly left the app"
@@ -461,7 +461,7 @@ visible_after_scroll("OfflineSubscriptionCheck", max_swipes=18)
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
     tap("Подписка")
-    visible_after_scroll("Купить подписку")
+    visible_after_scroll("В магазин")
     for tab in ("Главная", "Подписка", "Настройки"):
         node(tab)
     screenshot("phone-landscape")
@@ -482,7 +482,7 @@ try:
         show_servers()
         visible_after_scroll("OfflineSubscriptionCheck")
         tap("Подписка")
-        visible_after_scroll("Купить подписку")
+        visible_after_scroll("В магазин")
         tap("Настройки")
         node("Настройки")
         screenshot(shot)

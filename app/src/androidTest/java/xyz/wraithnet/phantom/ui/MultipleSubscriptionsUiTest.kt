@@ -79,7 +79,7 @@ class MultipleSubscriptionsUiTest {
             source = "$endpoint/second",
             servers = listOf(ServerProfile("same-server-id", "Швейцария тест", "vless",
                 raw = "vless://00000000-0000-0000-0000-000000000002@b.example:443#CH")),
-            updatedAt = now,
+            updatedAt = now, totalBytes = 0L,
         )
         try {
             store.write(listOf(first, second))
@@ -216,11 +216,15 @@ class MultipleSubscriptionsUiTest {
                 assertEquals(2, store.read().size)
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                     .performTouchInput { click() }
-                compose.awaitVisible(hasText("Купить подписку"))
+                compose.awaitVisible(hasText("Ваш доступ"))
+                compose.awaitVisible(hasText("В магазин"))
                 compose.onNode(hasText("Купить")).assertDoesNotExist()
                 compose.onNode(hasText("Личный кабинет")).assertDoesNotExist()
                 compose.onNode(hasText("Поддержка")).assertDoesNotExist()
-                compose.onNode(hasText(secondTitle)).assertDoesNotExist()
+                compose.onNode(hasText(second.title)).assertExists()
+                // The owner name is shown without Home's duplicate-name suffix.
+                // Its distinct limit proves that this is the selected second owner.
+                compose.onNode(hasText("Лимит: Без лимита")).assertExists()
                 assertEquals(first.webPageUrl, subscriptions.first().webPageUrl)
                 assertEquals(first.announcement, subscriptions.first().announcement)
                 compose.awaitVisible(hasContentDescription("Вкладка Главная"))

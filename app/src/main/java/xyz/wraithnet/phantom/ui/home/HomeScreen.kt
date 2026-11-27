@@ -137,6 +137,9 @@ private object OtaUiState {
     val otaChannelEpoch = mutableIntStateOf(0)
 }
 
+private fun isSubscriptionLink(source: String): Boolean =
+    source.startsWith("https://", ignoreCase = true) || source.startsWith("http://", ignoreCase = true)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -252,8 +255,30 @@ fun HomeScreen(
             if (!force && saved != null && age < 30_000L) saved
             else SubscriptionDevicesApi.list(source, hwid).also { cacheDevices(source, it) }
         }
-    LaunchedEffect(tab) {
-        if (tab != Destination.SUBSCRIPTIONS) managingDevicesFor = null
+    val subscriptionForAccess = subscriptions.firstOrNull { it.id == selectedSubId && isSubscriptionLink(it.source) }
+        ?: selectedMatch?.first?.takeIf { isSubscriptionLink(it.source) }
+        ?: subscriptions.firstOrNull { isSubscriptionLink(it.source) }
+    val accessSource = subscriptionForAccess?.source?.takeIf(SubscriptionDevicesApi::supports)
+    LaunchedEffect(tab, accessSource) {
+        if (tab != Destination.SUBSCRIPTIONS) {
+            managingDevicesFor = null
+            showPurchase = false
+            renewPurchaseId = null
+        } else if (accessSource != null) {
+            try {
+                loadDevices(accessSource, localHwid, force = false)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                // Keep the last confirmed account title while offline.
+            }
+        }
+    }
+    fun openPurchase(subscriptionId: String? = null) {
+        managingDevicesFor = null
+        renewPurchaseId = subscriptionId
+        showPurchase = true
+        tab = Destination.SUBSCRIPTIONS
     }
     var exitNetwork by remember { mutableStateOf<ExitNetworkLookup.Info?>(null) }
     var exitLoading by remember { mutableStateOf(false) }
@@ -1121,11 +1146,18 @@ fun HomeScreen(
                     val deviceOwner = managingDevicesFor?.let { id ->
                         subscriptions.firstOrNull { it.id == id }
                     }?.takeIf { SubscriptionDevicesApi.supports(it.source) }
-                    if (showPurchase) {
-                        NativePurchaseScreen(back = { showPurchase = false; renewPurchaseId = null }, client = purchaseStore,
-                            renewSource = subscriptions.firstOrNull { it.id == renewPurchaseId }?.source,
-                            refreshVersion = refreshVersion,
-                            copySubscription = { copyLink(it, "Подписка скопирована") })
+                    val renewalOwner = subscriptions.firstOrNull { it.id == renewPurchaseId }
+                    if (showPurchase && (renewPurchaseId == null || renewalOwner != null)) {
+                        key(renewalOwner?.id, renewalOwner?.source) {
+                            NativePurchaseScreen(
+                                back = { showPurchase = false; renewPurchaseId = null },
+                                client = purchaseStore,
+                                renewSource = renewalOwner?.source,
+                                renewTitle = renewalOwner?.let { deviceSnapshots[it.source]?.title ?: subscriptionAccountLabel(it) },
+                                refreshVersion = refreshVersion,
+                                copySubscription = { copyLink(it, "Подписка скопирована") },
+                            )
+                        }
                     } else if (deviceOwner != null) {
                         key(deviceOwner.id, deviceOwner.source) {
                             NativeDevicesScreen(deviceOwner, localHwid,
@@ -1148,7 +1180,13 @@ fun HomeScreen(
                                 onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
-                        SubscriptionPage { renewPurchaseId = null; showPurchase = true }
+                        SubscriptionPage(
+                            currentSubscription = subscriptionForAccess,
+                            accountTitleOverride = accessSource?.let { deviceSnapshots[it]?.title },
+                            openDevices = { managingDevicesFor = subscriptionForAccess?.id },
+                            openRenewal = { subscriptionForAccess?.let { openPurchase(it.id) } },
+                            openShop = { openPurchase() },
+                        )
                     }
                 }
                 Destination.SETTINGS -> PhantomSettings(
@@ -1475,8 +1513,7 @@ fun HomeScreen(
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
-                    val isRemote = sub.source.startsWith("https://", ignoreCase = true) ||
-                        sub.source.startsWith("http://", ignoreCase = true)
+                    val isRemote = isSubscriptionLink(sub.source)
                     if (isRemote) funActionRow("Обновить подписку", Icons.Default.Refresh, enabled = sub.id !in refreshing) {
                         activeSubMenu = null
                         scope.launch { refresh(sub) }
@@ -1495,10 +1532,7 @@ fun HomeScreen(
                     }
                     if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Продлить подписку", Icons.Default.ShoppingCart) {
                         activeSubMenu = null
-                        managingDevicesFor = null
-                        renewPurchaseId = sub.id
-                        showPurchase = true
-                        tab = Destination.SUBSCRIPTIONS
+                        openPurchase(sub.id)
                     }
                     if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Мои устройства", Icons.Default.Devices) {
                         activeSubMenu = null
