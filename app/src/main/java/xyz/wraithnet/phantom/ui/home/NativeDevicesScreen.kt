@@ -44,6 +44,7 @@ internal fun NativeDevicesScreen(
     LaunchedEffect(sub.source, generation) {
         loading = true
         failure = null
+        feedback = null
         try {
             data = load(sub.source, localHwid)
         } catch (cancel: CancellationException) {
@@ -188,7 +189,7 @@ internal fun NativeDevicesScreen(
                                 Spacer(Modifier.height(11.dp))
                                 OutlinedButton(
                                     onClick = { confirm = device; feedback = null; failure = null },
-                                    enabled = busy == null,
+                                    enabled = busy == null && failure == null && !loading,
                                     modifier = Modifier.fillMaxWidth().tvFocusRing()
                                 ) { Text("Отключить устройство") }
                             }

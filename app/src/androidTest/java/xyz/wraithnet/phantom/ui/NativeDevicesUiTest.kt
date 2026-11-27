@@ -48,6 +48,9 @@ class NativeDevicesUiTest {
                 )
             }
         }
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("vivo V2514").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText("Phantom VPN — ADMIN").assertExists()
         compose.onNodeWithText("vivo V2514").assertExists()
         compose.onAllNodesWithText("Отключить устройство").onFirst().performClick()
