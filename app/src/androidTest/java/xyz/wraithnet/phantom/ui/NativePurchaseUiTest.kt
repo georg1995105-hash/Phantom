@@ -89,7 +89,8 @@ class NativePurchaseUiTest {
         compose.onNodeWithText("В магазин").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, externalShopOpens) }
         compose.onNodeWithText("Семейный").performScrollTo().assertIsNotSelected()
-        compose.onNodeWithText("250 ₽").performClick().assertIsSelected()
+        compose.onNodeWithText("250 ₽").performClick()
+        compose.onNodeWithText("Семейный").assertIsSelected()
         compose.onNodeWithText("90 дней").performScrollTo().performClick().assertIsSelected()
         compose.onNodeWithText("Оплатить · 650 ₽").performScrollTo().assertIsNotEnabled()
         compose.onNode(isToggleable()).performScrollTo().performClick()
