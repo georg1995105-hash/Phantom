@@ -185,7 +185,11 @@ internal class NativeStore(context: Context,
             if (result.optString("status") == "CANCELED" ||
                 (result.optString("status") == "COMPLETED" && result.optString("delivery") == "DONE" &&
                     result.optJSONObject("subscription") != null)) {
-                vault.update { it.remove("draft"); it.remove("pending_intent") }
+                vault.update {
+                    if (it.optString("pending_intent") == iid) {
+                        it.remove("draft"); it.remove("pending_intent")
+                    }
+                }
             }
             data.put("payment", result)
         }
