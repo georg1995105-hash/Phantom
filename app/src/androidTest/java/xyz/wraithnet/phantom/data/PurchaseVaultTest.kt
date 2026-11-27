@@ -30,7 +30,14 @@ class PurchaseVaultTest {
             blob[blob.lastIndex] = (blob.last().toInt() xor 1).toByte()
             prefs.edit().putString("vault",android.util.Base64.encodeToString(blob,android.util.Base64.NO_WRAP)).commit()
             assertTrue(runCatching { PurchaseVault(context).read() }.isFailure)
-            assertNotNull(prefs.getString("vault",null))
+            val damaged = prefs.getString("vault",null)
+            assertNotNull(damaged)
+            val recoveryVault = PurchaseVault(context)
+            recoveryVault.prepareRecovery()
+            assertFalse(prefs.contains("vault"))
+            assertTrue(prefs.all.any { (key,value) -> key.startsWith("unreadable-vault-") && value == damaged })
+            recoveryVault.update { it.put("restored",code) }
+            assertEquals(code,PurchaseVault(context).read().getString("restored"))
         } finally { prefs.edit().clear().commit() }
     }
 }

@@ -52,6 +52,15 @@ internal class PurchaseVault(context: Context) {
             error("Не удалось открыть защищённые данные покупки. Используйте сохранённый код восстановления.")
         }
     }
+    /** Explicit recovery may start a clean session, retaining unreadable ciphertext for support. */
+    fun prepareRecovery() = synchronized(lock) {
+        try { readLocked() } catch (_: IllegalStateException) {
+            val encoded = prefs.getString("vault", null) ?: return@synchronized
+            check(prefs.edit().putString("unreadable-vault-${System.currentTimeMillis()}", encoded)
+                .remove("vault").commit()) { "Не удалось подготовить восстановление покупки." }
+            cachedBlob = null; cachedJson = null
+        }
+    }
     fun read(): JSONObject = synchronized(lock) { readLocked() }
     fun update(change: (JSONObject) -> Unit) = synchronized(lock) {
         val data = readLocked().also(change)

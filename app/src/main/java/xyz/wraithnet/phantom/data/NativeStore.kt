@@ -86,11 +86,11 @@ internal class NativeStore(context: Context) : PurchaseClient {
         }
     }
     private suspend fun bootstrap(): JSONObject = request("/bootstrap").also { csrf = it.getString("csrf") }
-    override fun recoveryCode(access: String?): String = vault.read().let { root ->
+    override fun recoveryCode(access: String?): String = runCatching { vault.read().let { root ->
         if (access != null) root.optJSONObject("recovery")?.optString(access).orEmpty()
         else root.optJSONObject("draft")?.optString("recovery_code").orEmpty()
-    }
-    override fun pending(): JSONObject? = vault.read().optJSONObject("draft")
+    } }.getOrDefault("")
+    override fun pending(): JSONObject? = runCatching { vault.read().optJSONObject("draft") }.getOrNull()
     private fun saveRecovery(aid: String, code: String) {
         vault.update { root ->
             val codes = root.optJSONObject("recovery") ?: JSONObject()
@@ -131,6 +131,7 @@ internal class NativeStore(context: Context) : PurchaseClient {
         result
     }
     override suspend fun recover(code: String): JSONObject = operation.withLock {
+        vault.prepareRecovery()
         bootstrap()
         val normalized = code.lowercase().replace("-", "").replace(" ", "").trim()
         val card = request("/recover", JSONObject().put("code", normalized))
