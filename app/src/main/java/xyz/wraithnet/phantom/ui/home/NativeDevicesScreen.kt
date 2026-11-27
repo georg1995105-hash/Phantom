@@ -40,7 +40,7 @@ internal fun NativeDevicesScreen(
     var generation by remember(sub.source) { mutableIntStateOf(0) }
     var feedback by remember(sub.source) { mutableStateOf<String?>(null) }
 
-    BackHandler { if (busy == null && confirm == null) back() }
+    BackHandler(enabled = busy == null && confirm == null) { back() }
     LaunchedEffect(sub.source, generation) {
         loading = true
         failure = null
@@ -60,7 +60,7 @@ internal fun NativeDevicesScreen(
             title = { Text("Отключить устройство?") },
             text = { Text((target.model ?: "Устройство") +
                 (if (target.current) " · Это устройство" else "") +
-                "\n\nМесто в подписке освободится. Устройство сможет подключиться снова, если на нём осталась ссылка подписки.") },
+                "\n\nМесто в подписке освободится. Другие устройства этой подписки могут кратковременно переподключиться. Если ссылка сохранена, удалённое устройство сможет подключиться снова.") },
             confirmButton = {
                 TextButton(enabled = busy == null, modifier = Modifier.tvFocusRing(),
                     onClick = {
