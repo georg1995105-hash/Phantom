@@ -161,6 +161,7 @@ fun HomeScreen(
     val purchaseStore = remember { xyz.wraithnet.phantom.data.NativeStore(appContext) }
     var showPurchase by rememberSaveable { mutableStateOf(false) }
     var renewPurchaseId by rememberSaveable { mutableStateOf<String?>(null) }
+    val renewalRestrictions = remember { mutableStateMapOf<String, String>() }
     LaunchedEffect(refreshVersion) {
         try {
             if (purchaseStore.pending() != null) purchaseStore.sync()
@@ -274,7 +275,7 @@ fun HomeScreen(
             }
         }
     }
-    fun openPurchase(subscriptionId: String? = null) {
+    fun openPurchase(subscriptionId: String) {
         managingDevicesFor = null
         renewPurchaseId = subscriptionId
         showPurchase = true
@@ -1154,6 +1155,11 @@ fun HomeScreen(
                                 client = purchaseStore,
                                 renewSource = renewalOwner?.source,
                                 renewTitle = renewalOwner?.let { deviceSnapshots[it.source]?.title ?: subscriptionAccountLabel(it) },
+                                onRenewalUnavailable = { message ->
+                                    renewalOwner?.let { renewalRestrictions[it.source] = message }
+                                    showPurchase = false
+                                    renewPurchaseId = null
+                                },
                                 refreshVersion = refreshVersion,
                                 copySubscription = { copyLink(it, "Подписка скопирована") },
                             )
@@ -1180,12 +1186,22 @@ fun HomeScreen(
                                 onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
-                        SubscriptionPage(
-                            currentSubscription = subscriptionForAccess,
-                            accountTitleOverride = accessSource?.let { deviceSnapshots[it]?.title },
-                            openDevices = { managingDevicesFor = subscriptionForAccess?.id },
-                            openRenewal = { subscriptionForAccess?.let { openPurchase(it.id) } },
-                            openShop = { openPurchase() },
+                        NativePurchaseScreen(
+                            back = { tab = Destination.HOME },
+                            client = purchaseStore,
+                            refreshVersion = refreshVersion,
+                            accessCard = {
+                                subscriptionForAccess?.let { subscription ->
+                                    SubscriptionAccessCard(
+                                        subscription = subscription,
+                                        accountTitleOverride = accessSource?.let { deviceSnapshots[it]?.title },
+                                        openDevices = { managingDevicesFor = subscription.id },
+                                        openRenewal = { openPurchase(subscription.id) },
+                                        renewalUnavailable = renewalRestrictions[subscription.source],
+                                    )
+                                }
+                            },
+                            openShop = { openUrl("https://go.veor.pro/") },
                         )
                     }
                 }
@@ -1530,9 +1546,11 @@ fun HomeScreen(
                             else -> "Конфигурация скопирована"
                         })
                     }
-                    if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Продлить подписку", Icons.Default.ShoppingCart) {
-                        activeSubMenu = null
-                        openPurchase(sub.id)
+                    if (SubscriptionDevicesApi.supports(sub.source) && sub.source !in renewalRestrictions) {
+                        funActionRow("Продлить подписку", Icons.Default.ShoppingCart) {
+                            activeSubMenu = null
+                            openPurchase(sub.id)
+                        }
                     }
                     if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Мои устройства", Icons.Default.Devices) {
                         activeSubMenu = null

@@ -1,7 +1,9 @@
 package xyz.wraithnet.phantom.ui.home
 
 import android.content.res.Configuration
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -42,15 +44,15 @@ class TvSubscriptionTextUiTest {
                 LocalDensity provides Density(context.resources.displayMetrics.density, 1.35f)
             ) {
                 MaterialTheme {
-                    Box(Modifier.width(600.dp).height(460.dp)) {
+                    Column(Modifier.width(600.dp).height(460.dp).verticalScroll(rememberScrollState())) {
                         val sub = Subscription(id = "tv", title = title,
-                            source = "https://example.org/subscription", servers = emptyList())
-                        SubscriptionPage(currentSubscription = sub, openShop = {})
+                            source = "https://sub2.wraithnet.xyz/abcdefgh12345678", servers = emptyList())
+                        SubscriptionAccessCard(subscription = sub, openRenewal = {})
                     }
                 }
             }
         }
         compose.onNode(hasText(title)).assertIsDisplayed()
-        compose.onNode(hasText("В магазин")).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Продлить подписку")).performScrollTo().assertIsDisplayed()
     }
 }

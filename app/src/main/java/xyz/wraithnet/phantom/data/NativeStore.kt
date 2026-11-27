@@ -31,6 +31,7 @@ internal interface PurchaseClient {
 }
 
 internal class PurchaseOfferChanged(message: String) : IOException(message)
+internal class RenewalUnavailable(message: String) : IOException(message)
 
 internal class NativeStore(context: Context,
     configureHttp: OkHttpClient.Builder.() -> Unit = {},
@@ -83,12 +84,22 @@ internal class NativeStore(context: Context,
                 // Only this explicit server verdict is guaranteed to precede invoice dispatch.
                 if (result?.optString("reason") == "QUOTE_CHANGED")
                     throw PurchaseOfferChanged("Тариф изменился. Выберите актуальные условия и повторите оплату.")
+                val detail = result?.optString("detail")?.takeIf { it.isNotBlank() }?.take(240)
+                if (path == "/native/renewal" && response.code == 409) {
+                    when (detail) {
+                        "Для этой подписки магазин не содержит условий продления." ->
+                            throw RenewalUnavailable("В магазине нет тарифа для продления этой подписки.")
+                        "Ссылка относится к прежней подписке. Обновите её.",
+                        "Тариф этой подписки сейчас недоступен для продления." ->
+                            throw RenewalUnavailable(detail.orEmpty())
+                    }
+                }
                 val fallback = when (response.code) {
                     401 -> "Доступ истёк. Введите код восстановления."
                     429 -> "Подождите немного и повторите действие."
                     else -> "Сервер временно недоступен. Сохранённая покупка не потеряна."
                 }
-                throw IOException(result?.optString("detail")?.takeIf { it.isNotBlank() }?.take(240) ?: fallback)
+                throw IOException(detail ?: fallback)
             }
             result ?: throw IOException("Не удалось прочитать ответ магазина.")
         }

@@ -217,7 +217,7 @@ class MultipleSubscriptionsUiTest {
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                     .performTouchInput { click() }
                 compose.awaitVisible(hasText("Ваш доступ"))
-                compose.awaitVisible(hasText("В магазин"))
+                compose.onNode(hasText("Тарифы")).assertExists()
                 compose.onNode(hasText("Купить")).assertDoesNotExist()
                 compose.onNode(hasText("Личный кабинет")).assertDoesNotExist()
                 compose.onNode(hasText("Поддержка")).assertDoesNotExist()

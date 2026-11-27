@@ -2,7 +2,7 @@ name: Purchase and device UI checks
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - 'app/**'
       - '.github/workflows/purchase-checks.yml'
@@ -51,10 +51,19 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest,xyz.wraithnet.phantom.ui.SubscriptionStorefrontUiTest,xyz.wraithnet.phantom.ui.MultipleSubscriptionsUiTest,xyz.wraithnet.phantom.ui.UnifiedHomeScrollUiTest,xyz.wraithnet.phantom.ui.home.TvSubscriptionTextUiTest,xyz.wraithnet.phantom.data.NativeCheckoutPersistenceTest,xyz.wraithnet.phantom.data.PurchaseVaultTest,xyz.wraithnet.phantom.data.SubscriptionStoreSafetyTest,xyz.wraithnet.phantom.data.PhantomBackupRestoreTest :app:connectedDebugAndroidTest
-            adb shell wm size 1920x1200
-            adb shell wm density 240
-            ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest :app:connectedDebugAndroidTest
+            if [ "${{ contains(github.event.pull_request.labels.*.name, 'full-device-ci') }}" = true ]; then
+              ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest,xyz.wraithnet.phantom.ui.SubscriptionStorefrontUiTest,xyz.wraithnet.phantom.ui.MultipleSubscriptionsUiTest,xyz.wraithnet.phantom.ui.UnifiedHomeScrollUiTest,xyz.wraithnet.phantom.ui.home.TvSubscriptionTextUiTest,xyz.wraithnet.phantom.data.NativeCheckoutPersistenceTest,xyz.wraithnet.phantom.data.PurchaseVaultTest,xyz.wraithnet.phantom.data.SubscriptionStoreSafetyTest,xyz.wraithnet.phantom.data.PhantomBackupRestoreTest :app:connectedDebugAndroidTest
+              adb shell wm size 1920x1200
+              adb shell wm density 240
+              ./gradlew --no-daemon --max-workers=1 -PnativeSmoke -Pandroid.testInstrumentationRunnerArguments.class=xyz.wraithnet.phantom.ui.NativeDevicesUiTest,xyz.wraithnet.phantom.ui.NativePurchaseUiTest :app:connectedDebugAndroidTest
+            else
+              access=xyz.wraithnet.phantom.ui.SubscriptionStorefrontUiTest#ownSubscriptionShowsAccountAndOpensEachActionIndependently
+              purchase=xyz.wraithnet.phantom.ui.NativePurchaseUiTest#tappingPlanCardChangesItsSelectionAndUsesItsOwnTerms
+              renewal=xyz.wraithnet.phantom.ui.NativePurchaseUiTest#importedSubscriptionRenewsItsOriginalOwner
+              ./gradlew --no-daemon --max-workers=1 -PnativeSmoke \
+                "-Pandroid.testInstrumentationRunnerArguments.class=$access,$purchase,$renewal" \
+                :app:connectedDebugAndroidTest
+            fi
       - name: Keep actual instrumentation results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
