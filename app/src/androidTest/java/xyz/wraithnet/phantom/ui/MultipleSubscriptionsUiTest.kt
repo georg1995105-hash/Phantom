@@ -217,8 +217,8 @@ class MultipleSubscriptionsUiTest {
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                     .performTouchInput { click() }
                 compose.awaitVisible(hasText("Ваш доступ"))
-                compose.onNode(hasText("Тарифы")).assertExists()
-                compose.onNode(hasText("Купить")).assertDoesNotExist()
+                compose.onNode(hasText("Купить подписку Phantom")).assertExists()
+                compose.onNode(hasText("Персональный")).assertDoesNotExist()
                 compose.onNode(hasText("Личный кабинет")).assertDoesNotExist()
                 compose.onNode(hasText("Поддержка")).assertDoesNotExist()
                 compose.onNode(hasText(second.title)).assertExists()
