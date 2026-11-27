@@ -58,7 +58,7 @@ internal fun InAppPayment(url: String, saveRecovery: (() -> Unit)? = null, close
                     return true
                 }
                 if (uri.scheme == "https") return false
-                message = "Этот способ оплаты нельзя открыть внутри Phantom. Выберите банковскую карту."
+                message = "Для этого способа оплаты откройте сохранённый счёт в браузере."
                 return true
             }
             override fun onReceivedError(v: WebView, request: WebResourceRequest, error: WebResourceError) {

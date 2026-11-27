@@ -1,10 +1,13 @@
 package xyz.wraithnet.phantom.ui.home
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -80,6 +83,10 @@ internal fun NativePurchaseScreen(
     var paying by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableIntStateOf(0) }
     var legalPage by remember { mutableStateOf<String?>(null) }
+    val checkoutBrowser = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // Returning from the browser only requests a fresh server read.
+        checking++
+    }
     val exportCode = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) runCatching {
             context.contentResolver.openOutputStream(uri)?.use {
@@ -152,7 +159,22 @@ internal fun NativePurchaseScreen(
     suspend fun showPayment(result: JSONObject) {
         displayedCode = client.recoveryCode(result.getString("access_id"))
         val url = result.optString("payment_url").let(NativeStore::paymentUrl)
-        if (!tv) paying = url
+        if (!tv && url != null && result.optString("status") == "PENDING") {
+            // Let Android's browser handle bank-app links in the provider's checkout.
+            val tab = CustomTabsIntent.Builder()
+                .setShowTitle(true)
+                .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
+                .setSendToExternalDefaultHandlerEnabled(true)
+                .build()
+            try {
+                checkoutBrowser.launch(tab.intent.setData(Uri.parse(url)))
+                return
+            } catch (_: ActivityNotFoundException) {
+                paying = url
+            } catch (_: SecurityException) {
+                paying = url
+            }
+        }
         refresh()
         if (tv && paymentUrl == null && pending != null) paymentUrl = url
     }

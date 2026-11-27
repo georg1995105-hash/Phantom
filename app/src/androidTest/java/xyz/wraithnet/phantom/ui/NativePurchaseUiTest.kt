@@ -1,13 +1,23 @@
 package xyz.wraithnet.phantom.ui
 
+import android.app.Activity
+import android.content.Intent
 import android.net.Uri
 
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.core.app.ActivityOptionsCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -31,8 +41,13 @@ class NativePurchaseUiTest {
         var expectedAmount = "349.00"
         var renewalError: String? = null
         var draft: JSONObject? = null
+        var checkoutUrl: String? = null
+        var syncs = 0
         val catalog = JSONObject("""{"sales_enabled":true,"payment_available":true,"cards":[],"plans":[{"id":27,"name":"Проверочный тариф","devices":8,"traffic_gb":987,"durations":[{"days":45,"amount":"349.00"}]}]}""")
-        override suspend fun sync() = catalog
+        override suspend fun sync(): JSONObject {
+            syncs++
+            return catalog
+        }
         override suspend fun renewal(source: String): JSONObject {
             grantedSource = source
             renewalError?.let { throw RenewalUnavailable(it) }
@@ -50,12 +65,12 @@ class NativePurchaseUiTest {
             purchases++
             draft = JSONObject().put("mode", if (renew) "renew" else "new")
                 .put("days", duration.getInt("days")).put("amount", duration.getString("amount"))
-            return JSONObject().put("access_id","owned").put("status","PENDING")
+            return JSONObject().put("access_id","owned").put("status","PENDING").put("payment_url", checkoutUrl)
         }
         override suspend fun resumeCheckout(): JSONObject? {
             if (draft == null) return null
             resumes++
-            return JSONObject().put("access_id", "previous").put("status", "PENDING")
+            return JSONObject().put("access_id", "previous").put("status", "PENDING").put("payment_url", checkoutUrl)
         }
         override fun pending() = draft
         override fun recoveryCode(access: String?) = ""
@@ -66,6 +81,52 @@ class NativePurchaseUiTest {
         assertFalse(isSberPayRedirect(Uri.parse("https://yoomoney.ru/payments/confirmation")))
         assertFalse(isSberPayRedirect(Uri.parse("javascript:alert(1)")))
         assertFalse(isSberPayRedirect(Uri.parse("intent://arbitrary")))
+    }
+
+    @Test fun bankBrowserUsesSameSavedInvoiceAndRechecksWhenClosed() {
+        val store = Store().apply { checkoutUrl = "https://yookassa.ru/checkout/fixture" }
+        val browser = object : ActivityResultRegistry(), ActivityResultRegistryOwner {
+            override val activityResultRegistry: ActivityResultRegistry get() = this
+            var lastRequest = -1
+            val launched = mutableListOf<Intent>()
+
+            override fun <I, O> onLaunch(
+                requestCode: Int,
+                contract: ActivityResultContract<I, O>,
+                input: I,
+                options: ActivityOptionsCompat?,
+            ) {
+                lastRequest = requestCode
+                launched += contract.createIntent(InstrumentationRegistry.getInstrumentation().targetContext, input)
+            }
+        }
+        compose.setContent {
+            CompositionLocalProvider(LocalActivityResultRegistryOwner provides browser) {
+                MaterialTheme { NativePurchaseScreen(back = {}, client = store) }
+            }
+        }
+        compose.onNode(isToggleable()).performScrollTo().performClick()
+        compose.onNodeWithText("Оплатить · 349 ₽").performScrollTo().performClick()
+        compose.runOnIdle {
+            val intent = browser.launched.single()
+            assertEquals(Intent.ACTION_VIEW, intent.action)
+            assertEquals(store.checkoutUrl, intent.dataString)
+            assertTrue(intent.hasExtra(CustomTabsIntent.EXTRA_SESSION))
+            assertTrue(intent.getBooleanExtra(CustomTabsIntent.EXTRA_SEND_TO_EXTERNAL_DEFAULT_HANDLER, false))
+            assertEquals(1, store.purchases)
+        }
+
+        val readsBeforeReturn = compose.runOnIdle {
+            store.syncs.also { browser.dispatchResult(browser.lastRequest, Activity.RESULT_OK, Intent()) }
+        }
+        compose.waitUntil(5_000) { store.syncs > readsBeforeReturn }
+        compose.onNodeWithText("Подписка добавлена. Можно подключаться к VPN.").assertDoesNotExist()
+        compose.onNodeWithText("Продолжить оплату").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf(store.checkoutUrl, store.checkoutUrl), browser.launched.map { it.dataString })
+            assertEquals(1, store.purchases)
+            assertEquals(1, store.resumes)
+        }
     }
 
     @Test fun actualServerOfferNeedsConsentAndDoesNotRequireCredentials() {
