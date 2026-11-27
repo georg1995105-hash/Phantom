@@ -63,6 +63,23 @@ class NativePurchaseUiTest {
         compose.onNodeWithText("Электронная почта").assertDoesNotExist()
         compose.onNodeWithText("Подписка добавлена. Можно подключаться к VPN.").assertDoesNotExist()
     }
+    @Test fun tappingPlanCardChangesItsSelectionAndUsesItsOwnTerms() {
+        val store = Store().apply {
+            catalog.getJSONArray("plans").put(JSONObject(
+                """{"id":28,"name":"Семейный","devices":6,"traffic_gb":1500,"durations":[{"days":30,"amount":"250.00"},{"days":90,"amount":"650.00"}]}"""
+            ))
+        }
+        compose.setContent { MaterialTheme { NativePurchaseScreen({}, store) } }
+        compose.onNodeWithText("Проверочный тариф").assertIsSelected()
+        compose.onNodeWithText("Семейный").assertIsNotSelected()
+        compose.onNodeWithText("250 ₽ за 30 дн.").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Проверочный тариф").assertIsNotSelected()
+        compose.onNodeWithText("Устройств: 6 · 1500 ГБ / месяц").assertExists()
+        compose.onNodeWithText("90 дней").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Оплатить · 650.00 ₽").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Оплатить · 349.00 ₽").assertDoesNotExist()
+    }
+
     @Test fun importedSubscriptionRenewsItsOriginalOwner() {
         val store = Store().apply { expectRenewal = true }
         val source = "https://sub2.wraithnet.xyz/abcdefgh12345678"

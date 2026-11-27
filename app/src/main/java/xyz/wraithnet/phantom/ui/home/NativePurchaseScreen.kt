@@ -9,6 +9,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -16,8 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -243,24 +248,49 @@ internal fun NativePurchaseScreen(
                         !renewing || it.getInt("id") == (renewalPlan ?: chosenCard?.optJSONObject("subscription")?.optInt("plan_id"))
                     }
                     val plan = plans.firstOrNull { it.getInt("id") == selectedPlan } ?: plans.firstOrNull()
-                    plans.forEach { item ->
-                        Surface(shape = MaterialTheme.shapes.medium,
-                            border = BorderStroke(1.dp, if (item === plan) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                Text(item.getString("name"), style = MaterialTheme.typography.titleMedium)
-                                Text("Устройств: ${item.getInt("devices")} · ${item.getInt("traffic_gb")} ГБ / месяц")
-                                TextButton(enabled = !busy, onClick = { selectedPlan = item.getInt("id"); selectedDays = 0 },
-                                    modifier = Modifier.tvFocusRing()) { Text(if (item === plan) "Выбран" else "Выбрать") }
+                    if (plans.isNotEmpty()) {
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val columns = if (maxWidth >= 560.dp && plans.size > 1) 2 else 1
+                            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                plans.chunked(columns).forEach { row ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        row.forEach { item ->
+                                            PurchasePlanCard(item, selected = item === plan,
+                                                selectable = !renewing, enabled = !busy, modifier = Modifier.weight(1f),
+                                                onSelect = {
+                                                    if (item !== plan) {
+                                                        selectedPlan = item.getInt("id")
+                                                        selectedDays = 0
+                                                    }
+                                                },
+                                            )
+                                        }
+                                        if (row.size < columns) Spacer(Modifier.weight(1f))
+                                    }
+                                }
                             }
                         }
                     }
                     val durations = plan?.getJSONArray("durations")?.objects().orEmpty()
                     val duration = durations.firstOrNull { it.getInt("days") == selectedDays } ?: durations.firstOrNull()
-                    durations.forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = item === duration, enabled = !busy,
-                                onClick = { selectedDays = item.getInt("days") }, modifier = Modifier.tvFocusRing())
-                            Text("${item.getInt("days")} дней · ${item.getString("amount")} ₽")
+                    if (durations.isNotEmpty()) {
+                        Column(Modifier.selectableGroup()) {
+                            Text("Срок подписки", style = MaterialTheme.typography.titleSmall)
+                            durations.forEach { item ->
+                                val selected = item === duration
+                                val shape = MaterialTheme.shapes.small
+                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing(shape).clip(shape)
+                                    .selectable(selected = selected, enabled = !busy, role = Role.RadioButton,
+                                        onClick = { selectedDays = item.getInt("days") })
+                                    .padding(horizontal = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(selected = selected, onClick = null, enabled = !busy)
+                                    Text("${item.getInt("days")} дней", Modifier.weight(1f))
+                                    Text("${item.getString("amount")} ₽", style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
                         }
                     }
                     if (plan != null && duration != null) {
@@ -315,3 +345,41 @@ internal fun NativePurchaseScreen(
     }
 }
 
+@Composable
+private fun PurchasePlanCard(
+    plan: JSONObject,
+    selected: Boolean,
+    selectable: Boolean,
+    enabled: Boolean,
+    modifier: Modifier,
+    onSelect: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(18.dp)
+    val selection = if (selectable) {
+        Modifier.tvFocusRing(shape).clip(shape)
+            .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
+    } else Modifier
+    val startingTerm = plan.getJSONArray("durations").objects().minByOrNull { it.getInt("days") }
+    Surface(
+        modifier = modifier.then(selection),
+        shape = shape,
+        color = if (selected) colors.primaryContainer.copy(alpha = .62f) else colors.surfaceContainer,
+        contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface,
+        border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(plan.getString("name"), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                if (selectable) RadioButton(selected = selected, onClick = null, enabled = enabled)
+            }
+            Text("Устройств: ${plan.getInt("devices")} · ${plan.getInt("traffic_gb")} ГБ / месяц",
+                color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium)
+            startingTerm?.let {
+                val amount = it.getString("amount").removeSuffix(".00").replace('.', ',')
+                Text("$amount ₽ за ${it.getInt("days")} дн.", style = MaterialTheme.typography.titleSmall)
+            }
+        }
+    }
+}
