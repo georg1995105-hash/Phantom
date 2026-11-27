@@ -227,21 +227,33 @@ fun HomeScreen(
     var importError by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf(Destination.HOME) }
     var managingDevicesFor by rememberSaveable { mutableStateOf<String?>(null) }
-    var liveAccountName by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val deviceSnapshots = remember { mutableStateMapOf<String, SubscriptionDevicesApi.Snapshot>() }
+    val deviceSnapshotTimes = remember { mutableMapOf<String, Long>() }
+    val deviceRequests = remember { Mutex() }
+    var deviceMutationBusy by remember { mutableStateOf(false) }
     val localHwid = remember(store) { store.deviceId() }
+    fun cacheDevices(source: String, snapshot: SubscriptionDevicesApi.Snapshot) {
+        deviceSnapshots[source] = snapshot
+        deviceSnapshotTimes[source] = SystemClock.elapsedRealtime()
+    }
+    suspend fun loadDevices(source: String, hwid: String, force: Boolean): SubscriptionDevicesApi.Snapshot =
+        deviceRequests.withLock {
+            val saved = deviceSnapshots[source]
+            val age = SystemClock.elapsedRealtime() - (deviceSnapshotTimes[source] ?: 0L)
+            if (!force && saved != null && age < 30_000L) saved
+            else SubscriptionDevicesApi.list(source, hwid).also { cacheDevices(source, it) }
+        }
     LaunchedEffect(tab, selectedMatch?.first?.source) {
         if (tab != Destination.SUBSCRIPTIONS) {
             managingDevicesFor = null
             return@LaunchedEffect
         }
-        liveAccountName = null
         val owner = selectedMatch?.first ?: return@LaunchedEffect
         if (!SubscriptionDevicesApi.supports(owner.source)) return@LaunchedEffect
         try {
-            val result = SubscriptionDevicesApi.list(owner.source, localHwid)
-            liveAccountName = owner.source to result.title
+            loadDevices(owner.source, localHwid, force = false)
         } catch (cancel: CancellationException) { throw cancel }
-        catch (_: Exception) { /* Offline keeps the saved provider title; no misleading error. */ }
+        catch (_: Exception) { /* Keep the last confirmed name and list while offline. */ }
     }
     var exitNetwork by remember { mutableStateOf<ExitNetworkLookup.Info?>(null) }
     var exitLoading by remember { mutableStateOf(false) }
@@ -933,7 +945,7 @@ fun HomeScreen(
                                 if (changed && vpnStatus in setOf("connected", "degraded", "starting")) onStartVpn(server.raw)
                             } else scope.launch { snackbar.showSnackbar("Этот протокол пока не поддерживается") }
                         }
-    BackHandler(enabled = tab != Destination.HOME) { tab = Destination.HOME }
+    BackHandler(enabled = tab != Destination.HOME) { if (!deviceMutationBusy) tab = Destination.HOME }
     var showErrorDetails by remember { mutableStateOf(false) }
     LaunchedEffect(tv, tab) {
         if (tv && tab == Destination.SERVERS) tab = Destination.HOME
@@ -972,7 +984,7 @@ fun HomeScreen(
             // Only the tab strip is fixed. All Home content, including import actions
             // and every provider/server row, belongs to one parent LazyColumn.
             if (!tv) TabBar(tab) { next ->
-                tab = next
+                if (!deviceMutationBusy) tab = next
                 // Returning to Home or tapping its selected tab starts at the top
                 // of the SAME lazy page. No server-only nested scrolling.
                 if (next == Destination.HOME) {
@@ -984,7 +996,7 @@ fun HomeScreen(
         val colors = MaterialTheme.colorScheme
         Row(Modifier.fillMaxSize().padding(inner).consumeWindowInsets(inner)
             .background(colors.phantomPageBrush())) {
-            if (tv) TvSideNavigation(tab) { tab = it }
+            if (tv) TvSideNavigation(tab) { if (!deviceMutationBusy) tab = it }
             Column(Modifier.weight(1f).fillMaxHeight()) {
                 if (otaMinimized && !showOtaSheet && availableUpdate != null) {
                     OtaCompactBanner(availableUpdate!!.version, otaDownload, otaProgress, otaSpeed,
@@ -1112,13 +1124,23 @@ fun HomeScreen(
                     if (deviceOwner != null) {
                         key(deviceOwner.id, deviceOwner.source) {
                             NativeDevicesScreen(deviceOwner, localHwid,
-                                back = { managingDevicesFor = null })
+                                back = { managingDevicesFor = null },
+                                initialSnapshot = deviceSnapshots[deviceOwner.source],
+                                initialLoad = { source, hwid -> loadDevices(source, hwid, force = false) },
+                                load = { source, hwid -> loadDevices(source, hwid, force = true) },
+                                remove = { source, hwid, id ->
+                                    deviceRequests.withLock {
+                                        SubscriptionDevicesApi.remove(source, hwid, id)
+                                            .also { cacheDevices(source, it) }
+                                    }
+                                },
+                                onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
                         SubscriptionPage(
                             currentSubscription = selectedMatch?.first,
-                            accountTitleOverride = liveAccountName
-                                ?.takeIf { it.first == selectedMatch?.first?.source }?.second,
+                            accountTitleOverride = selectedMatch?.first?.source
+                                ?.let { deviceSnapshots[it]?.title },
                             openDevices = {
                                 managingDevicesFor = selectedMatch?.first?.id
                             }
