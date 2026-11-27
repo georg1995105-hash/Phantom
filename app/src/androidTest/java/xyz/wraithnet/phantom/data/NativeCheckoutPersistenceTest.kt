@@ -32,6 +32,7 @@ class NativeCheckoutPersistenceTest {
         var intent: String? = null
         var frozen: String? = null
         var checkouts = 0
+        var paid = false
         val transport = Interceptor { chain ->
             val request = chain.request()
             val path = request.url.encodedPath
@@ -59,6 +60,10 @@ class NativeCheckoutPersistenceTest {
                     assertEquals(intent,PurchaseVault(context).read().getString("pending_intent"))
                     if (loseCheckout) { status = 503; """{"detail":"Provider verdict unknown"}""" }
                     else JSONObject().put("intent_id",intent).put("access_id","fixture-access").put("status","PENDING").toString()
+                }
+                path.endsWith("/intents/$intent") -> {
+                    if (!paid) """{"status":"PENDING"}"""
+                    else """{"status":"COMPLETED","delivery":"DONE","subscription":{"url":"http://example.invalid","active":true}}"""
                 }
                 else -> error("Unexpected client endpoint")
             }
@@ -90,6 +95,14 @@ class NativeCheckoutPersistenceTest {
             assertEquals(intent, result.getString("intent_id"))
             assertEquals(pending.toString(),reopened.pending().toString())
             assertEquals(2,checkouts) // Same server intent both times; native server tests prove provider idempotence.
+            assertEquals("PENDING", reopened.sync().getJSONObject("payment").getString("status"))
+            assertNotNull(reopened.pending())
+            paid = true
+            val confirmed = reopened.sync()
+            assertEquals("COMPLETED", confirmed.getJSONObject("payment").getString("status"))
+            assertTrue(confirmed.getBoolean("subscription_import_pending"))
+            assertEquals(pending.toString(), reopened.pending().toString())
+            assertEquals(2, checkouts)
         } finally { prefs.edit().clear().commit() }
     }
 }
