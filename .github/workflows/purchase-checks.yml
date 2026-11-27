@@ -60,8 +60,9 @@ jobs:
             else
             access=xyz.wraithnet.phantom.ui.SubscriptionStorefrontUiTest#ownSubscriptionShowsAccountAndOpensEachActionIndependently;
             purchase=xyz.wraithnet.phantom.ui.NativePurchaseUiTest#tappingPlanCardChangesItsSelectionAndUsesItsOwnTerms;
+            sberpay=xyz.wraithnet.phantom.ui.NativePurchaseUiTest#sberPayRedirectRoutesOnlyTheBankDeepLink;
             renewal=xyz.wraithnet.phantom.ui.NativePurchaseUiTest#importedSubscriptionRenewsItsOriginalOwner;
-            ./gradlew --no-daemon --max-workers=1 -PnativeSmoke "-Pandroid.testInstrumentationRunnerArguments.class=$access,$purchase,$renewal" :app:connectedDebugAndroidTest;
+            ./gradlew --no-daemon --max-workers=1 -PnativeSmoke "-Pandroid.testInstrumentationRunnerArguments.class=$access,$purchase,$sberpay,$renewal" :app:connectedDebugAndroidTest;
             fi
       - name: Keep actual instrumentation results
         if: always()
