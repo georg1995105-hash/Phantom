@@ -38,7 +38,7 @@ class SubscriptionStorefrontUiTest {
     @Test fun personalizedAccountTitleDisplaysOnlyInSubscriptionPage() {
         val sub = Subscription(id = "owned", title = "🛡️ Phantom VPN",
             accountTitle = "Phantom VPN — ADMIN",
-            source = "https://sub2.wraithnet.xyz/demo123", servers = emptyList())
+            source = "https://sub2.wraithnet.xyz/abcdefgh12345678", servers = emptyList())
         compose.setContent {
             MaterialTheme {
                 Box(Modifier.width(320.dp)) {
@@ -70,7 +70,7 @@ class SubscriptionStorefrontUiTest {
     @Test fun ownSubscriptionShowsServerTitleAndOpensDevicePortal() {
         var opens = 0
         val sub = Subscription(id = "mine", title = "Phantom VPN — ADMIN",
-            source = "https://sub2.wraithnet.xyz/demo123", servers = emptyList())
+            source = "https://sub2.wraithnet.xyz/abcdefgh12345678", servers = emptyList())
         compose.setContent {
             MaterialTheme {
                 Box(Modifier.width(320.dp)) {

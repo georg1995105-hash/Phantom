@@ -74,6 +74,7 @@ import xyz.wraithnet.phantom.data.Subscription
 import xyz.wraithnet.phantom.data.ActiveVpnSubscriptionProxy
 import xyz.wraithnet.phantom.service.VpnRuntimeBridge
 import xyz.wraithnet.phantom.data.SubscriptionFetcher
+import xyz.wraithnet.phantom.data.SubscriptionDevicesApi
 import xyz.wraithnet.phantom.data.SubscriptionRefreshErrors
 import xyz.wraithnet.phantom.data.LatencyProbe
 import xyz.wraithnet.phantom.data.VpnEventLog
@@ -225,6 +226,23 @@ fun HomeScreen(
     var importBusy by remember { mutableStateOf(false) }
     var importError by remember { mutableStateOf<String?>(null) }
     var tab by rememberSaveable { mutableStateOf(Destination.HOME) }
+    var managingDevicesFor by rememberSaveable { mutableStateOf<String?>(null) }
+    var liveAccountName by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val localHwid = remember(store) { store.deviceId() }
+    LaunchedEffect(tab, selectedMatch?.first?.source) {
+        if (tab != Destination.SUBSCRIPTIONS) {
+            managingDevicesFor = null
+            return@LaunchedEffect
+        }
+        liveAccountName = null
+        val owner = selectedMatch?.first ?: return@LaunchedEffect
+        if (!SubscriptionDevicesApi.supports(owner.source)) return@LaunchedEffect
+        try {
+            val result = SubscriptionDevicesApi.list(owner.source, localHwid)
+            liveAccountName = owner.source to result.title
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { /* Offline keeps the saved provider title; no misleading error. */ }
+    }
     var exitNetwork by remember { mutableStateOf<ExitNetworkLookup.Info?>(null) }
     var exitLoading by remember { mutableStateOf(false) }
     var exitDetails by remember { mutableStateOf(false) }
@@ -1087,11 +1105,27 @@ fun HomeScreen(
                         }
                     }
                 }
-                Destination.SUBSCRIPTIONS -> SubscriptionPage(
-                    currentSubscription = selectedMatch?.first,
-                    openDevices = { openUrl("https://go.veor.pro/?devices=1") }
-                ) {
-                    openUrl("https://go.veor.pro/")
+                Destination.SUBSCRIPTIONS -> {
+                    val deviceOwner = managingDevicesFor?.let { id ->
+                        selectedMatch?.first?.takeIf { it.id == id }
+                    }?.takeIf { SubscriptionDevicesApi.supports(it.source) }
+                    if (deviceOwner != null) {
+                        key(deviceOwner.id, deviceOwner.source) {
+                            NativeDevicesScreen(deviceOwner, localHwid,
+                                back = { managingDevicesFor = null })
+                        }
+                    } else {
+                        SubscriptionPage(
+                            currentSubscription = selectedMatch?.first,
+                            accountTitleOverride = liveAccountName
+                                ?.takeIf { it.first == selectedMatch?.first?.source }?.second,
+                            openDevices = {
+                                managingDevicesFor = selectedMatch?.first?.id
+                            }
+                        ) {
+                            openUrl("https://go.veor.pro/")
+                        }
+                    }
                 }
                 Destination.SETTINGS -> PhantomSettings(
                     onThemeChange = onThemeChange,
