@@ -1107,7 +1107,7 @@ fun HomeScreen(
                 }
                 Destination.SUBSCRIPTIONS -> {
                     val deviceOwner = managingDevicesFor?.let { id ->
-                        subscriptions.firstOrNull { it.id == id }
+                        selectedMatch?.first?.takeIf { it.id == id }
                     }?.takeIf { SubscriptionDevicesApi.supports(it.source) }
                     if (deviceOwner != null) {
                         key(deviceOwner.id, deviceOwner.source) {
