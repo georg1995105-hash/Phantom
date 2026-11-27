@@ -26,6 +26,7 @@ internal interface PurchaseClient {
     suspend fun recover(code: String): JSONObject
     suspend fun checkout(plan: JSONObject, duration: JSONObject, aid: String?, renew: Boolean): JSONObject
     suspend fun resumeCheckout(): JSONObject?
+    suspend fun dismissCheckout(requestId: String)
     fun pending(): JSONObject?
     fun recoveryCode(access: String? = null): String
 }
@@ -110,8 +111,11 @@ internal class NativeStore(context: Context,
         else root.optJSONObject("draft")?.optString("recovery_code").orEmpty()
     } }.getOrDefault("")
     override fun pending(): JSONObject? = runCatching { vault.read().optJSONObject("draft") }.getOrNull()
-    private fun saveRecovery(aid: String, code: String) {
-        vault.update { root ->
+    private suspend fun updateVault(change: (JSONObject) -> Unit) =
+        withContext(Dispatchers.IO) { vault.update(change) }
+
+    private suspend fun saveRecovery(aid: String, code: String) {
+        updateVault { root ->
             val codes = root.optJSONObject("recovery") ?: JSONObject()
             codes.put(aid, code); root.put("recovery", codes)
         }
@@ -140,7 +144,7 @@ internal class NativeStore(context: Context,
             .joinToString("") { "%02x".format(it.toInt() and 255) }
         val code = vault.read().optJSONObject("renewal_codes")?.optString(fingerprint).orEmpty()
             .ifBlank { PurchaseVault.newCode().also { value ->
-                vault.update { root ->
+                updateVault { root ->
                     val codes = root.optJSONObject("renewal_codes") ?: JSONObject()
                     codes.put(fingerprint,value); root.put("renewal_codes",codes)
                 }
@@ -150,7 +154,7 @@ internal class NativeStore(context: Context,
         result
     }
     override suspend fun recover(code: String): JSONObject = operation.withLock {
-        vault.prepareRecovery()
+        withContext(Dispatchers.IO) { vault.prepareRecovery() }
         bootstrap()
         val normalized = code.lowercase().replace("-", "").replace(" ", "").trim()
         val card = request("/recover", JSONObject().put("code", normalized))
@@ -164,13 +168,24 @@ internal class NativeStore(context: Context,
         if (pending() != null) throw IOException("Сначала завершите сохранённый счёт.")
         require(!renew || aid != null) { "Не удалось определить подписку для продления." }
         bootstrap()
+        if (aid != null) {
+            val dismissed = vault.read().optJSONObject("dismissed_intents")
+            for (iid in dismissed?.keys()?.asSequence().orEmpty()) {
+                if (dismissed?.optString(iid) != aid) continue
+                val invoice = state(iid)
+                val status = invoice.optString("status")
+                check(status == "CANCELED" || (status == "COMPLETED" && invoice.optString("delivery") == "DONE")) {
+                    "Предыдущий счёт по этой подписке ещё открыт. Дождитесь его закрытия в ЮKassa."
+                }
+            }
+        }
         val draft = JSONObject().put("plan_id", plan.getInt("id"))
             .put("days", duration.getInt("days")).put("amount", duration.getString("amount"))
             .put("mode", if (renew) "renew" else "new").put("request_id", UUID.randomUUID().toString())
             .put("recovery_code", if (aid == null) PurchaseVault.newCode() else "")
             .put("accepted_terms", true).put("native_app", true)
         if (aid != null) draft.put("access_id", aid)
-        vault.update { it.put("draft", draft) }
+        updateVault { it.put("draft", draft) }
         submitCheckout(draft)
     }
 
@@ -180,17 +195,59 @@ internal class NativeStore(context: Context,
         submitCheckout(draft)
     }
 
+    override suspend fun dismissCheckout(requestId: String) = operation.withLock {
+        val saved = vault.read()
+        val draft = saved.optJSONObject("draft") ?: return@withLock
+        check(draft.optString("request_id") == requestId) { "Счёт изменился. Проверьте его статус." }
+        val iid = saved.optString("pending_intent").ifBlank {
+            throw IOException("Создание счёта ещё не подтверждено. Проверьте оплату.")
+        }
+        val status = state(iid).optString("status")
+        // A local PENDING record can outlive its checkout URL. Retain it until the
+        // server confirms cancellation or delivers the paid subscription.
+        check(status == "CANCELED" || status == "PENDING") {
+            "Проверьте оплату перед тем, как убрать счёт."
+        }
+        updateVault { root ->
+            if (status == "PENDING") {
+                val dismissed = root.optJSONObject("dismissed_intents") ?: JSONObject()
+                dismissed.put(iid, draft.optString("access_id"))
+                root.put("dismissed_intents", dismissed)
+            }
+            root.remove("draft")
+            root.remove("pending_intent")
+        }
+        Unit
+    }
+
+    /** A browser left open can still pay a dismissed invoice. Keep it until YooKassa settles it. */
+    suspend fun syncDismissedCheckouts() = syncing.withLock {
+        val ids = vault.read().optJSONObject("dismissed_intents")?.keys()?.asSequence()?.toList().orEmpty()
+        if (ids.isEmpty()) return@withLock
+        catalog()
+        for (iid in ids) {
+            val result = try { state(iid) } catch (_: IOException) { continue }
+            val terminal = when (result.optString("status")) {
+                "CANCELED" -> true
+                "COMPLETED" -> result.optString("delivery") == "DONE" &&
+                    result.optJSONObject("subscription")?.let { importActive(it) } == true
+                else -> false
+            }
+            if (terminal) updateVault { root -> root.optJSONObject("dismissed_intents")?.remove(iid) }
+        }
+    }
+
     private suspend fun submitCheckout(draft: JSONObject): JSONObject {
         try {
             val prepared = request("/prepare", draft)
             val access = prepared.getString("access_id")
             draft.optString("recovery_code").takeIf { it.isNotBlank() }?.let { saveRecovery(access, it) }
             val iid = prepared.getString("intent_id")
-            vault.update { it.put("pending_intent", iid) }
+            updateVault { it.put("pending_intent", iid) }
             return request("/intents/$iid/checkout", JSONObject())
         } catch (changed: PurchaseOfferChanged) {
             // Only this explicit server outcome precedes all provider activity.
-            vault.update { it.remove("draft"); it.remove("pending_intent") }
+            updateVault { it.remove("draft"); it.remove("pending_intent") }
             throw changed
         }
     }
@@ -212,7 +269,7 @@ internal class NativeStore(context: Context,
             if (result.optString("status") == "CANCELED" ||
                 (result.optString("status") == "COMPLETED" && result.optString("delivery") == "DONE" && paidDelivered)) {
                 operation.withLock {
-                    vault.update {
+                    updateVault {
                         if (it.optString("pending_intent") == iid) {
                             it.remove("draft")
                             it.remove("pending_intent")

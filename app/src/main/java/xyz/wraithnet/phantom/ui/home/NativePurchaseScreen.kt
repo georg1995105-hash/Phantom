@@ -9,33 +9,24 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,7 +37,27 @@ import xyz.wraithnet.phantom.data.PurchaseOfferChanged
 import xyz.wraithnet.phantom.data.RenewalUnavailable
 import xyz.wraithnet.phantom.data.objects
 
-@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun SubscriptionOverview(
+    hasSavedInvoice: Boolean,
+    openPurchase: () -> Unit,
+    openRecovery: () -> Unit,
+    accessCard: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            accessCard()
+            Button(onClick = openPurchase, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing()) {
+                Text(if (hasSavedInvoice) "Сохранённый счёт" else "Купить подписку Phantom")
+            }
+            TextButton(onClick = openRecovery, modifier = Modifier.tvFocusRing()) {
+                Text("Восстановить покупку")
+            }
+        }
+    }
+}
+
 @Composable
 internal fun NativePurchaseScreen(
     back: () -> Unit,
@@ -56,17 +67,14 @@ internal fun NativePurchaseScreen(
     renewTitle: String? = null,
     onRenewalUnavailable: ((String) -> Unit)? = null,
     copySubscription: (String) -> Unit = {},
-    accessCard: (@Composable () -> Unit)? = null,
-    openShop: (() -> Unit)? = null,
+    startRecovery: Boolean = false,
 ) {
-    val embedded = accessCard != null
-    val termHeading = remember { BringIntoViewRequester() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val tv = isTelevision()
     val refreshing = remember { Mutex() }
     var catalog by remember { mutableStateOf<JSONObject?>(null) }
-    var recovering by rememberSaveable { mutableStateOf(false) }
+    var recovering by rememberSaveable { mutableStateOf(startRecovery) }
     var code by remember { mutableStateOf("") }
     var displayedCode by remember { mutableStateOf("") }
     var accepted by rememberSaveable { mutableStateOf(false) }
@@ -83,6 +91,7 @@ internal fun NativePurchaseScreen(
     var paying by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableIntStateOf(0) }
     var legalPage by remember { mutableStateOf<String?>(null) }
+    var confirmDismiss by remember { mutableStateOf(false) }
     val checkoutBrowser = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         // Returning from the browser only requests a fresh server read.
         checking++
@@ -108,6 +117,10 @@ internal fun NativePurchaseScreen(
         payment = fresh.optJSONObject("payment")
         paymentUrl = payment?.optString("payment_url")?.let(NativeStore::paymentUrl)
         val status = payment?.optString("status")
+        if (pending == null && savedOrder != null && status in setOf("COMPLETED", "CANCELED")) {
+            selectedDays = 0
+            accepted = false
+        }
         if (status == "COMPLETED" && pending == null && savedOrder != null) {
             info = if (savedOrder.optString("mode") == "renew") "Подписка продлена."
                 else "Подписка добавлена. Можно подключаться к VPN."
@@ -179,21 +192,19 @@ internal fun NativePurchaseScreen(
         if (tv && paymentUrl == null && pending != null) paymentUrl = url
     }
     LaunchedEffect(refreshVersion, checking) {
+        snapshotFlow { busy }.first { !it }
         action { loadOffers() }
     }
     LaunchedEffect(client, refreshVersion) {
         while (true) {
             delay(5_000)
-            if (busy || pending == null || recovering) continue
+            if (busy || pending == null || recovering || confirmDismiss) continue
             try {
                 refresh()
                 if (pending == null && renewSource != null && renewalPlan == null) action { loadOffers() }
             } catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) { failure = e.message ?: "Подтверждение задерживается. Повторите проверку." }
         }
-    }
-    LaunchedEffect(selectedPlan) {
-        if (embedded && selectedPlan != 0) termHeading.bringIntoView()
     }
     if (paying != null) {
         InAppPayment(paying!!, saveRecovery = if (displayedCode.isBlank()) null else ({ exportCode.launch("Phantom-recovery.txt") })) {
@@ -205,27 +216,38 @@ internal fun NativePurchaseScreen(
         InAppPayment(legalPage!!) { legalPage = null }
         return
     }
-    val leave = { if (recovering) recovering = false else back() }
-    BackHandler(enabled = !embedded || recovering, onBack = leave)
+    val leave = {
+        when {
+            recovering && !startRecovery -> recovering = false
+            !recovering && pending == null && selectedDays != 0 -> {
+                selectedDays = 0
+                accepted = false
+            }
+            else -> back()
+        }
+    }
+    BackHandler(onBack = leave)
     val cards = catalog?.optJSONArray("cards")?.objects().orEmpty()
     val chosenCard = cards.firstOrNull { it.optString("access_id") == access }
     val renewing = renewSource != null || access != null
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    val plans = catalog?.optJSONArray("plans")?.objects().orEmpty().filter {
+        !renewing || it.getInt("id") == (renewalPlan ?: chosenCard?.optJSONObject("subscription")?.optInt("plan_id"))
+    }
+    val plan = plans.firstOrNull { it.getInt("id") == selectedPlan }
+    val duration = plan?.getJSONArray("durations")?.objects()?.firstOrNull { it.getInt("days") == selectedDays }
+    val scroll = rememberScrollState()
+    LaunchedEffect(recovering, duration != null, pending != null) { scroll.scrollTo(0) }
+    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (!embedded || recovering) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = leave, modifier = Modifier.tvFocusRing()) { Text("Назад") }
-                    Text(when {
-                        recovering -> "Восстановить покупку"
-                        pending != null -> "Сохранённый счёт"
-                        renewing -> "Продление подписки"
-                        else -> "Купить подписку"
-                    }, style = MaterialTheme.typography.titleLarge)
-                }
-            } else {
-                accessCard?.invoke()
-                Text(if (pending != null) "Сохранённый счёт" else "Тарифы",
-                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = leave, modifier = Modifier.tvFocusRing()) { Text("Назад") }
+                Text(when {
+                    recovering -> "Восстановить покупку"
+                    pending != null -> "Сохранённый счёт"
+                    duration != null -> "Подтверждение"
+                    renewing -> "Продление подписки"
+                    else -> "Купить подписку Phantom"
+                }, style = MaterialTheme.typography.titleLarge)
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             failure?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -237,15 +259,34 @@ internal fun NativePurchaseScreen(
                         client.recover(code)
                         code = ""
                         loadOffers()
-                        recovering = false
                         info = "Покупка восстановлена."
                     }
                 }) { Text("Восстановить") }
+                cards.forEach { card ->
+                    val id = card.getString("access_id")
+                    card.optJSONObject("subscription")?.let { sub ->
+                        TextButton(onClick = { copySubscription(sub.getString("url")) }, modifier = Modifier.tvFocusRing()) {
+                            Text("Скопировать подписку")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                access = id
+                                selectedDays = 0
+                                accepted = false
+                                recovering = false
+                            },
+                            enabled = !busy && pending == null, modifier = Modifier.fillMaxWidth().tvFocusRing(),
+                        ) { Text("Продлить · до " + sub.optString("expire_at").take(10)) }
+                    }
+                    if (client.recoveryCode(id).isNotBlank()) TextButton(
+                        onClick = { displayedCode = client.recoveryCode(id) }, modifier = Modifier.tvFocusRing(),
+                    ) { Text("Код восстановления · " + card.optString("client_id", "Покупка")) }
+                }
             } else {
                 if (pending != null) {
                     val order = pending!!
                     val kind = if (order.optString("mode") == "renew") "Продление" else "Новая подписка"
-                    Text("$kind · ${order.optInt("days")} дн. · ${order.optString("amount")} ₽")
+                    Text("$kind · ${dayLabel(order.optInt("days"))} · ${priceLabel(order.optString("amount"))}")
                     val status = payment?.optString("status")
                     when (status) {
                         "COMPLETED" -> Text("Оплата подтверждена. Получаем подписку…")
@@ -259,91 +300,74 @@ internal fun NativePurchaseScreen(
                             }
                         }) { Text("Продолжить оплату") }
                     }
+                    if (status == "PENDING") {
+                        TextButton(enabled = !busy, onClick = { confirmDismiss = true }, modifier = Modifier.tvFocusRing()) {
+                            Text("Убрать счёт")
+                        }
+                        if (confirmDismiss) AlertDialog(
+                            onDismissRequest = { confirmDismiss = false },
+                            title = { Text("Убрать сохранённый счёт?") },
+                            text = { Text("Счёт исчезнет из Phantom. Если страница ЮKassa ещё открыта, закройте её. ЮKassa закроет счёт по истечении срока. Если вы уже оплатили, сначала проверьте статус.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    confirmDismiss = false
+                                    action {
+                                        client.dismissCheckout(order.getString("request_id"))
+                                        pending = client.pending()
+                                        selectedDays = 0
+                                        accepted = false
+                                        displayedCode = ""
+                                        loadOffers()
+                                        info = "Счёт убран."
+                                    }
+                                }) { Text("Убрать счёт") }
+                            },
+                            dismissButton = { TextButton(onClick = { confirmDismiss = false }) { Text("Оставить") } },
+                        )
+                    }
                 } else {
                     if (renewSource != null) {
                         renewTitle?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
-                    } else if (!embedded && !renewing) {
+                    } else if (!renewing && duration == null) {
                         Text("Без регистрации, почты и пароля", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (!embedded && renewSource == null) cards.forEach { card ->
-                        val id = card.getString("access_id")
-                        val sub = card.optJSONObject("subscription")
-                        if (sub != null) TextButton(onClick = { copySubscription(sub.getString("url")) }, modifier = Modifier.tvFocusRing()) { Text("Скопировать подписку") }
-                        if (sub != null) OutlinedButton(
-                            onClick = {
-                                access = id
-                                selectedPlan = sub.getInt("plan_id")
-                                selectedDays = 0
-                                accepted = false
-                            },
-                            enabled = !busy, modifier = Modifier.fillMaxWidth().tvFocusRing()) {
-                            Text("Продлить · до " + sub.optString("expire_at").take(10))
-                        }
-                        if (client.recoveryCode(id).isNotBlank()) TextButton(
-                            onClick = { displayedCode = client.recoveryCode(id) }, modifier = Modifier.tvFocusRing()) {
-                            Text("Код восстановления · " + card.optString("client_id", "Покупка"))
-                        }
-                    }
                     if (renewing && renewSource == null) {
-                        TextButton(onClick = { access = null; accepted = false }, enabled = !busy,
+                        TextButton(onClick = { access = null; selectedDays = 0; accepted = false }, enabled = !busy,
                             modifier = Modifier.tvFocusRing()) { Text("Купить новую") }
                     }
                     if (renewSource != null && access != null && client.recoveryCode(access).isNotBlank()) {
                         TextButton(onClick = { displayedCode = client.recoveryCode(access) },
                             modifier = Modifier.tvFocusRing()) { Text("Код восстановления") }
                     }
-                    val plans = catalog?.optJSONArray("plans")?.objects().orEmpty().filter {
-                        !renewing || it.getInt("id") == (renewalPlan ?: chosenCard?.optJSONObject("subscription")?.optInt("plan_id"))
-                    }
-                    val plan = plans.firstOrNull { it.getInt("id") == selectedPlan }
-                        ?: if (embedded) null else plans.firstOrNull()
-                    if (plans.isNotEmpty()) {
+                    if (duration == null && plans.isNotEmpty()) {
+                        val canPurchase = !busy && catalog?.optBoolean("sales_enabled") == true &&
+                            catalog?.optBoolean("payment_available") == true
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val columns = if (maxWidth >= 560.dp && plans.size > 1) 2 else 1
-                            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 plans.chunked(columns).forEach { row ->
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         row.forEach { item ->
-                                            PurchasePlanCard(item, selected = item === plan,
-                                                selectable = !renewing, enabled = !busy, modifier = Modifier.weight(1f),
-                                                onSelect = {
-                                                    if (item !== plan) {
-                                                        selectedPlan = item.getInt("id")
-                                                        selectedDays = 0
-                                                    }
-                                                },
-                                            )
+                                            PurchasePlanCard(item, canPurchase, Modifier.weight(1f)) { days ->
+                                                selectedPlan = item.getInt("id")
+                                                selectedDays = days
+                                                accepted = false
+                                            }
                                         }
                                         if (row.size < columns) Spacer(Modifier.weight(1f))
                                     }
                                 }
                             }
                         }
-                    }
-                    val durations = plan?.getJSONArray("durations")?.objects().orEmpty()
-                    val duration = durations.firstOrNull { it.getInt("days") == selectedDays } ?: durations.firstOrNull()
-                    if (durations.isNotEmpty()) {
-                        Column(Modifier.selectableGroup()) {
-                            Text("Срок подписки", Modifier.bringIntoViewRequester(termHeading),
-                                style = MaterialTheme.typography.titleSmall)
-                            durations.forEach { item ->
-                                val selected = item === duration
-                                val shape = MaterialTheme.shapes.small
-                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing(shape).clip(shape)
-                                    .selectable(selected = selected, enabled = !busy, role = Role.RadioButton,
-                                        onClick = { selectedDays = item.getInt("days") })
-                                    .padding(horizontal = 10.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    RadioButton(selected = selected, onClick = null, enabled = !busy)
-                                    Text("${item.getInt("days")} дней", Modifier.weight(1f))
-                                    Text(priceLabel(item.getString("amount")), style = MaterialTheme.typography.labelLarge)
-                                }
-                            }
+                        if (plans.any { it.optInt("id") in 15..16 }) {
+                            Text("Работа при ограничениях мобильного интернета (белые списки) не гарантируется.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                         }
                     }
                     if (plan != null && duration != null) {
+                        Text(plan.getString("name"), style = MaterialTheme.typography.titleLarge)
+                        Text("${dayLabel(duration.getInt("days"))} · ${priceLabel(duration.getString("amount"))}",
+                            style = MaterialTheme.typography.titleMedium)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(accepted, { accepted = it }, modifier = Modifier.tvFocusRing())
                             Text("Принимаю условия оферты и обработки персональных данных", style = MaterialTheme.typography.bodySmall)
@@ -380,15 +404,8 @@ internal fun NativePurchaseScreen(
                         Text(if (pending != null) "Проверить оплату" else "Повторить")
                     }
                 }
-                if (renewSource == null) {
+                if (renewSource == null && duration == null) {
                     TextButton(onClick = { recovering = true }, modifier = Modifier.tvFocusRing()) { Text("Восстановить покупку") }
-                }
-                openShop?.let {
-                    TextButton(onClick = it, modifier = Modifier.tvFocusRing()) {
-                        Text("В магазин")
-                        Spacer(Modifier.width(8.dp))
-                        Icon(Icons.Default.NorthEast, null, Modifier.size(16.dp))
-                    }
                 }
             }
             if (displayedCode.isNotBlank()) {
@@ -404,54 +421,50 @@ internal fun NativePurchaseScreen(
 
 private fun priceLabel(amount: String): String = "${amount.removeSuffix(".00").replace('.', ',')} ₽"
 
+private fun dayLabel(days: Int): String {
+    val unit = when {
+        days % 100 in 11..14 -> "дней"
+        days % 10 == 1 -> "день"
+        days % 10 in 2..4 -> "дня"
+        else -> "дней"
+    }
+    return "$days $unit"
+}
+
 @Composable
 private fun PurchasePlanCard(
     plan: JSONObject,
-    selected: Boolean,
-    selectable: Boolean,
     enabled: Boolean,
     modifier: Modifier,
-    onSelect: () -> Unit,
+    onTerm: (Int) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = RoundedCornerShape(18.dp)
-    val selection = if (selectable) {
-        Modifier.tvFocusRing(shape).clip(shape)
-            .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
-    } else Modifier
-    val startingTerm = plan.getJSONArray("durations").objects().minByOrNull { it.getInt("days") }
+    val id = plan.getInt("id")
     Surface(
-        modifier = modifier.then(selection),
-        shape = shape,
-        color = if (selected) colors.primaryContainer.copy(alpha = .62f) else colors.surfaceContainer,
-        contentColor = if (selected) colors.onPrimaryContainer else colors.onSurface,
-        border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = colors.surfaceContainer,
+        border = BorderStroke(1.dp, colors.outlineVariant),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(plan.getString("name"), Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                startingTerm?.let {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(priceLabel(it.getString("amount")),
-                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("за ${it.getInt("days")} дн.", style = MaterialTheme.typography.labelMedium)
-                    }
-                }
+            Text(plan.getString("name"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            val description = when (id) {
+                15 -> "Для личного использования"
+                16 -> "Одна подписка для всей семьи"
+                else -> ""
+            }
+            if (description.isNotEmpty()) {
+                Text(description, style = MaterialTheme.typography.bodyMedium)
+                Text("Премиальные серверы и приоритетные маршруты",
+                    color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
             Text("Устройств: ${plan.getInt("devices")} · ${plan.getInt("traffic_gb")} ГБ / месяц",
-                color = if (selected) colors.onPrimaryContainer else colors.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium)
-            if (selectable) {
-                HorizontalDivider(color = colors.outlineVariant.copy(alpha = .65f))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (selected) "Тариф выбран" else "Выбрать срок", Modifier.weight(1f),
-                        color = colors.primary, style = MaterialTheme.typography.labelLarge)
-                    if (!selected) Icon(Icons.Default.ChevronRight, null, Modifier.size(20.dp), tint = colors.primary)
+                color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+            plan.getJSONArray("durations").objects().sortedBy { it.getInt("days") }.forEach { term ->
+                val days = term.getInt("days")
+                OutlinedButton(onClick = { onTerm(days) }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).tvFocusRing()) {
+                    Text("${dayLabel(days)} · ${priceLabel(term.getString("amount"))}")
                 }
             }
         }

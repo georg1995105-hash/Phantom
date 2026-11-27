@@ -160,11 +160,19 @@ fun HomeScreen(
     val store = remember { SubscriptionStore(appContext) }
     val purchaseStore = remember { xyz.wraithnet.phantom.data.NativeStore(appContext) }
     var showPurchase by rememberSaveable { mutableStateOf(false) }
+    var restorePurchase by rememberSaveable { mutableStateOf(false) }
+    var hasSavedInvoice by remember { mutableStateOf(purchaseStore.pending() != null) }
     var renewPurchaseId by rememberSaveable { mutableStateOf<String?>(null) }
     val renewalRestrictions = remember { mutableStateMapOf<String, String>() }
-    LaunchedEffect(refreshVersion) {
+    LaunchedEffect(refreshVersion, showPurchase) {
+        if (showPurchase) return@LaunchedEffect
+        hasSavedInvoice = purchaseStore.pending() != null
         try {
-            if (purchaseStore.pending() != null) purchaseStore.sync()
+            if (hasSavedInvoice) {
+                purchaseStore.sync()
+                hasSavedInvoice = purchaseStore.pending() != null
+            }
+            purchaseStore.syncDismissedCheckouts()
         } catch (cancel: CancellationException) { throw cancel }
         catch (_: Exception) { /* The purchase screen keeps a visible retry path. */ }
     }
@@ -275,9 +283,10 @@ fun HomeScreen(
             }
         }
     }
-    fun openPurchase(subscriptionId: String) {
+    fun openPurchase(subscriptionId: String? = null, restore: Boolean = false) {
         managingDevicesFor = null
         renewPurchaseId = subscriptionId
+        restorePurchase = restore
         showPurchase = true
         tab = Destination.SUBSCRIPTIONS
     }
@@ -1153,6 +1162,7 @@ fun HomeScreen(
                             NativePurchaseScreen(
                                 back = { showPurchase = false; renewPurchaseId = null },
                                 client = purchaseStore,
+                                startRecovery = restorePurchase,
                                 renewSource = renewalOwner?.source,
                                 renewTitle = renewalOwner?.let { deviceSnapshots[it.source]?.title ?: subscriptionAccountLabel(it) },
                                 onRenewalUnavailable = { message ->
@@ -1186,10 +1196,10 @@ fun HomeScreen(
                                 onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
-                        NativePurchaseScreen(
-                            back = { tab = Destination.HOME },
-                            client = purchaseStore,
-                            refreshVersion = refreshVersion,
+                        SubscriptionOverview(
+                            hasSavedInvoice = hasSavedInvoice,
+                            openPurchase = { openPurchase() },
+                            openRecovery = { openPurchase(restore = true) },
                             accessCard = {
                                 subscriptionForAccess?.let { subscription ->
                                     SubscriptionAccessCard(
@@ -1201,7 +1211,6 @@ fun HomeScreen(
                                     )
                                 }
                             },
-                            openShop = { openUrl("https://go.veor.pro/") },
                         )
                     }
                 }

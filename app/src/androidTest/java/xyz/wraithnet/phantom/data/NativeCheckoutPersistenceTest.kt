@@ -106,8 +106,67 @@ class NativeCheckoutPersistenceTest {
             val confirmed = reopened.sync()
             assertEquals("COMPLETED", confirmed.getJSONObject("payment").getString("status"))
             assertTrue(confirmed.getBoolean("subscription_import_pending"))
+            assertTrue(runCatching { reopened.dismissCheckout(intent!!) }.isFailure)
             assertEquals(pending.toString(), reopened.pending().toString())
             assertEquals(2, checkouts)
+        } finally { prefs.edit().clear().commit() }
+    }
+
+    @Test fun dismissedPendingInvoiceKeepsItsRecoveryCodeAndTracksALatePayment() = runBlocking {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val context = object : ContextWrapper(base) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int) =
+                super.getSharedPreferences("checkout-dismiss-test-$name", mode)
+        }
+        val prefs = context.getSharedPreferences("phantom_purchases", Context.MODE_PRIVATE)
+        val id = "8c80d81d-78f1-4b48-aadf-50a182816136"
+        val access = "fixture-access"
+        val code = "a".repeat(64)
+        val draft = JSONObject().put("request_id", id).put("access_id", access).put("mode", "renew")
+        val vault = PurchaseVault(context)
+        vault.update {
+            it.put("draft", draft)
+            it.put("pending_intent", id)
+            it.put("recovery", JSONObject().put(access, code))
+        }
+        var providerState = "VERIFYING"
+        var checks = 0
+        val transport = Interceptor { chain ->
+            val request = chain.request()
+            assertEquals("GET", request.method)
+            val body = when {
+                request.url.encodedPath.endsWith("/bootstrap") ->
+                    """{"csrf":"fixture","cards":[{"access_id":"$access"}],"plans":[]}"""
+                request.url.encodedPath.endsWith("/intents/$id") -> {
+                    checks++
+                    """{"status":"$providerState","delivery":"DONE","subscription":{"url":"http://example.invalid","active":true}}"""
+                }
+                else -> error("Unexpected request")
+            }
+            Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("Fixture")
+                .body(body.toResponseBody("application/json".toMediaType())).build()
+        }
+        fun client() = NativeStore(context) { addInterceptor(transport) }
+        try {
+            val store = client()
+            assertTrue(runCatching { store.dismissCheckout("another-request") }.isFailure)
+            assertEquals(0, checks)
+            assertTrue(runCatching { store.dismissCheckout(id) }.isFailure)
+            assertNotNull(store.pending())
+            providerState = "PENDING"
+            store.dismissCheckout(id)
+            val reopened = client()
+            assertNull(reopened.pending())
+            assertEquals(code, reopened.recoveryCode(access))
+            assertTrue(vault.read().getJSONObject("dismissed_intents").has(id))
+            assertTrue(runCatching { reopened.checkout(JSONObject(), JSONObject(), access, true) }.isFailure)
+            assertNull(reopened.pending())
+            providerState = "COMPLETED"
+            reopened.syncDismissedCheckouts()
+            assertEquals(4, checks)
+            // Keep a completed invoice until its subscription is imported successfully.
+            assertTrue(vault.read().getJSONObject("dismissed_intents").has(id))
         } finally { prefs.edit().clear().commit() }
     }
 }

@@ -10,6 +10,7 @@ import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +27,7 @@ import org.json.JSONObject
 import xyz.wraithnet.phantom.data.PurchaseClient
 import xyz.wraithnet.phantom.data.RenewalUnavailable
 import xyz.wraithnet.phantom.ui.home.NativePurchaseScreen
+import xyz.wraithnet.phantom.ui.home.SubscriptionOverview
 import xyz.wraithnet.phantom.ui.home.isSberPayRedirect
 
 @RunWith(AndroidJUnit4::class)
@@ -34,6 +36,7 @@ class NativePurchaseUiTest {
     private class Store : PurchaseClient {
         var purchases = 0
         var resumes = 0
+        var dismissals = 0
         var grantedSource: String? = null
         var recovered = false
         var expectRenewal = false
@@ -72,6 +75,12 @@ class NativePurchaseUiTest {
             resumes++
             return JSONObject().put("access_id", "previous").put("status", "PENDING").put("payment_url", checkoutUrl)
         }
+        override suspend fun dismissCheckout(requestId: String) {
+            assertEquals(draft?.getString("request_id"), requestId)
+            dismissals++
+            draft = null
+            catalog.remove("payment")
+        }
         override fun pending() = draft
         override fun recoveryCode(access: String?) = ""
     }
@@ -105,6 +114,7 @@ class NativePurchaseUiTest {
                 MaterialTheme { NativePurchaseScreen(back = {}, client = store) }
             }
         }
+        compose.onNodeWithText("45 дней · 349 ₽").performScrollTo().performClick()
         compose.onNode(isToggleable()).performScrollTo().performClick()
         compose.onNodeWithText("Оплатить · 349 ₽").performScrollTo().performClick()
         compose.runOnIdle {
@@ -134,6 +144,7 @@ class NativePurchaseUiTest {
         compose.setContent { MaterialTheme { NativePurchaseScreen({},store) } }
         compose.waitUntil(5000) { compose.onAllNodesWithText("Проверочный тариф").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Устройств: 8 · 987 ГБ / месяц").assertExists()
+        compose.onNodeWithText("45 дней · 349 ₽").performScrollTo().performClick()
         compose.onNodeWithText("Оплатить · 349 ₽").performScrollTo().assertIsNotEnabled()
         compose.onNode(isToggleable()).performScrollTo().performClick()
         compose.onNodeWithText("Оплатить · 349 ₽").performScrollTo().assertIsEnabled().performClick()
@@ -143,31 +154,50 @@ class NativePurchaseUiTest {
         compose.onNodeWithText("Электронная почта").assertDoesNotExist()
         compose.onNodeWithText("Подписка добавлена. Можно подключаться к VPN.").assertDoesNotExist()
     }
-    @Test fun tappingPlanCardChangesItsSelectionAndUsesItsOwnTerms() {
+    @Test fun purchaseEntryOpensBothCardsWithTheirTermsAlreadyVisible() {
         val store = Store().apply {
-            expectedPlan = 28
+            expectedPlan = 16
             expectedAmount = "650.00"
             catalog.getJSONArray("plans").put(JSONObject(
-                """{"id":28,"name":"Семейный","devices":6,"traffic_gb":1500,"durations":[{"days":30,"amount":"250.00"},{"days":90,"amount":"650.00"}]}"""
+                """{"id":16,"name":"Семейный","devices":6,"traffic_gb":1500,"durations":[{"days":30,"amount":"250.00"},{"days":90,"amount":"650.00"}]}"""
             ))
         }
-        var externalShopOpens = 0
+        val open = mutableStateOf(false)
         compose.setContent { MaterialTheme {
-            NativePurchaseScreen({}, store, accessCard = {}, openShop = { externalShopOpens++ })
+            if (open.value) NativePurchaseScreen({ open.value = false }, store)
+            else SubscriptionOverview(false, openPurchase = { open.value = true }, openRecovery = {}) {
+                Text("Подключённые устройства")
+            }
         } }
-        compose.onNodeWithText("Тарифы").assertIsDisplayed()
-        compose.onNodeWithText("Купить подписку").assertDoesNotExist()
-        compose.onNodeWithText("Срок подписки").assertDoesNotExist()
-        compose.onNodeWithText("В магазин").performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(1, externalShopOpens) }
-        compose.onNodeWithText("Семейный").performScrollTo().assertIsNotSelected()
-        compose.onNodeWithText("250 ₽").performClick()
-        compose.onNodeWithText("Семейный").assertIsSelected()
-        compose.onNodeWithText("90 дней").performScrollTo().performClick().assertIsSelected()
+        compose.onNodeWithText("Подключённые устройства").assertIsDisplayed()
+        compose.onNodeWithText("Семейный").assertDoesNotExist()
+        compose.onNodeWithText("Купить подписку Phantom").performClick()
+        compose.onNodeWithText("45 дней · 349 ₽").assertExists()
+        compose.onNodeWithText("Одна подписка для всей семьи").assertExists()
+        compose.onNodeWithText("30 дней · 250 ₽").assertExists()
+        compose.onNodeWithText("90 дней · 650 ₽").performScrollTo().performClick()
+        compose.onNodeWithText("Семейный").assertIsDisplayed()
         compose.onNodeWithText("Оплатить · 650 ₽").performScrollTo().assertIsNotEnabled()
         compose.onNode(isToggleable()).performScrollTo().performClick()
         compose.onNodeWithText("Оплатить · 650 ₽").performScrollTo().assertIsEnabled().performClick()
         compose.waitUntil(5000) { store.purchases == 1 }
+    }
+
+    @Test fun dismissingAnUnpaidInvoiceRequiresConfirmation() {
+        val store = Store().apply {
+            draft = JSONObject("""{"request_id":"saved-order","mode":"new","days":90,"amount":"400.00"}""")
+            catalog.put("payment", JSONObject().put("status", "PENDING")
+                .put("payment_url", "https://yookassa.ru/checkout/fixture"))
+        }
+        compose.setContent { MaterialTheme { NativePurchaseScreen({}, store) } }
+        compose.onNodeWithText("Убрать счёт").performScrollTo().performClick()
+        compose.onNodeWithText("Оставить").performClick()
+        compose.runOnIdle { assertEquals(0, store.dismissals) }
+        compose.onNodeWithText("Убрать счёт").performScrollTo().performClick()
+        compose.onNode(hasAnyAncestor(isDialog()) and hasText("Убрать счёт")).performClick()
+        compose.onNodeWithText("Счёт убран.").assertIsDisplayed()
+        compose.onNodeWithText("Продолжить оплату").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, store.dismissals) }
     }
 
     @Test fun importedSubscriptionRenewsItsOriginalOwner() {
@@ -189,8 +219,9 @@ class NativePurchaseUiTest {
             store.value = eligible
         }
         compose.onNodeWithText("Подписка клиента").assertExists()
-        compose.onNodeWithText("Купить подписку").assertDoesNotExist()
+        compose.onNodeWithText("Купить подписку Phantom").assertDoesNotExist()
         compose.waitUntil(5000) { eligible.grantedSource == source }
+        compose.onNodeWithText("45 дней · 349 ₽").performScrollTo().performClick()
         compose.onNode(isToggleable()).performScrollTo().performClick()
         compose.onNodeWithText("Оплатить · 349 ₽").performScrollTo().assertIsEnabled().performClick()
         compose.waitUntil(5000) { eligible.purchases == 1 }
@@ -216,7 +247,7 @@ class NativePurchaseUiTest {
                 renewTitle = "Подписка для продления",
             )
         } }
-        compose.onNodeWithText("Новая подписка · 90 дн. · 400.00 ₽").assertExists()
+        compose.onNodeWithText("Новая подписка · 90 дней · 400 ₽").assertExists()
         compose.onNodeWithText("Оплатить · 349 ₽").assertDoesNotExist()
         compose.onNodeWithText("Продолжить оплату").performScrollTo().assertIsEnabled().performClick()
         compose.waitUntil(5000) { store.resumes == 1 }
