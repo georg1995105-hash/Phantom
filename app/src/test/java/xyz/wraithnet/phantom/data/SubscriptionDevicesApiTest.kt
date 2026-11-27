@@ -35,4 +35,11 @@ class SubscriptionDevicesApiTest {
             assertNull(SubscriptionDevicesApi.shortUuid(source))
         }
     }
+
+    @Test fun bulkDeletionCapabilityMustBeExplicitlyAdvertised() {
+        val old = """{"title":"Phantom VPN","count":0,"delete_enabled":true,"devices":[]}"""
+        assertFalse(SubscriptionDevicesApi.parse(old).canDeleteAll)
+        val current = """{"title":"Phantom VPN","count":0,"delete_enabled":true,"delete_all_enabled":true,"devices":[]}"""
+        assertTrue(SubscriptionDevicesApi.parse(current).canDeleteAll)
+    }
 }
