@@ -83,8 +83,11 @@ class NativeCheckoutPersistenceTest {
             // Re-open the app with another visible term: uncertain payment must keep the OLD request.
             loseCheckout = false
             val reopened = client()
-            val result = reopened.checkout(plan,JSONObject().put("days",90).put("amount","400.00"),null,false)
-            assertEquals(intent,result.getString("intent_id"))
+            val otherTerm = JSONObject().put("days", 90).put("amount", "400.00")
+            assertTrue(runCatching { reopened.checkout(plan, otherTerm, "another-owner", true) }.isFailure)
+            assertEquals(1, checkouts)
+            val result = requireNotNull(reopened.resumeCheckout())
+            assertEquals(intent, result.getString("intent_id"))
             assertEquals(pending.toString(),reopened.pending().toString())
             assertEquals(2,checkouts) // Same server intent both times; native server tests prove provider idempotence.
         } finally { prefs.edit().clear().commit() }

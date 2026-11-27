@@ -9,18 +9,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,11 +43,14 @@ class TvSubscriptionTextUiTest {
             ) {
                 MaterialTheme {
                     Box(Modifier.width(600.dp).height(460.dp)) {
-                        SubscriptionPage(openShop = {})
+                        val sub = Subscription(id = "tv", title = title,
+                            source = "https://example.org/subscription", servers = emptyList())
+                        SubscriptionPage(currentSubscription = sub, openShop = {})
                     }
                 }
             }
         }
-        compose.onNode(hasText("Купить подписку")).assertIsDisplayed()
+        compose.onNode(hasText(title)).assertIsDisplayed()
+        compose.onNode(hasText("В магазин")).performScrollTo().assertIsDisplayed()
     }
 }

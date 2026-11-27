@@ -25,6 +25,7 @@ internal interface PurchaseClient {
     suspend fun renewal(source: String): JSONObject
     suspend fun recover(code: String): JSONObject
     suspend fun checkout(plan: JSONObject, duration: JSONObject, aid: String?, renew: Boolean): JSONObject
+    suspend fun resumeCheckout(): JSONObject?
     fun pending(): JSONObject?
     fun recoveryCode(access: String? = null): String
 }
@@ -146,29 +147,38 @@ internal class NativeStore(context: Context,
         card
     }
     /** Persist the immutable UUID/body before the first request, including uncertain outcomes. */
-    override suspend fun checkout(plan: JSONObject, duration: JSONObject, aid: String?, renew: Boolean): JSONObject = operation.withLock {
+    override suspend fun checkout(
+        plan: JSONObject, duration: JSONObject, aid: String?, renew: Boolean,
+    ): JSONObject = operation.withLock {
+        if (pending() != null) throw IOException("Сначала завершите сохранённый счёт.")
+        require(!renew || aid != null) { "Не удалось определить подписку для продления." }
         bootstrap()
-        var draft = pending()
-        if (draft == null) {
-            draft = JSONObject().put("plan_id", plan.getInt("id"))
-                .put("days", duration.getInt("days")).put("amount", duration.getString("amount"))
-                .put("mode", if (renew) "renew" else "new").put("request_id", UUID.randomUUID().toString())
-                .put("recovery_code", if (aid == null) PurchaseVault.newCode() else "")
-                .put("accepted_terms", true).put("native_app", true)
-            if (aid != null) draft.put("access_id", aid)
-            val saved = draft
-            vault.update { it.put("draft", saved) }
-        }
+        val draft = JSONObject().put("plan_id", plan.getInt("id"))
+            .put("days", duration.getInt("days")).put("amount", duration.getString("amount"))
+            .put("mode", if (renew) "renew" else "new").put("request_id", UUID.randomUUID().toString())
+            .put("recovery_code", if (aid == null) PurchaseVault.newCode() else "")
+            .put("accepted_terms", true).put("native_app", true)
+        if (aid != null) draft.put("access_id", aid)
+        vault.update { it.put("draft", draft) }
+        submitCheckout(draft)
+    }
+
+    override suspend fun resumeCheckout(): JSONObject? = operation.withLock {
+        val draft = pending() ?: return@withLock null
+        bootstrap()
+        submitCheckout(draft)
+    }
+
+    private suspend fun submitCheckout(draft: JSONObject): JSONObject {
         try {
-            val prepared = request("/prepare", requireNotNull(draft))
+            val prepared = request("/prepare", draft)
             val access = prepared.getString("access_id")
             draft.optString("recovery_code").takeIf { it.isNotBlank() }?.let { saveRecovery(access, it) }
             val iid = prepared.getString("intent_id")
             vault.update { it.put("pending_intent", iid) }
-            request("/intents/$iid/checkout", JSONObject())
+            return request("/intents/$iid/checkout", JSONObject())
         } catch (changed: PurchaseOfferChanged) {
-            // Never discard an uncertain network/provider outcome. QUOTE_CHANGED
-            // is emitted by native quote validation before creating any invoice.
+            // Only this explicit server outcome precedes all provider activity.
             vault.update { it.remove("draft"); it.remove("pending_intent") }
             throw changed
         }
@@ -176,49 +186,78 @@ internal class NativeStore(context: Context,
     suspend fun state(iid: String): JSONObject = request("/intents/${UUID.fromString(iid)}")
     override suspend fun sync(): JSONObject = syncing.withLock {
         val data = catalog()
+        var importFailed = false
+        val iid = vault.read().optString("pending_intent").takeIf { it.isNotBlank() }
+        val result = iid?.let { state(it) }
+        val paidSubscription = result?.optJSONObject("subscription")
+        val paidDelivered = paidSubscription?.let { importActive(it) } == true
+        if (paidSubscription?.optBoolean("active") == true && !paidDelivered) importFailed = true
         for (card in data.getJSONArray("cards").objects()) {
-            card.optJSONObject("subscription")?.let { deliver(it) }
+            val sub = card.optJSONObject("subscription") ?: continue
+            if (sub.optString("url") == paidSubscription?.optString("url") || !sub.optBoolean("active")) continue
+            if (!importActive(sub)) importFailed = true
         }
-        vault.read().optString("pending_intent").takeIf { it.isNotBlank() }?.let { iid ->
-            val result = state(iid)
-            result.optJSONObject("subscription")?.let { deliver(it) }
+        if (result != null) {
             if (result.optString("status") == "CANCELED" ||
-                (result.optString("status") == "COMPLETED" && result.optString("delivery") == "DONE" &&
-                    result.optJSONObject("subscription") != null)) {
-                vault.update {
-                    if (it.optString("pending_intent") == iid) {
-                        it.remove("draft"); it.remove("pending_intent")
+                (result.optString("status") == "COMPLETED" && result.optString("delivery") == "DONE" && paidDelivered)) {
+                operation.withLock {
+                    vault.update {
+                        if (it.optString("pending_intent") == iid) {
+                            it.remove("draft")
+                            it.remove("pending_intent")
+                        }
                     }
                 }
             }
             data.put("payment", result)
         }
+        data.put("subscription_import_pending", importFailed)
         data
     }
-    private suspend fun deliver(subscription: JSONObject) = withContext(Dispatchers.IO) {
-        if (!subscription.optBoolean("active")) return@withContext
-        val source = subscription.optString("url").takeIf { it.startsWith("https://") } ?: return@withContext
+    private suspend fun importActive(subscription: JSONObject): Boolean = try {
+        deliver(subscription)
+    } catch (cancel: kotlinx.coroutines.CancellationException) {
+        throw cancel
+    } catch (_: Exception) {
+        // A failed download must not hide the catalogue or discard a paid order.
+        false
+    }
+
+    private suspend fun deliver(subscription: JSONObject): Boolean = withContext(Dispatchers.IO) {
+        if (!subscription.optBoolean("active")) return@withContext false
+        val source = subscription.optString("url").takeIf { it.startsWith("https://") } ?: return@withContext false
+        val ownerToken = SubscriptionDevicesApi.shortUuid(source)
+        fun ownsSubscription(sub: Subscription): Boolean =
+            sub.source == source || (ownerToken != null && SubscriptionDevicesApi.shortUuid(sub.source) == ownerToken)
         val store = SubscriptionStore(app)
-        val existing = store.read().firstOrNull { it.source == source }
+        val existing = store.read().firstOrNull(::ownsSubscription)
         val marker = subscription.getString("expire_at")
-        if (existing != null && vault.read().optJSONObject("imported")?.optString(existing.id) == marker) return@withContext
-        val downloaded = SubscriptionFetcher.download(app, source, store.deviceId())
+        if (existing != null && vault.read().optJSONObject("imported")?.optString(existing.id) == marker) {
+            return@withContext true
+        }
+        val downloaded = SubscriptionFetcher.download(app, existing?.source ?: source, store.deviceId())
         val parsed = SubscriptionParser.parse(downloaded.body, downloaded.title)
-        require(parsed.servers.isNotEmpty()) { "Подписка выдана, но серверы ещё не получены. Повторите проверку." }
+        require(parsed.servers.isNotEmpty())
         val saved = parsed.copy(source = source, updateIntervalSeconds = downloaded.updateIntervalSeconds ?: 3600L,
             uploadBytes = downloaded.uploadBytes, downloadBytes = downloaded.downloadBytes,
             totalBytes = downloaded.totalBytes, expiresAt = downloaded.expiresAt,
             announcement = downloaded.announcement, supportUrl = downloaded.supportUrl,
             webPageUrl = downloaded.webPageUrl, accountTitle = downloaded.accountTitle)
         val result = store.update { current ->
-            val original = current.firstOrNull { it.source == source }
-            if (original == null) current + saved else SubscriptionMutations.replaceDownloaded(current, original, saved)
-        }.first { it.source == source }
+            if (existing != null) SubscriptionMutations.replaceDownloaded(current, existing, saved, strict = true)
+            else {
+                check(current.none(::ownsSubscription))
+                current + saved
+            }
+        }.first(::ownsSubscription)
         vault.update { root ->
             val imports = root.optJSONObject("imported") ?: JSONObject()
-            imports.put(result.id, marker); root.put("imported", imports)
+            imports.put(result.id, marker)
+            root.put("imported", imports)
         }
+        true
     }
+
 }
 
 internal fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
