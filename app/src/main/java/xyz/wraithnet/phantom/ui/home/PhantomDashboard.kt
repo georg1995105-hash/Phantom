@@ -1033,7 +1033,7 @@ internal fun subscriptionAccountLabel(sub: Subscription): String =
     else sub.customTitle?.takeIf { it.isNotBlank() } ?: sub.title
 
 @Composable
-private fun SubscriptionAccessSummary(sub: Subscription) {
+private fun SubscriptionAccessSummary(sub: Subscription, titleOverride: String? = null) {
     val colors = MaterialTheme.colorScheme
     val tv = isTelevision()
     val access = subscriptionAccessSnapshot(sub, System.currentTimeMillis() / 1000L)
@@ -1063,7 +1063,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
                 fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp,
                 color = colors.onSurfaceVariant)
             Spacer(Modifier.height(5.dp))
-            Text(subscriptionAccountLabel(sub),
+            Text(titleOverride?.takeIf { it.isNotBlank() } ?: subscriptionAccountLabel(sub),
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                 maxLines = if (tv) 8 else 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
@@ -1099,7 +1099,7 @@ private fun SubscriptionAccessSummary(sub: Subscription) {
 
 /** The customer portal is available only for our own subscriptions, never imported third-party links. */
 internal fun supportsDeviceManagement(source: String): Boolean =
-    SubscriptionFetcher.usesProviderJson(source)
+    SubscriptionDevicesApi.supports(source)
 
 @Composable
 private fun DeviceManagementEntry(onClick: () -> Unit) {
@@ -1133,6 +1133,7 @@ private fun DeviceManagementEntry(onClick: () -> Unit) {
 @Composable
 internal fun SubscriptionPage(
     currentSubscription: Subscription? = null,
+    accountTitleOverride: String? = null,
     openDevices: (() -> Unit)? = null,
     openShop: () -> Unit
 ) {
@@ -1153,7 +1154,7 @@ internal fun SubscriptionPage(
                     Text("Ваш доступ", style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold)
                     if (currentSubscription != null) {
-                        SubscriptionAccessSummary(currentSubscription)
+                        SubscriptionAccessSummary(currentSubscription, accountTitleOverride)
                         devicesAction?.let {
                             DeviceManagementEntry(onClick = it)
                         }
@@ -1197,7 +1198,7 @@ internal fun SubscriptionPage(
                 }
                 Column(Modifier.padding(11.dp)) {
                     if (currentSubscription != null) {
-                        SubscriptionAccessSummary(currentSubscription)
+                        SubscriptionAccessSummary(currentSubscription, accountTitleOverride)
                         devicesAction?.let {
                             Spacer(Modifier.height(9.dp))
                             DeviceManagementEntry(onClick = it)
