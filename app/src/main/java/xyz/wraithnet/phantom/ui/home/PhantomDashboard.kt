@@ -1131,106 +1131,12 @@ private fun DeviceManagementEntry(onClick: () -> Unit) {
 }
 
 @Composable
-internal fun SubscriptionPage(
-    currentSubscription: Subscription? = null,
-    accountTitleOverride: String? = null,
-    openDevices: (() -> Unit)? = null,
-    openShop: () -> Unit
-) {
-    val colors = MaterialTheme.colorScheme
-    val devicesAction = openDevices?.takeIf {
-        currentSubscription != null && supportsDeviceManagement(currentSubscription.source)
-    }
-    if (isTelevision()) {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 6.dp)) {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = colors.surface,
-                border = BorderStroke(1.dp, colors.primary.copy(alpha = .36f))
-            ) {
-                Column(Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Ваш доступ", style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold)
-                    if (currentSubscription != null) {
-                        SubscriptionAccessSummary(currentSubscription, accountTitleOverride)
-                        devicesAction?.let {
-                            DeviceManagementEntry(onClick = it)
-                        }
-                    } else {
-                        Text("Подписка не выбрана. Добавьте свою ссылку или оформите доступ.",
-                            color = colors.onSurfaceVariant)
-                    }
-                    HorizontalDivider(color = colors.outline.copy(alpha = .25f))
-                    Text("Покупка и продление — в официальном магазине.",
-                        color = colors.onSurfaceVariant)
-                    Button(
-                        onClick = openShop,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp).tvFocusRing(),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text("В магазин")
-                        Spacer(Modifier.width(12.dp))
-                        Icon(Icons.Default.NorthEast, null, Modifier.size(19.dp))
-                    }
-                    Caption("Продлить: в магазине «Моя подписка» → «Продлить».")
-                }
-            }
-        }
-        return
-    }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-        .padding(horizontal = 16.dp, vertical = 5.dp)) {
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = colors.surface,
-            border = BorderStroke(1.dp, colors.primary.copy(alpha = .30f))
-        ) {
-            Column {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Star, null, tint = colors.primary,
-                        modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text("Ваш доступ", fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.titleMedium)
-                }
-                Column(Modifier.padding(11.dp)) {
-                    if (currentSubscription != null) {
-                        SubscriptionAccessSummary(currentSubscription, accountTitleOverride)
-                        devicesAction?.let {
-                            Spacer(Modifier.height(9.dp))
-                            DeviceManagementEntry(onClick = it)
-                        }
-                    } else {
-                        Surface(color = colors.surfaceVariant.copy(alpha = .30f),
-                            shape = RoundedCornerShape(14.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(13.dp)) {
-                                Text("Подписка не выбрана", fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(4.dp))
-                                Text("Добавьте подписку на главной странице или оформите доступ.",
-                                    color = colors.onSurfaceVariant,
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(11.dp))
-                    Button(onClick = openShop,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp).tvFocusRing(),
-                        shape = RoundedCornerShape(13.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF64AF8E), contentColor = Color(0xFF0A241A))) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("В магазин", fontWeight = FontWeight.Bold)
-                            Icon(Icons.Default.NorthEast, null, Modifier.size(18.dp))
-                        }
-                    }
-                    Spacer(Modifier.height(7.dp))
-                    Caption("Продлить: «Моя подписка» → «Продлить» в магазине.")
-                }
-            }
+internal fun SubscriptionPage(openShop: () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Button(onClick = openShop,
+            modifier = Modifier.widthIn(max = 420.dp).fillMaxWidth().heightIn(min = 52.dp).tvFocusRing(),
+            shape = RoundedCornerShape(14.dp)) {
+            Text("Купить подписку", fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -60,6 +60,19 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="phantom" android:host="pair" />
             </intent-filter>
+            <!-- Fixed payment return contains no credentials or success verdict. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="go.veor.pro" android:pathPrefix="/pay-return" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="phantom" android:host="payment-return" />
+            </intent-filter>
             <!-- Subscription import from a browser or provider installation page. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

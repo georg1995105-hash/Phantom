@@ -176,6 +176,10 @@ class MainActivity : ComponentActivity() {
             else -> null
         }?.trim().orEmpty()
         if (raw.isBlank() || raw.length > 500_000) return null
+        val uri = intent.data
+        if ((uri?.scheme == "phantom" && uri.host == "payment-return") ||
+            (uri?.scheme == "https" && uri.host == "go.veor.pro" && uri.path?.startsWith("/pay-return") == true))
+            return "phantom://payment-return"
         return raw
     }
 

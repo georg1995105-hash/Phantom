@@ -96,7 +96,7 @@ class UnifiedHomeScrollUiTest {
                 compose.onAllNodes(hasScrollAction()).assertCountEquals(1)
                 compose.awaitVisible(hasContentDescription("Вкладка Подписка"))
                     .performClick()
-                compose.awaitVisible(hasText("В магазин"))
+                compose.awaitVisible(hasText("Купить подписку"))
                 compose.awaitVisible(hasContentDescription("Вкладка Главная"))
                     .performClick()
                 compose.onAllNodes(hasScrollAction()).assertCountEquals(1)

@@ -47,26 +47,11 @@ class TvSubscriptionTextUiTest {
             ) {
                 MaterialTheme {
                     Box(Modifier.width(600.dp).height(460.dp)) {
-                        SubscriptionPage(
-                            currentSubscription = Subscription(
-                                id = "tv-title-probe", title = title,
-                                source = "https://example.invalid/test",
-                                servers = emptyList(), updatedAt = 1L
-                            ),
-                            openShop = {}
-                        )
+                        SubscriptionPage(openShop = {})
                     }
                 }
             }
         }
-        val textNode = compose.onNode(hasText(title), useUnmergedTree = true).fetchSemanticsNode()
-        val layouts = mutableListOf<TextLayoutResult>()
-        val getResult = textNode.config[SemanticsActions.GetTextLayoutResult].action
-            ?: error("Subscription title must expose its text layout")
-        assertTrue(getResult(layouts))
-        assertTrue(layouts.isNotEmpty())
-        assertFalse("Full subscription title was truncated on Android TV",
-            layouts.first().hasVisualOverflow)
-        compose.onNode(hasText("В магазин")).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Купить подписку")).assertIsDisplayed()
     }
 }

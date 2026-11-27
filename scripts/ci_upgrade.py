@@ -218,7 +218,7 @@ visible_after_scroll("Убрать из избранного")
 screenshot("servers")
 visible_after_scroll("Добавить подписку или ключ", max_swipes=18)
 tap("Подписка")
-node("В магазин")
+node("Купить подписку")
 screenshot("subscriptions")
 tap("Настройки")
 node("Тема оформления")
@@ -427,35 +427,20 @@ node("Подписка обновлена")
 show_servers()
 visible_after_scroll("Управление подпиской OfflineSubscriptionCheck")
 tap("Подписка")
-node("В магазин")
+node("Купить подписку")
 screenshot("forest-subscriptions")
-# Verify that renewal guidance stays reachable on a narrow device.
+# The subscription tab intentionally contains only one native purchase button.
 adb("shell", "wm", "size", "720x1600")
-renewal_hint = "Продлить: «Моя подписка» → «Продлить» в магазине."
-for attempt in range(10):
-    try:
-        node(renewal_hint, attempts=1)
-        break
-    except AssertionError:
-        if attempt == 9:
-            print("Subscription screen did not expose renewal hint after in-content swipes",
-                  flush=True)
-            raise
-        # At 720x1600, y=1330 falls within bottom NavigationBar, which
-        # consumes the gesture instead of scrolling the subscription list.
-        # Keep both touch points safely inside the scrollable content.
-        adb("shell", "input", "swipe", "350", "1000", "350", "320", "420")
-node(renewal_hint)
+node("Купить подписку")
 screenshot("subscriptions-narrow")
 adb("shell", "wm", "size", "reset")
-for action in ("В магазин",):
-    adb("logcat", "-c")
-    tap_in_list(action)
-    time.sleep(1)
-    activity_log = adb("logcat", "-d", "-s", "ActivityTaskManager:I")
-    if "go.veor.pro" not in activity_log or "android.intent.action.VIEW" not in activity_log:
-        raise AssertionError(f"Browser handoff failed for {action}")
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+# Opening the catalogue stays in Phantom; never create an invoice in upgrade QA.
+adb("logcat", "-c")
+tap_in_list("Купить подписку")
+node("Без регистрации, почты и пароля")
+activity_log = adb("logcat", "-d", "-s", "ActivityTaskManager:I")
+assert "android.intent.action.VIEW" not in activity_log, "Purchase unexpectedly left the app"
+tap("Назад")
 adb("shell", "svc", "wifi", "disable")
 adb("shell", "svc", "data", "disable")
 tap("Главная")
@@ -476,7 +461,7 @@ visible_after_scroll("OfflineSubscriptionCheck", max_swipes=18)
 try:
     adb("shell", "wm", "user-rotation", "lock", "1")
     tap("Подписка")
-    visible_after_scroll("В магазин")
+    visible_after_scroll("Купить подписку")
     for tab in ("Главная", "Подписка", "Настройки"):
         node(tab)
     screenshot("phone-landscape")
@@ -497,7 +482,7 @@ try:
         show_servers()
         visible_after_scroll("OfflineSubscriptionCheck")
         tap("Подписка")
-        visible_after_scroll("В магазин")
+        visible_after_scroll("Купить подписку")
         tap("Настройки")
         node("Настройки")
         screenshot(shot)

@@ -56,7 +56,7 @@ object SubscriptionDevicesApi {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (failure: Exception) {
-            if (failure is HttpFailure && failure.status !in 500..599 && failure.status != 404) throw failure
+            if (failure is HttpFailure) throw failure
             // Deleting this very phone may break the tunnel before the HTTP
             // response arrives. Re-read from the server instead of claiming
             // failure/success based solely on a lost response.
@@ -75,7 +75,7 @@ object SubscriptionDevicesApi {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (failure: Exception) {
-            if (failure is HttpFailure && failure.status !in 500..599 && failure.status != 404) throw failure
+            if (failure is HttpFailure) throw failure
             val fresh = try { list(source, localHwid) }
                 catch (cancel: CancellationException) { throw cancel }
                 catch (_: Exception) { throw failure }

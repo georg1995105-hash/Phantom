@@ -155,6 +155,14 @@ fun HomeScreen(
     val context = LocalContext.current
     val appContext = context.applicationContext
     val store = remember { SubscriptionStore(appContext) }
+    val purchaseStore = remember { xyz.wraithnet.phantom.data.NativeStore(appContext) }
+    var showPurchase by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(refreshVersion) {
+        try {
+            if (purchaseStore.pending() != null) purchaseStore.sync()
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { /* The purchase screen keeps a visible retry path. */ }
+    }
     var initialSubscriptions by remember { mutableStateOf<List<Subscription>?>(null) }
     var startupError by remember { mutableStateOf<String?>(null) }
     var startupRetry by remember { mutableIntStateOf(0) }
@@ -243,17 +251,8 @@ fun HomeScreen(
             if (!force && saved != null && age < 30_000L) saved
             else SubscriptionDevicesApi.list(source, hwid).also { cacheDevices(source, it) }
         }
-    LaunchedEffect(tab, selectedMatch?.first?.source) {
-        if (tab != Destination.SUBSCRIPTIONS) {
-            managingDevicesFor = null
-            return@LaunchedEffect
-        }
-        val owner = selectedMatch?.first ?: return@LaunchedEffect
-        if (!SubscriptionDevicesApi.supports(owner.source)) return@LaunchedEffect
-        try {
-            loadDevices(owner.source, localHwid, force = false)
-        } catch (cancel: CancellationException) { throw cancel }
-        catch (_: Exception) { /* Keep the last confirmed name and list while offline. */ }
+    LaunchedEffect(tab) {
+        if (tab != Destination.SUBSCRIPTIONS) managingDevicesFor = null
     }
     var exitNetwork by remember { mutableStateOf<ExitNetworkLookup.Info?>(null) }
     var exitLoading by remember { mutableStateOf(false) }
@@ -509,7 +508,10 @@ fun HomeScreen(
             // A browser can open a link while a prior import is finishing.
             // Consume it only when the existing pipeline can accept it.
             onExternalImportConsumed()
-            if (TvSubscriptionPairing.isPairingCode(text)) {
+            if (text == "phantom://payment-return") {
+                tab = Destination.SUBSCRIPTIONS
+                showPurchase = true
+            } else if (TvSubscriptionPairing.isPairingCode(text)) {
                 incomingPairCode = text
                 pairingSendError = null
             } else {
@@ -1119,9 +1121,13 @@ fun HomeScreen(
                 }
                 Destination.SUBSCRIPTIONS -> {
                     val deviceOwner = managingDevicesFor?.let { id ->
-                        selectedMatch?.first?.takeIf { it.id == id }
+                        subscriptions.firstOrNull { it.id == id }
                     }?.takeIf { SubscriptionDevicesApi.supports(it.source) }
-                    if (deviceOwner != null) {
+                    if (showPurchase) {
+                        NativePurchaseScreen(back = { showPurchase = false }, client = purchaseStore,
+                            refreshVersion = refreshVersion,
+                            copySubscription = { copyLink(it, "Подписка скопирована") })
+                    } else if (deviceOwner != null) {
                         key(deviceOwner.id, deviceOwner.source) {
                             NativeDevicesScreen(deviceOwner, localHwid,
                                 back = { managingDevicesFor = null },
@@ -1143,16 +1149,7 @@ fun HomeScreen(
                                 onBusyChange = { deviceMutationBusy = it })
                         }
                     } else {
-                        SubscriptionPage(
-                            currentSubscription = selectedMatch?.first,
-                            accountTitleOverride = selectedMatch?.first?.source
-                                ?.let { deviceSnapshots[it]?.title },
-                            openDevices = {
-                                managingDevicesFor = selectedMatch?.first?.id
-                            }
-                        ) {
-                            openUrl("https://go.veor.pro/")
-                        }
+                        SubscriptionPage { showPurchase = true }
                     }
                 }
                 Destination.SETTINGS -> PhantomSettings(
@@ -1486,7 +1483,7 @@ fun HomeScreen(
                         scope.launch { refresh(sub) }
                     }
                     funActionRow(when {
-                        isRemote -> "Копировать ссылку"
+                        isRemote -> "Скопировать подписку"
                         sub.servers.size == 1 -> "Копировать ключ"
                         else -> "Копировать конфигурацию"
                     }, Icons.Default.ContentCopy) {
@@ -1496,6 +1493,12 @@ fun HomeScreen(
                             sub.servers.size == 1 -> "Ключ скопирован"
                             else -> "Конфигурация скопирована"
                         })
+                    }
+                    if (SubscriptionDevicesApi.supports(sub.source)) funActionRow("Мои устройства", Icons.Default.Devices) {
+                        activeSubMenu = null
+                        showPurchase = false
+                        managingDevicesFor = sub.id
+                        tab = Destination.SUBSCRIPTIONS
                     }
                     val payloadBytes = sub.source.toByteArray().size
                     if (payloadBytes in 1..2950) funActionRow("Показать QR-код", Icons.Default.QrCode) {
