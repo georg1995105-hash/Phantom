@@ -11,6 +11,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.Buffer
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -38,7 +39,11 @@ class NativeCheckoutPersistenceTest {
             val path = request.url.encodedPath
             var status = 200
             val body = when {
-                path.endsWith("/bootstrap") -> """{"csrf":"fixture-csrf","cards":[],"plans":[]}"""
+                path.endsWith("/bootstrap") -> {
+                    val cards = JSONArray()
+                    if (intent != null) cards.put(JSONObject().put("access_id", "fixture-access"))
+                    JSONObject().put("csrf", "fixture-csrf").put("cards", cards).put("plans", JSONArray()).toString()
+                }
                 path.endsWith("/prepare") -> {
                     assertEquals("https://go.veor.pro",request.header("Origin"))
                     assertEquals("fixture-csrf",request.header("X-Phantom-CSRF"))
