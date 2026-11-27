@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 /** A payment-only browser. No subscription URL, guest cookie or native JS bridge. */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-internal fun InAppPayment(url: String, close: () -> Unit) {
+internal fun InAppPayment(url: String, saveRecovery: (() -> Unit)? = null, close: () -> Unit) {
     var browser by remember { mutableStateOf<WebView?>(null) }
     var popup by remember { mutableStateOf<WebView?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -67,6 +67,9 @@ internal fun InAppPayment(url: String, close: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TextButton(onClick = { if (popup != null) dismissPopup() else close() }, modifier = Modifier.tvFocusRing()) {
             Text(if (popup != null) "Назад к оплате" else "Закрыть оплату")
+        }
+        saveRecovery?.let { save ->
+            TextButton(onClick = save, modifier = Modifier.tvFocusRing()) { Text("Сохранить код восстановления") }
         }
         message?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error) }
         Box(Modifier.fillMaxWidth().weight(1f)) {

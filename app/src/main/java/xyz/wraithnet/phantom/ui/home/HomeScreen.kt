@@ -508,10 +508,7 @@ fun HomeScreen(
             // A browser can open a link while a prior import is finishing.
             // Consume it only when the existing pipeline can accept it.
             onExternalImportConsumed()
-            if (text == "phantom://payment-return") {
-                tab = Destination.SUBSCRIPTIONS
-                showPurchase = true
-            } else if (TvSubscriptionPairing.isPairingCode(text)) {
+            if (TvSubscriptionPairing.isPairingCode(text)) {
                 incomingPairCode = text
                 pairingSendError = null
             } else {

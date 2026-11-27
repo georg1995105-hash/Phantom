@@ -32,6 +32,7 @@ internal class NativeStore(context: Context) : PurchaseClient {
     private val app = context.applicationContext
     private val vault = PurchaseVault(app)
     private var csrf = ""
+    private var lastRecoverySession = ""
     companion object {
         private const val BASE = "https://go.veor.pro/guest/api"
         private val operation = Mutex()
@@ -99,7 +100,9 @@ internal class NativeStore(context: Context) : PurchaseClient {
         val codes = vault.read().optJSONObject("recovery")
         val present = data.getJSONArray("cards").objects().map { it.getString("access_id") }.toSet()
         var recovered = false
-        codes?.keys()?.asSequence()?.filter { it !in present }?.take(5)?.toList()?.forEach { aid ->
+        val missing = if (lastRecoverySession != csrf) codes?.keys()?.asSequence()?.filter { it !in present }?.take(5)?.toList().orEmpty() else emptyList()
+        lastRecoverySession = csrf
+        missing.forEach { aid ->
             // Only recover after an expired/lost server session. Never repeatedly retry revoked codes.
             try { request("/recover", JSONObject().put("code", codes.getString(aid))); recovered = true }
             catch (cancel: kotlinx.coroutines.CancellationException) { throw cancel }
@@ -155,6 +158,7 @@ internal class NativeStore(context: Context) : PurchaseClient {
         data
     }
     private suspend fun deliver(subscription: JSONObject) = withContext(Dispatchers.IO) {
+        if (!subscription.optBoolean("active")) return@withContext
         val source = subscription.optString("url").takeIf { it.startsWith("https://") } ?: return@withContext
         val store = SubscriptionStore(app)
         val existing = store.read().firstOrNull { it.source == source }

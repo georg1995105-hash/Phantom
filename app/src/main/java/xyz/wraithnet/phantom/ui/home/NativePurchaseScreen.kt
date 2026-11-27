@@ -65,9 +65,13 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
     suspend fun refresh() {
         val fresh = client.sync()
         catalog = fresh
+        client.pending()?.let {
+            selectedPlan = it.optInt("plan_id", selectedPlan)
+            selectedDays = it.optInt("days", selectedDays)
+        }
         payment = fresh.optJSONObject("payment")
         paymentUrl = payment?.optString("payment_url")?.let(NativeStore::paymentUrl)
-        if (payment?.optJSONObject("subscription") != null) info = "Подписка добавлена. Можно подключаться к VPN."
+        if (payment?.optJSONObject("subscription")?.optBoolean("active") == true) info = "Подписка добавлена. Можно подключаться к VPN."
         if (payment?.optString("status") == "CANCELED") info = "Оплата отменена. Можно выбрать тариф заново."
     }
     fun action(block: suspend () -> Unit) {
@@ -95,7 +99,9 @@ internal fun NativePurchaseScreen(back: () -> Unit, client: PurchaseClient, refr
         }
     }
     if (paying != null) {
-        InAppPayment(paying!!) { paying = null; checking++ }
+        InAppPayment(paying!!, saveRecovery = if (displayedCode.isBlank()) null else ({ exportCode.launch("Phantom-recovery.txt") })) {
+            paying = null; checking++
+        }
         return
     }
     if (legalPage != null) {
