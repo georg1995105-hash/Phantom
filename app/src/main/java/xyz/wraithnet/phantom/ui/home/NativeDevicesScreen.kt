@@ -23,7 +23,13 @@ import xyz.wraithnet.phantom.data.SubscriptionDevicesApi
 
 /** Full native device screen. No webview, browser, bot or payment-account dependency. */
 @Composable
-internal fun NativeDevicesScreen(sub: Subscription, localHwid: String, back: () -> Unit) {
+internal fun NativeDevicesScreen(
+    sub: Subscription,
+    localHwid: String,
+    back: () -> Unit,
+    load: suspend (String, String) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::list,
+    remove: suspend (String, String, String) -> SubscriptionDevicesApi.Snapshot = SubscriptionDevicesApi::remove,
+) {
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     var data by remember(sub.source) { mutableStateOf<SubscriptionDevicesApi.Snapshot?>(null) }
@@ -39,7 +45,7 @@ internal fun NativeDevicesScreen(sub: Subscription, localHwid: String, back: () 
         loading = true
         failure = null
         try {
-            data = SubscriptionDevicesApi.list(sub.source, localHwid)
+            data = load(sub.source, localHwid)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (e: Exception) {
@@ -63,7 +69,7 @@ internal fun NativeDevicesScreen(sub: Subscription, localHwid: String, back: () 
                         busy = chosen
                         scope.launch {
                             try {
-                                val updated = SubscriptionDevicesApi.remove(source, localHwid, chosen)
+                                val updated = remove(source, localHwid, chosen)
                                 if (updated.devices.any { it.id == chosen })
                                     throw IllegalStateException("Сервер не подтвердил отключение устройства.")
                                 data = updated
