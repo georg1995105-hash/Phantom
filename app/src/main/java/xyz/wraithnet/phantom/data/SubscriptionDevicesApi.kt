@@ -2,6 +2,7 @@ package xyz.wraithnet.phantom.data
 
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -46,7 +47,19 @@ object SubscriptionDevicesApi {
 
     suspend fun remove(source: String, localHwid: String, id: String): Snapshot {
         require(idPattern.matches(id)) { "Некорректный идентификатор устройства" }
-        return request(source, localHwid, id)
+        return try {
+            request(source, localHwid, id)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (failure: Exception) {
+            // Deleting this very phone may break the tunnel before the HTTP
+            // response arrives. Re-read from the server instead of claiming
+            // failure/success based solely on a lost response.
+            val fresh = try { request(source, localHwid, null) }
+                catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) { throw failure }
+            if (fresh.devices.none { it.id == id }) fresh else throw failure
+        }
     }
 
     private suspend fun request(source: String, localHwid: String, remove: String?): Snapshot =
