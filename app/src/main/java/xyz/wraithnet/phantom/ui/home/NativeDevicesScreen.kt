@@ -71,7 +71,7 @@ internal fun NativeDevicesScreen(
         confirmAll = false
         failure = null
         feedback = null
-        progress = if (all) "Удаление всех устройств…" else "Отключение устройства…"
+        progress = if (all) "Удаление всех устройств…" else "Удаление устройства…"
         scope.launch {
             try {
                 val updated = if (all) removeAll(source, localHwid, ids)
@@ -81,18 +81,18 @@ internal fun NativeDevicesScreen(
                 if (remaining > 0) {
                     throw IllegalStateException(if (all)
                         "Удалено " + (ids.size - remaining) + " из " + ids.size + ". Обновите список."
-                    else "Сервер не подтвердил отключение устройства.")
+                    else "Сервер не подтвердил удаление устройства.")
                 }
                 feedback = when {
-                    !all && updated.sessionsRefreshed == true -> "Устройство отключено. Место освобождено."
+                    !all && updated.sessionsRefreshed == true -> "Устройство удалено."
                     !all -> "Устройство удалено. Активные соединения могут завершиться при переподключении."
                     updated.devices.isNotEmpty() -> "Выбранные устройства удалены. В списке появились другие устройства."
-                    updated.sessionsRefreshed == true -> "Все устройства отключены."
+                    updated.sessionsRefreshed == true -> "Все устройства удалены."
                     else -> "Все устройства удалены. Активные соединения могут завершиться при переподключении."
                 }
             } catch (cancel: CancellationException) { throw cancel }
             catch (e: Exception) {
-                failure = e.message ?: "Не удалось отключить устройство."
+                failure = e.message ?: "Не удалось удалить устройство."
             } finally {
                 progress = null
                 busy = null
@@ -107,17 +107,12 @@ internal fun NativeDevicesScreen(
         val targets = if (all) data?.devices.orEmpty() else listOfNotNull(target)
         AlertDialog(
             onDismissRequest = { confirm = null; confirmAll = false },
-            title = { Text(if (all) "Удалить все устройства?" else "Отключить устройство?") },
-            text = { Text(if (all)
-                "Будут удалены все " + targets.size + " устройств этой подписки, включая текущее, если оно в списке. Подписка и её срок сохранятся. Устройства с сохранённой ссылкой смогут подключиться снова."
-            else (target?.model ?: "Устройство") +
-                (if (target?.current == true) " · Это устройство" else "") +
-                "\n\nМесто в подписке освободится. Другие устройства этой подписки могут кратковременно переподключиться. Если ссылка сохранена, удалённое устройство сможет подключиться снова.") },
+            title = { Text(if (all) "Удалить все устройства?" else "Удалить устройство?") },
             confirmButton = {
                 TextButton(enabled = busy == null && !loading && targets.isNotEmpty(),
                     modifier = Modifier.tvFocusRing(),
                     onClick = { deleteDevices(targets, all) }) {
-                    Text(if (all) "Удалить все" else "Отключить")
+                    Text("Удалить")
                 }
             },
             dismissButton = {
@@ -153,13 +148,13 @@ internal fun NativeDevicesScreen(
                 Spacer(Modifier.height(6.dp))
                 OutlinedButton(
                     onClick = { confirmAll = true },
-                    enabled = busy == null && !loading && failure == null,
+                    enabled = busy == null && !loading,
                     modifier = Modifier.fillMaxWidth().tvFocusRing()
                 ) { Text("Удалить все устройства") }
             }
             if (state.limit != null && state.count >= state.limit) {
                 Spacer(Modifier.height(6.dp))
-                Text("Лимит достигнут. Отключите устройство, которым больше не пользуетесь.",
+                Text("Лимит достигнут. Удалите устройство, которым больше не пользуетесь.",
                     style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
@@ -233,9 +228,9 @@ internal fun NativeDevicesScreen(
                                 Spacer(Modifier.height(11.dp))
                                 OutlinedButton(
                                     onClick = { confirm = device; feedback = null; failure = null },
-                                    enabled = busy == null && failure == null && !loading,
+                                    enabled = busy == null && !loading,
                                     modifier = Modifier.fillMaxWidth().tvFocusRing()
-                                ) { Text("Отключить устройство") }
+                                ) { Text("Удалить устройство") }
                             }
                         }
                     }
