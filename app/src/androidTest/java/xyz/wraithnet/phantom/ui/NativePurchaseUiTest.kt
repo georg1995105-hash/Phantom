@@ -1,5 +1,7 @@
 package xyz.wraithnet.phantom.ui
 
+import android.net.Uri
+
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +16,7 @@ import org.json.JSONObject
 import xyz.wraithnet.phantom.data.PurchaseClient
 import xyz.wraithnet.phantom.data.RenewalUnavailable
 import xyz.wraithnet.phantom.ui.home.NativePurchaseScreen
+import xyz.wraithnet.phantom.ui.home.isSberPayRedirect
 
 @RunWith(AndroidJUnit4::class)
 class NativePurchaseUiTest {
@@ -57,6 +60,14 @@ class NativePurchaseUiTest {
         override fun pending() = draft
         override fun recoveryCode(access: String?) = ""
     }
+    @Test fun sberPayRedirectRoutesOnlyTheBankDeepLink() {
+        assertTrue(isSberPayRedirect(Uri.parse("sberpay://payment/confirmation")))
+        assertTrue(isSberPayRedirect(Uri.parse("SBERPAY://payment/confirmation")))
+        assertFalse(isSberPayRedirect(Uri.parse("https://yoomoney.ru/payments/confirmation")))
+        assertFalse(isSberPayRedirect(Uri.parse("javascript:alert(1)")))
+        assertFalse(isSberPayRedirect(Uri.parse("intent://arbitrary")))
+    }
+
     @Test fun actualServerOfferNeedsConsentAndDoesNotRequireCredentials() {
         val store = Store()
         compose.setContent { MaterialTheme { NativePurchaseScreen({},store) } }
