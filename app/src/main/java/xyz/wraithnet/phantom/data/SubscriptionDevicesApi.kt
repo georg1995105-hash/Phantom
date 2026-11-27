@@ -3,8 +3,11 @@ package xyz.wraithnet.phantom.data
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import org.json.JSONArray
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -34,6 +37,7 @@ object SubscriptionDevicesApi {
         val title: String, val count: Int, val limit: Int?,
         val canDelete: Boolean, val devices: List<Device>,
         val sessionsRefreshed: Boolean? = null,
+        val canDeleteAll: Boolean = false,
     )
     internal fun shortUuid(source: String): String? =
         if (SubscriptionFetcher.usesProviderJson(source))
@@ -52,6 +56,7 @@ object SubscriptionDevicesApi {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (failure: Exception) {
+            if (failure is HttpFailure && failure.status !in 500..599 && failure.status != 404) throw failure
             // Deleting this very phone may break the tunnel before the HTTP
             // response arrives. Re-read from the server instead of claiming
             // failure/success based solely on a lost response.
@@ -62,33 +67,73 @@ object SubscriptionDevicesApi {
         }
     }
 
-    private suspend fun request(source: String, localHwid: String, remove: String?): Snapshot =
-        withContext(Dispatchers.IO) {
-            val short = shortUuid(source)
-                ?: throw IOException("Эта подписка не поддерживает управление устройствами.")
-            val endpoint = if (remove == null) URL else "$URL/delete"
-            val builder = Request.Builder().url(endpoint)
-                .header("Authorization", "Bearer $short")
-                .header("User-Agent", "Phantom-Android")
-                .header("X-Phantom-HWID", localHwid.take(128))
-                .header("Cache-Control", "no-store")
-            if (remove == null) builder.get()
-            else builder.header("Origin", "https://go.veor.pro")
-                .post(JSONObject().put("device_id", remove).toString()
-                    .toRequestBody("application/json".toMediaType()))
-            client.newCall(builder.build()).execute().use { response ->
-                if (!response.isSuccessful) throw IOException(errorMessage(response.code))
-                val body = response.body ?: throw IOException("Пустой ответ сервера")
-                parse(PhantomHttp.readUtf8Limited(body.byteStream(), 192 * 1024))
-            }
+    suspend fun removeAll(source: String, localHwid: String, ids: List<String>): Snapshot {
+        require(ids.isNotEmpty() && ids.size <= 150 && ids.distinct().size == ids.size &&
+            ids.all(idPattern::matches)) { "Некорректный список устройств" }
+        return try {
+            request(source, localHwid, null, ids)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (failure: Exception) {
+            if (failure is HttpFailure && failure.status !in 500..599 && failure.status != 404) throw failure
+            val fresh = try { list(source, localHwid) }
+                catch (cancel: CancellationException) { throw cancel }
+                catch (_: Exception) { throw failure }
+            if (fresh.devices.none { it.id in ids }) fresh else throw failure
         }
+    }
+
+    private class HttpFailure(val status: Int, message: String) : IOException(message)
+
+    private suspend fun request(
+        source: String, localHwid: String, remove: String?, removeAll: List<String>? = null
+    ): Snapshot {
+        val short = shortUuid(source)
+            ?: throw IOException("Эта подписка не поддерживает управление устройствами.")
+        val endpoint = when {
+            removeAll != null -> "$URL/delete-all"
+            remove != null -> "$URL/delete"
+            else -> URL
+        }
+        val builder = Request.Builder().url(endpoint)
+            .header("Authorization", "Bearer $short")
+            .header("User-Agent", "Phantom-Android")
+            .header("X-Phantom-HWID", localHwid.take(128))
+            .header("Cache-Control", "no-store")
+        if (remove == null && removeAll == null) builder.get()
+        else {
+            val payload = if (removeAll != null) JSONObject().put("device_ids", JSONArray(removeAll))
+                else JSONObject().put("device_id", remove)
+            builder.header("Origin", "https://go.veor.pro")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+        }
+        return suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(builder.build())
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWith(Result.failure(e))
+                }
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching {
+                        response.use {
+                            if (!it.isSuccessful) throw HttpFailure(it.code, errorMessage(it.code))
+                            val body = it.body ?: throw IOException("Пустой ответ сервера")
+                            parse(PhantomHttp.readUtf8Limited(body.byteStream(), 192 * 1024))
+                        }
+                    }
+                    continuation.resumeWith(result)
+                }
+            })
+        }
+    }
 
     private fun errorMessage(status: Int) = when (status) {
         400, 401 -> "Адрес подписки не подтверждён сервером. Обновите подписку."
         403 -> "Удаление устройств для этой подписки запрещено."
         404 -> "Устройство уже отсутствует. Обновите список."
         408, 429 -> "Превышено число запросов. Повторите позднее."
-        409 -> "Отключение устройств временно недоступно."
+        409 -> "Список устройств изменился или операция недоступна. Обновите список."
         in 500..599 -> "Сервер устройств временно недоступен. Повторите позже."
         else -> "Операция не выполнена: HTTP $status."
     }
@@ -115,6 +160,7 @@ object SubscriptionDevicesApi {
         val title = root.optString("title").trim().take(100).ifBlank { "Phantom VPN" }
         return Snapshot(title, count, root.optInt("limit").takeIf { it > 0 },
             root.optBoolean("delete_enabled", false), devices,
-            root.optBoolean("sessions_refreshed").takeIf { root.has("sessions_refreshed") })
+            root.optBoolean("sessions_refreshed").takeIf { root.has("sessions_refreshed") },
+            root.optBoolean("delete_all_enabled", false))
     }
 }
