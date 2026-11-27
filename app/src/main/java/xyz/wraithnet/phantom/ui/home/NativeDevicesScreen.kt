@@ -73,7 +73,9 @@ internal fun NativeDevicesScreen(
                                 if (updated.devices.any { it.id == chosen })
                                     throw IllegalStateException("Сервер не подтвердил отключение устройства.")
                                 data = updated
-                                feedback = "Устройство отключено. Место освобождено."
+                                feedback = if (updated.sessionsRefreshed == false)
+                                    "Устройство удалено. Активные соединения могут завершиться при переподключении."
+                                else "Устройство отключено. Место освобождено."
                                 failure = null
                                 confirm = null
                             } catch (cancel: CancellationException) { throw cancel }
